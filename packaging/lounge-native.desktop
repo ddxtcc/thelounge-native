@@ -4,6 +4,7 @@ Name=Lounge Native
 GenericName=IRC Client
 Comment=Native client for The Lounge IRC
 Exec=lounge-native
+TryExec=lounge-native
 Icon=lounge-native
 Terminal=false
 Categories=Network;IRCClient;

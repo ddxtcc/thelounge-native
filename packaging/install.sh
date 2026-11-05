@@ -32,7 +32,10 @@ if [ ! -x "$binary" ]; then
 fi
 
 install -Dm755 "$binary" "$prefix/bin/lounge-native"
-install -Dm644 "$desktop" "$data/applications/lounge-native.desktop"
+desktop_target="$data/applications/lounge-native.desktop"
+install -Dm644 "$desktop" "$desktop_target"
+sed -i "s|^Exec=.*|Exec=$prefix/bin/lounge-native|" "$desktop_target"
+sed -i "s|^TryExec=.*|TryExec=$prefix/bin/lounge-native|" "$desktop_target"
 install -Dm644 "$icons/scalable/apps/lounge-native.svg" "$data/icons/hicolor/scalable/apps/lounge-native.svg"
 
 for size in 16x16 24x24 32x32 48x48 64x64 128x128 256x256 512x512; do

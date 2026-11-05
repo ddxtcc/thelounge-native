@@ -162,23 +162,7 @@ pub(super) fn build_message_text(
         }
     }
 
-    let mut body = message.text.clone();
-    if body.is_empty() {
-        body = match message.kind {
-            MessageType::Nick => message
-                .new_nick
-                .as_ref()
-                .map(|nick| format!("is now known as {nick}"))
-                .unwrap_or_default(),
-            MessageType::Kick => message.reason.clone().unwrap_or_default(),
-            MessageType::Quit | MessageType::Part => message.reason.clone().unwrap_or_default(),
-            MessageType::Error | MessageType::Warn => message
-                .error
-                .clone()
-                .unwrap_or_else(|| message.text.clone()),
-            _ => String::new(),
-        };
-    }
+    let body = message_body(message);
 
     if !body.is_empty() {
         let spans = format::parse(&body);
@@ -274,6 +258,144 @@ pub(super) fn build_message_text(
     (builder.text, runs, ranges, targets)
 }
 
+fn message_body(message: &Message) -> String {
+    let text = message.text.as_str();
+    let reason = if text.is_empty() {
+        message.reason.as_deref().unwrap_or_default()
+    } else {
+        text
+    };
+    match message.kind {
+        MessageType::Join => "has joined the channel".into(),
+        MessageType::Part => with_reason("has left the channel", reason),
+        MessageType::Quit => with_reason("has quit", reason),
+        MessageType::Nick => message
+            .new_nick
+            .as_ref()
+            .map(|nick| format!("is now known as {nick}"))
+            .unwrap_or_default(),
+        MessageType::Kick => {
+            let target = message
+                .target
+                .as_ref()
+                .map(|target| target.nick.as_str())
+                .unwrap_or("a user");
+            with_reason(&format!("has kicked {target}"), reason)
+        }
+        MessageType::Mode => {
+            if text.is_empty() {
+                "sets mode".into()
+            } else {
+                format!("sets mode {text}")
+            }
+        }
+        MessageType::ModeChannel => format!("Channel mode is {text}"),
+        MessageType::ModeUser => {
+            let modes = message
+                .raw_modes
+                .as_ref()
+                .map(value_text)
+                .filter(|modes| !modes.is_empty())
+                .unwrap_or_else(|| text.to_string());
+            format!("Your user mode is {modes}")
+        }
+        MessageType::Topic => {
+            let from_nick = message
+                .from
+                .as_ref()
+                .map(|from| from.nick.as_str())
+                .unwrap_or_default();
+            if !from_nick.is_empty() {
+                if text.is_empty() {
+                    "changed the topic".into()
+                } else {
+                    format!("changed the topic to: {text}")
+                }
+            } else if text.is_empty() {
+                "The topic is empty".into()
+            } else {
+                format!("The topic is: {text}")
+            }
+        }
+        MessageType::TopicSetBy => match message.when {
+            Some(when) => format!(
+                "set the topic on {}",
+                when.with_timezone(&Local).format("%d %B %Y, %H:%M:%S")
+            ),
+            None => "set the topic".into(),
+        },
+        MessageType::Away => {
+            if message.is_self {
+                text.to_string()
+            } else {
+                with_reason("is away", reason)
+            }
+        }
+        MessageType::Back => {
+            if message.is_self && !text.is_empty() {
+                text.to_string()
+            } else {
+                "is back".into()
+            }
+        }
+        MessageType::Chghost => {
+            let mut changes = Vec::new();
+            if let Some(ident) = message.new_ident.as_ref().filter(|ident| !ident.is_empty()) {
+                changes.push(format!("username to {ident}"));
+            }
+            if let Some(host) = message.new_host.as_ref().filter(|host| !host.is_empty()) {
+                changes.push(format!("hostname to {host}"));
+            }
+            if changes.is_empty() {
+                "has changed hostname".into()
+            } else {
+                format!("has changed {}", changes.join(" and "))
+            }
+        }
+        MessageType::Invite => {
+            let channel = message.channel.as_deref().unwrap_or_default();
+            if message.invited_you {
+                format!("invited you to {channel}")
+            } else {
+                let target = message
+                    .target
+                    .as_ref()
+                    .map(|target| target.nick.as_str())
+                    .unwrap_or("a user");
+                format!("invited {target} to {channel}")
+            }
+        }
+        MessageType::Ctcp | MessageType::CtcpRequest => message
+            .ctcp_message
+            .clone()
+            .filter(|text| !text.is_empty())
+            .unwrap_or_else(|| text.to_string()),
+        MessageType::Error | MessageType::Warn => message
+            .error
+            .clone()
+            .filter(|error| !error.is_empty())
+            .unwrap_or_else(|| text.to_string()),
+        MessageType::Login => "has logged in".into(),
+        MessageType::Logout => "has logged out".into(),
+        _ => text.to_string(),
+    }
+}
+
+fn with_reason(base: &str, reason: &str) -> String {
+    if reason.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base} ({reason})")
+    }
+}
+
+fn value_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        other => other.to_string(),
+    }
+}
+
 pub(super) fn user_mode_prefix_in_message(
     user: &lounge_core::proto::UserInMessage,
     network: &NetworkState,
@@ -349,5 +471,57 @@ impl RunBuilder {
             }),
         });
         self.text.push_str(text);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lounge_core::proto::UserInMessage;
+
+    fn message(kind: MessageType) -> Message {
+        Message {
+            kind,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn topic_without_author_describes_the_topic() {
+        let mut message = message(MessageType::Topic);
+        message.text = "He buttons and moo boat".into();
+        assert_eq!(
+            message_body(&message),
+            "The topic is: He buttons and moo boat"
+        );
+    }
+
+    #[test]
+    fn topic_with_author_is_a_status_line() {
+        let mut message = message(MessageType::Topic);
+        message.text = "new topic".into();
+        message.from = Some(UserInMessage {
+            nick: "barf".into(),
+            ..Default::default()
+        });
+        assert_eq!(message_body(&message), "changed the topic to: new topic");
+    }
+
+    #[test]
+    fn topic_set_by_is_not_blank() {
+        let mut message = message(MessageType::TopicSetBy);
+        message.from = Some(UserInMessage {
+            nick: "Shreddy".into(),
+            ..Default::default()
+        });
+        assert_eq!(message_body(&message), "set the topic");
+    }
+
+    #[test]
+    fn join_is_not_blank() {
+        assert_eq!(
+            message_body(&message(MessageType::Join)),
+            "has joined the channel"
+        );
     }
 }

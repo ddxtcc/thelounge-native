@@ -672,7 +672,7 @@ impl LoungeApp {
     }
 
     pub(super) fn sidebar_toggle(&self, cx: &mut Context<Self>) -> AnyElement {
-        self.header_button("Menu", !self.config.show_sidebar, cx, |this, _, cx| {
+        self.header_button("☰", !self.config.show_sidebar, cx, |this, _, cx| {
             this.config.show_sidebar = !this.config.show_sidebar;
             this.config.save();
             cx.notify();

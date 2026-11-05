@@ -1,5 +1,21 @@
 use super::*;
 
+pub(super) struct ModalCard {
+    card: gpui::Stateful<gpui::Div>,
+    body: gpui::Stateful<gpui::Div>,
+}
+
+impl ModalCard {
+    pub(super) fn child(mut self, child: impl gpui::IntoElement) -> Self {
+        self.body = self.body.child(child);
+        self
+    }
+
+    pub(super) fn into_any_element(self) -> AnyElement {
+        self.card.child(self.body).into_any_element()
+    }
+}
+
 impl LoungeApp {
     pub(super) fn render_modals(
         &mut self,
@@ -17,6 +33,7 @@ impl LoungeApp {
             .items_center()
             .justify_center()
             .bg(theme.overlay)
+            .occlude()
             .on_click(cx.listener(|this, _, _, cx| this.close_overlays(cx)));
 
         if let Some(target) = self.font_picker {
@@ -46,17 +63,12 @@ impl LoungeApp {
         overlay.into_any_element()
     }
 
-    pub(super) fn modal_card(
-        &self,
-        title: &str,
-        cx: &mut Context<Self>,
-    ) -> gpui::Stateful<gpui::Div> {
+    pub(super) fn modal_card(&self, title: &str, cx: &mut Context<Self>) -> ModalCard {
         let theme = self.theme;
-        div()
+        let card = div()
             .id("modal-card")
             .w(px(520.))
             .max_h(px(620.))
-            .overflow_y_scroll()
             .bg(theme.panel)
             .border_1()
             .border_color(theme.border)
@@ -69,6 +81,7 @@ impl LoungeApp {
             .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
             .child(
                 div()
+                    .flex_shrink_0()
                     .flex()
                     .items_center()
                     .justify_between()
@@ -89,20 +102,25 @@ impl LoungeApp {
                             .on_click(cx.listener(|this, _, _, cx| this.close_overlays(cx)))
                             .child("x"),
                     ),
-            )
+            );
+        let body = div()
+            .id("modal-body")
+            .flex_1()
+            .min_h(px(0.))
+            .max_h(px(500.))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap_3();
+        ModalCard { card, body }
     }
 
-    pub(super) fn menu_card(
-        &self,
-        title: &str,
-        cx: &mut Context<Self>,
-    ) -> gpui::Stateful<gpui::Div> {
+    pub(super) fn menu_card(&self, title: &str, cx: &mut Context<Self>) -> ModalCard {
         let theme = self.theme;
-        div()
+        let card = div()
             .id("menu-card")
             .w(px(420.))
             .max_h(px(680.))
-            .overflow_y_scroll()
             .bg(theme.panel)
             .border_1()
             .border_color(theme.border)
@@ -115,6 +133,7 @@ impl LoungeApp {
             .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
             .child(
                 div()
+                    .flex_shrink_0()
                     .flex()
                     .items_center()
                     .justify_between()
@@ -139,7 +158,17 @@ impl LoungeApp {
                             .on_click(cx.listener(|this, _, _, cx| this.close_overlays(cx)))
                             .child("x"),
                     ),
-            )
+            );
+        let body = div()
+            .id("menu-body")
+            .flex_1()
+            .min_h(px(0.))
+            .max_h(px(560.))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap_0p5();
+        ModalCard { card, body }
     }
 
     pub(super) fn render_network_modal(
@@ -516,6 +545,11 @@ impl LoungeApp {
     ) -> AnyElement {
         let theme = self.theme;
         let danger = label.starts_with("Remove") || label.starts_with("Leave");
+        let text = if label == "Cancel" {
+            format!("← {label}")
+        } else {
+            label.to_string()
+        };
         div()
             .id(ElementId::Name(format!("menu-{label}").into()))
             .flex()
@@ -534,7 +568,7 @@ impl LoungeApp {
                 })
             })
             .on_click(cx.listener(move |this, _, window, cx| action(this, window, cx)))
-            .child(label.to_string())
+            .child(text)
             .into_any_element()
     }
 }

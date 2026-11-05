@@ -3,3 +3,4 @@ Cargo.lock.bak
 /.cargo
 /dist
 *.tar.gz
+/original-repo
