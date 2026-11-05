@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Lounge Native
+GenericName=IRC Client
+Comment=Native client for The Lounge IRC
+Exec=lounge-native
+Icon=lounge-native
+Terminal=false
+Categories=Network;IRCClient;
+Keywords=IRC;chat;The Lounge;
+StartupNotify=true
+StartupWMClass=lounge-native
