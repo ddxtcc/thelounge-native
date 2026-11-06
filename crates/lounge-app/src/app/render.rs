@@ -142,20 +142,30 @@ impl LoungeApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let show_users = self.config.show_user_list
-            && self
-                .state
-                .active_channel()
-                .map(|(_, channel)| channel.is_channel())
-                .unwrap_or(false);
+        self.narrow = window.viewport_size().width < px(900.);
+        let channel_is_channel = self
+            .state
+            .active_channel()
+            .map(|(_, channel)| channel.is_channel())
+            .unwrap_or(false);
+        let show_sidebar = if self.narrow {
+            self.sidebar_overlay
+        } else {
+            self.config.show_sidebar
+        };
+        let show_users = if self.narrow {
+            self.users_overlay
+        } else {
+            self.config.show_user_list
+        } && channel_is_channel;
         let special_channel = self
             .state
             .active_channel()
             .map(|(_, channel)| channel.chan.special.is_some())
             .unwrap_or(false);
 
-        let mut root = div().size_full().flex();
-        if self.config.show_sidebar {
+        let mut root = div().size_full().flex().relative();
+        if !self.narrow && show_sidebar {
             root = root.child(self.render_sidebar(window, cx));
         }
         root = root.child(
@@ -170,8 +180,47 @@ impl LoungeApp {
                     this.child(self.render_composer(window, cx))
                 }),
         );
-        if show_users {
+        if !self.narrow && show_users {
             root = root.child(self.render_users(window, cx));
+        }
+        if self.narrow && (show_sidebar || show_users) {
+            root = root.child(
+                div()
+                    .id("narrow-backdrop")
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .occlude()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.sidebar_overlay = false;
+                        this.users_overlay = false;
+                        cx.stop_propagation();
+                        cx.notify();
+                    })),
+            );
+        }
+        if self.narrow && show_sidebar {
+            root = root.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .h_full()
+                    .shadow_lg()
+                    .child(self.render_sidebar(window, cx)),
+            );
+        }
+        if self.narrow && show_users {
+            root = root.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .h_full()
+                    .shadow_lg()
+                    .child(self.render_users(window, cx)),
+            );
         }
         root.into_any_element()
     }
@@ -434,14 +483,44 @@ impl LoungeApp {
                     .child(
                         div()
                             .flex()
-                            .flex_col()
-                            .child(div().font_weight(FontWeight::BOLD).child("Lounge Native"))
+                            .items_center()
+                            .gap_2()
+                            .when(self.narrow, |this| {
+                                this.child(
+                                    div()
+                                        .id("close-sidebar")
+                                        .size(px(24.))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded(px(5.))
+                                        .cursor_pointer()
+                                        .hover(|style| style.bg(theme.hover))
+                                        .child("<")
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.sidebar_overlay = false;
+                                            cx.notify();
+                                        })),
+                                )
+                            })
                             .child(
                                 div()
-                                    .text_size(px(11.))
-                                    .text_color(if online { theme.success } else { theme.warning })
-                                    .truncate()
-                                    .child(status_text),
+                                    .flex()
+                                    .flex_col()
+                                    .child(
+                                        div().font_weight(FontWeight::BOLD).child("Lounge Native"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(11.))
+                                            .text_color(if online {
+                                                theme.success
+                                            } else {
+                                                theme.warning
+                                            })
+                                            .truncate()
+                                            .child(status_text),
+                                    ),
                             ),
                     )
                     .child(
@@ -563,7 +642,11 @@ impl LoungeApp {
         };
         let topic = channel.chan.topic.clone();
         let user_count = channel.users.len();
-        let users_shown = self.config.show_user_list && channel.is_channel();
+        let users_shown = if self.narrow {
+            self.users_overlay
+        } else {
+            self.config.show_user_list
+        } && channel.is_channel();
         let network_name = network.name.clone();
 
         div()
@@ -658,10 +741,18 @@ impl LoungeApp {
                     },
                 ))
             })
-            .child(self.header_button("Users", users_shown, cx, |this, _, cx| {
-                this.config.show_user_list = !this.config.show_user_list;
-                this.config.save();
-                cx.notify();
+            .child(self.header_button("Users", users_shown, cx, {
+                let narrow = self.narrow;
+                move |this, _, cx| {
+                    if narrow {
+                        this.users_overlay = !this.users_overlay;
+                        this.sidebar_overlay = false;
+                    } else {
+                        this.config.show_user_list = !this.config.show_user_list;
+                        this.config.save();
+                    }
+                    cx.notify();
+                }
             }))
             .child(
                 self.header_button("Search", self.search_open, cx, |this, _, cx| {
@@ -672,9 +763,21 @@ impl LoungeApp {
     }
 
     pub(super) fn sidebar_toggle(&self, cx: &mut Context<Self>) -> AnyElement {
-        self.header_button("☰", !self.config.show_sidebar, cx, |this, _, cx| {
-            this.config.show_sidebar = !this.config.show_sidebar;
-            this.config.save();
+        let open = if self.narrow {
+            self.sidebar_overlay
+        } else {
+            self.config.show_sidebar
+        };
+        let label = if open { "<" } else { "☰" };
+        let narrow = self.narrow;
+        self.header_button(label, false, cx, move |this, _, cx| {
+            if narrow {
+                this.sidebar_overlay = !this.sidebar_overlay;
+                this.users_overlay = false;
+            } else {
+                this.config.show_sidebar = !this.config.show_sidebar;
+                this.config.save();
+            }
             cx.notify();
         })
     }

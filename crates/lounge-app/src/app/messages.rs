@@ -1,4 +1,4 @@
-use super::message_text::{build_message_text, user_mode_prefix_in_message};
+use super::message_text::{build_message_text, is_status_message, user_mode_prefix_in_message};
 use super::*;
 
 impl LoungeApp {
@@ -26,6 +26,13 @@ impl LoungeApp {
         }
 
         let rows = build_rows(channel, &self.config);
+        let status_column = if self.config.nick_column && !self.narrow {
+            132.
+        } else {
+            22.
+        };
+        let summary_indent =
+            px(16. + if self.config.show_timestamps { 62. } else { 0. } + status_column + 8.);
         let mut content = div().flex().flex_col().w_full().py_2();
 
         if channel.more_history_available() {
@@ -46,6 +53,7 @@ impl LoungeApp {
                         .border_color(theme.border)
                         .text_size(px(12.))
                         .text_color(theme.muted)
+                        .flex_shrink_0()
                         .cursor_pointer()
                         .hover(|style| style.bg(theme.hover))
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -74,9 +82,17 @@ impl LoungeApp {
                             .px_4()
                             .pt_3()
                             .pb_1()
-                            .text_size(px(11.))
-                            .text_color(theme.muted)
-                            .child(label),
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(div().flex_1().h(px(1.)).bg(theme.success))
+                            .child(
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(theme.success)
+                                    .child(label),
+                            )
+                            .child(div().flex_1().h(px(1.)).bg(theme.success)),
                     );
                 }
                 Row::Unread => {
@@ -106,7 +122,8 @@ impl LoungeApp {
                     content = content.child(
                         div()
                             .id(ElementId::Name(format!("cond-{id}").into()))
-                            .px_4()
+                            .pl(summary_indent)
+                            .pr_4()
                             .py(px(1.))
                             .cursor_pointer()
                             .text_size(px(12.))
@@ -118,7 +135,7 @@ impl LoungeApp {
                                 }
                                 cx.notify();
                             }))
-                            .child(format!("{} {}", if expanded { "v" } else { ">" }, summary)),
+                            .child(format!("{summary} {}", if expanded { "v" } else { "»" })),
                     );
                     if expanded {
                         for message in messages {
@@ -133,6 +150,7 @@ impl LoungeApp {
         div()
             .id("messages")
             .flex_1()
+            .w_full()
             .min_h(px(0.))
             .overflow_y_scroll()
             .track_scroll(&self.messages_scroll)
@@ -155,11 +173,13 @@ impl LoungeApp {
             self.config.show_seconds,
             self.config.use_12h_clock,
         );
+        let nick_column = self.config.nick_column && !self.narrow;
         let body = build_message_text(
             message,
             network,
             channel,
             &self.config,
+            nick_column,
             &theme,
             self.theme.dark,
         );
@@ -228,13 +248,28 @@ impl LoungeApp {
                     .map(|kind| kind.starts_with("image/"))
                     .unwrap_or(false)
             {
-                let candidate = preview
-                    .thumb_actual_url
-                    .as_deref()
-                    .filter(|url| !url.is_empty())
-                    .or_else(|| Some(preview.thumb.as_str()).filter(|url| !url.is_empty()))
-                    .or_else(|| preview.media.as_deref().filter(|url| !url.is_empty()))
-                    .unwrap_or(&preview.link);
+                let candidate = if preview.kind == "image" {
+                    preview
+                        .media
+                        .as_deref()
+                        .filter(|url| !url.is_empty())
+                        .or_else(|| {
+                            preview
+                                .thumb_actual_url
+                                .as_deref()
+                                .filter(|url| !url.is_empty())
+                        })
+                        .or_else(|| Some(preview.thumb.as_str()).filter(|url| !url.is_empty()))
+                        .unwrap_or(&preview.link)
+                } else {
+                    preview
+                        .thumb_actual_url
+                        .as_deref()
+                        .filter(|url| !url.is_empty())
+                        .or_else(|| Some(preview.thumb.as_str()).filter(|url| !url.is_empty()))
+                        .or_else(|| preview.media.as_deref().filter(|url| !url.is_empty()))
+                        .unwrap_or(&preview.link)
+                };
                 inline_images.push(self.absolute_media_url(candidate));
             }
         }
@@ -306,11 +341,25 @@ impl LoungeApp {
                 .gap_1()
                 .child(div().truncate().child(label));
             if let Some(thumb) = thumb {
+                let lightbox_url = thumb.clone();
                 card = card.child(
-                    gpui::img(thumb)
-                        .max_w(px(220.))
-                        .max_h(px(140.))
-                        .rounded(px(4.)),
+                    div()
+                        .id(ElementId::Name(
+                            format!("preview-image-{}-{}", message.id, preview.link).into(),
+                        ))
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.lightbox = Some(lightbox_url.clone());
+                            cx.stop_propagation();
+                            cx.notify();
+                        }))
+                        .child(
+                            gpui::img(thumb)
+                                .image_cache(&self.image_cache)
+                                .max_w(px(220.))
+                                .max_h(px(140.))
+                                .rounded(px(4.)),
+                        ),
                 );
             }
             previews = previews.child(card);
@@ -318,7 +367,7 @@ impl LoungeApp {
 
         let mut inline = div().flex().flex_col().gap_2();
         for (index, url) in inline_images.iter().enumerate() {
-            let open_url = url.clone();
+            let lightbox_url = url.clone();
             inline = inline.child(
                 div()
                     .id(ElementId::Name(
@@ -327,11 +376,13 @@ impl LoungeApp {
                     .max_w(px(460.))
                     .rounded(px(6.))
                     .cursor_pointer()
-                    .on_click(cx.listener(move |_, _, _, _| {
-                        let _ = open::that(open_url.clone());
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.lightbox = Some(lightbox_url.clone());
+                        cx.notify();
                     }))
                     .child(
                         gpui::img(url.clone())
+                            .image_cache(&self.image_cache)
                             .max_w(px(460.))
                             .max_h(px(360.))
                             .rounded(px(6.)),
@@ -383,7 +434,22 @@ impl LoungeApp {
                     .child(time),
             );
         }
-        if self.config.nick_column {
+        let status = is_status_message(message.kind);
+        let status_column = if nick_column { 132. } else { 22. };
+        if status {
+            let (icon, color) = status_icon(message.kind, &theme);
+            row = row.child(
+                div()
+                    .w(px(status_column))
+                    .flex_shrink_0()
+                    .flex()
+                    .justify_end()
+                    .pr_2()
+                    .text_size(px(12.))
+                    .text_color(color)
+                    .child(icon),
+            );
+        } else if nick_column {
             let nick = message
                 .from
                 .as_ref()
@@ -744,6 +810,27 @@ enum Row<'a> {
     Condensed { id: i64, messages: Vec<&'a Message> },
 }
 
+fn status_icon(kind: MessageType, theme: &Theme) -> (&'static str, Hsla) {
+    match kind {
+        MessageType::Join
+        | MessageType::Login
+        | MessageType::Logout
+        | MessageType::Nick
+        | MessageType::Chghost
+        | MessageType::Invite => ("→", theme.success),
+        MessageType::Part | MessageType::Quit | MessageType::Kick => ("←", theme.error),
+        MessageType::Topic | MessageType::TopicSetBy => ("!", theme.success),
+        MessageType::Mode | MessageType::ModeChannel | MessageType::ModeUser => {
+            ("*", theme.success)
+        }
+        MessageType::Away | MessageType::Back => ("o", theme.muted),
+        MessageType::Error | MessageType::Warn => ("!", theme.error),
+        MessageType::Notice => ("-", theme.muted),
+        MessageType::Ctcp | MessageType::CtcpRequest | MessageType::Raw => (">", theme.muted),
+        _ => ("*", theme.muted),
+    }
+}
+
 fn date_label(date: chrono::NaiveDate) -> String {
     let today = Local::now().date_naive();
     if date == today {
@@ -751,7 +838,7 @@ fn date_label(date: chrono::NaiveDate) -> String {
     } else if today.pred_opt() == Some(date) {
         "Yesterday".into()
     } else {
-        date.format("%A, %B %e, %Y").to_string()
+        date.format("%e %B %Y").to_string().trim().to_string()
     }
 }
 
@@ -798,10 +885,6 @@ fn condensed_summary(messages: &[&Message]) -> String {
         }
     };
     for value in [
-        plural(joins, "has joined", "have joined"),
-        plural(parts, "has left", "have left"),
-        plural(nicks, "has changed nickname", "have changed nicknames"),
-        plural(kicks, "was kicked", "were kicked"),
         if away == 1 {
             "marked away once".into()
         } else if away > 1 {
@@ -816,13 +899,6 @@ fn condensed_summary(messages: &[&Message]) -> String {
         } else {
             String::new()
         },
-        if modes == 1 {
-            "1 mode was set".into()
-        } else if modes > 1 {
-            format!("{modes} modes were set")
-        } else {
-            String::new()
-        },
         if chghost == 1 {
             "1 user has changed hostname".into()
         } else if chghost > 1 {
@@ -830,6 +906,17 @@ fn condensed_summary(messages: &[&Message]) -> String {
         } else {
             String::new()
         },
+        plural(joins, "has joined", "have joined"),
+        plural(kicks, "was kicked", "were kicked"),
+        if modes == 1 {
+            "1 mode was set".into()
+        } else if modes > 1 {
+            format!("{modes} modes were set")
+        } else {
+            String::new()
+        },
+        plural(nicks, "has changed nick", "have changed nicks"),
+        plural(parts, "has left", "have left"),
     ] {
         if !value.is_empty() {
             strings.push(value);
@@ -837,7 +924,12 @@ fn condensed_summary(messages: &[&Message]) -> String {
     }
     if strings.is_empty() {
         format!("{} status messages", messages.len())
+    } else if strings.len() == 1 {
+        strings[0].clone()
+    } else if strings.len() == 2 {
+        format!("{} and {}", strings[0], strings[1])
     } else {
-        strings.join(", ")
+        let last = strings.last().cloned().unwrap_or_default();
+        format!("{}, and {last}", strings[..strings.len() - 1].join(", "))
     }
 }

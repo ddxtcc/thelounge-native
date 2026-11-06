@@ -18,7 +18,8 @@ impl Render for LoungeApp {
             || self.network_menu.is_some()
             || self.user_menu.is_some()
             || self.channel_menu.is_some()
-            || self.confirm_remove_network.is_some();
+            || self.confirm_remove_network.is_some()
+            || self.lightbox.is_some();
         self.inputs
             .composer
             .update(cx, |input, _| input.set_tab_stop(!overlay_open));
@@ -46,19 +47,14 @@ impl Render for LoungeApp {
         }
 
         self.window_active = window.is_window_active();
-        if self.fonts.is_empty() {
-            let mut fonts = window.text_system().all_font_names();
-            fonts.retain(|font| !font.is_empty() && !font.contains(','));
-            fonts.sort_by_key(|font| font.to_lowercase());
-            fonts.dedup();
-            self.fonts = fonts;
-        }
         let theme = self.theme;
         let mut root = div()
             .id("app-root")
             .track_focus(&self.root_focus)
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
-                if event.keystroke.key.eq_ignore_ascii_case("escape") && this.last_overlay_open {
+                if event.keystroke.key.eq_ignore_ascii_case("escape")
+                    && (this.last_overlay_open || this.sidebar_overlay || this.users_overlay)
+                {
                     this.close_overlays(cx);
                     cx.stop_propagation();
                 }
@@ -93,7 +89,8 @@ impl Render for LoungeApp {
             || self.network_menu.is_some()
             || self.user_menu.is_some()
             || self.channel_menu.is_some()
-            || self.confirm_remove_network.is_some();
+            || self.confirm_remove_network.is_some()
+            || self.lightbox.is_some();
         if overlay_needed {
             root = root.child(self.render_modals(window, cx));
         }
