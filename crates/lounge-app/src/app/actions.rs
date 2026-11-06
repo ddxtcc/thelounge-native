@@ -117,6 +117,12 @@ impl LoungeApp {
         action: InputAction,
         cx: &mut Context<Self>,
     ) {
+        if action == InputAction::Escape
+            && (self.last_overlay_open || self.sidebar_overlay || self.users_overlay)
+        {
+            self.close_overlays(cx);
+            return;
+        }
         match role {
             InputRole::Composer => match action {
                 InputAction::Submit => self.send_composer(cx),
@@ -289,10 +295,14 @@ impl LoungeApp {
     }
 
     pub(super) fn switch_channel(&mut self, id: i64, window: &mut Window, cx: &mut Context<Self>) {
+        self.sidebar_overlay = false;
+        self.users_overlay = false;
         if self.state.active == Some(id) {
             self.focus_composer(window, cx);
             return;
         }
+        self.image_cache
+            .update(cx, |cache, cx| cache.clear(window, cx));
         self.save_draft(cx);
         self.scroll_after_more = false;
         self.state.set_active(id);

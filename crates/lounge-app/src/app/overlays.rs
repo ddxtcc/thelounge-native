@@ -36,7 +36,9 @@ impl LoungeApp {
             .occlude()
             .on_click(cx.listener(|this, _, _, cx| this.close_overlays(cx)));
 
-        if let Some(target) = self.font_picker {
+        if let Some(url) = self.lightbox.clone() {
+            overlay = overlay.child(self.render_lightbox(&url, window, cx));
+        } else if let Some(target) = self.font_picker {
             overlay = overlay.child(self.render_font_picker(target, window, cx));
         } else if self.settings_open {
             overlay = overlay.child(self.render_settings(window, cx));
@@ -61,6 +63,87 @@ impl LoungeApp {
         }
 
         overlay.into_any_element()
+    }
+
+    pub(super) fn close_button(&self, id: &'static str, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        div()
+            .id(id)
+            .size(px(26.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(5.))
+            .text_size(px(17.))
+            .line_height(relative(1.))
+            .text_color(theme.muted)
+            .cursor_pointer()
+            .hover(|style| style.bg(theme.hover).text_color(theme.text))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.close_overlays(cx);
+                cx.stop_propagation();
+            }))
+            .child("×")
+            .into_any_element()
+    }
+
+    pub(super) fn render_lightbox(
+        &self,
+        url: &str,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = self.theme;
+        let viewport = window.viewport_size();
+        let max_w = viewport.width * 0.88;
+        let max_h = viewport.height * 0.82;
+        let open_url = url.to_string();
+        div()
+            .id("lightbox")
+            .max_w(max_w)
+            .max_h(max_h)
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_2()
+            .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+            .child(
+                div()
+                    .id("lightbox-image")
+                    .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+                    .child(
+                        gpui::img(url.to_string())
+                            .image_cache(&self.image_cache)
+                            .max_w(max_w)
+                            .max_h(max_h)
+                            .rounded(px(6.)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.muted)
+                            .child("Click outside to close"),
+                    )
+                    .child(
+                        div()
+                            .id("lightbox-open")
+                            .text_size(px(11.))
+                            .text_color(theme.accent)
+                            .cursor_pointer()
+                            .hover(|style| style.underline())
+                            .on_click(cx.listener(move |_, _, _, _| {
+                                let _ = open::that(open_url.clone());
+                            }))
+                            .child("Open in browser"),
+                    ),
+            )
+            .into_any_element()
     }
 
     pub(super) fn modal_card(&self, title: &str, cx: &mut Context<Self>) -> ModalCard {
@@ -91,17 +174,7 @@ impl LoungeApp {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(title.to_string()),
                     )
-                    .child(
-                        div()
-                            .id("modal-close")
-                            .px_2()
-                            .rounded(px(4.))
-                            .cursor_pointer()
-                            .text_color(theme.muted)
-                            .hover(|style| style.text_color(theme.text))
-                            .on_click(cx.listener(|this, _, _, cx| this.close_overlays(cx)))
-                            .child("x"),
-                    ),
+                    .child(self.close_button("modal-close", cx)),
             );
         let body = div()
             .id("modal-body")
@@ -147,17 +220,7 @@ impl LoungeApp {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(title.to_string()),
                     )
-                    .child(
-                        div()
-                            .id("menu-close")
-                            .px_2()
-                            .rounded(px(4.))
-                            .cursor_pointer()
-                            .text_color(theme.muted)
-                            .hover(|style| style.text_color(theme.text))
-                            .on_click(cx.listener(|this, _, _, cx| this.close_overlays(cx)))
-                            .child("x"),
-                    ),
+                    .child(self.close_button("menu-close", cx)),
             );
         let body = div()
             .id("menu-body")
@@ -320,6 +383,50 @@ impl LoungeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if !self.fonts_loaded && !self.fonts_loading {
+            self.fonts_loading = true;
+            let text_system = cx.text_system().clone();
+            let task = cx.spawn(async move |this, cx| {
+                let fonts = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let mut fonts = text_system.all_font_names();
+                        fonts.retain(|font| !font.is_empty() && !font.contains(','));
+                        fonts.sort_by_key(|font| font.to_lowercase());
+                        fonts.dedup();
+                        fonts
+                    })
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    this.fonts = fonts;
+                    this.fonts_loading = false;
+                    this.fonts_loaded = true;
+                    cx.notify();
+                });
+            });
+            task.detach();
+            let spinner = cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(120))
+                        .await;
+                    let loading = this
+                        .update(cx, |this, cx| {
+                            if !this.fonts_loading {
+                                return false;
+                            }
+                            this.font_spinner = (this.font_spinner + 1) % 4;
+                            cx.notify();
+                            true
+                        })
+                        .unwrap_or(false);
+                    if !loading {
+                        break;
+                    }
+                }
+            });
+            spinner.detach();
+        }
         let theme = self.theme;
         let title = match target {
             FontTarget::Ui => "Message font",
@@ -391,22 +498,48 @@ impl LoungeApp {
             );
         }
 
-        self.modal_card(title, cx)
+        let mut card = self
+            .modal_card(title, cx)
             .child(self.inputs.font_search.clone())
             .child(
                 div()
                     .text_size(px(11.))
                     .text_color(theme.muted)
                     .child("Type to filter installed fonts."),
-            )
-            .child(
+            );
+        if !self.fonts_loaded {
+            card = card.child(
+                div()
+                    .py_8()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(18.))
+                            .text_color(theme.accent)
+                            .child(["◐", "◓", "◑", "◒"][self.font_spinner % 4]),
+                    )
+                    .child(div().text_color(theme.muted).child("Loading fonts...")),
+            );
+        } else if self.fonts.is_empty() {
+            card = card.child(
+                div()
+                    .py_4()
+                    .text_color(theme.muted)
+                    .child("No fonts found."),
+            );
+        } else {
+            card = card.child(
                 div()
                     .id("font-scroll")
-                    .max_h(px(520.))
+                    .max_h(px(420.))
                     .overflow_y_scroll()
                     .child(list),
-            )
-            .into_any_element()
+            );
+        }
+        card.into_any_element()
     }
 
     pub(super) fn render_emoji_picker(
@@ -417,15 +550,16 @@ impl LoungeApp {
         let theme = self.theme;
         let term = self.inputs.emoji_search.read(cx).content().to_string();
         let emoji = crate::emoji::filter(&term, 240);
-        let mut grid = div().id("emoji-grid").flex().flex_wrap().gap_1();
+        let mut grid = div().id("emoji-grid").w_full().grid().grid_cols(7).gap_2();
         for item in emoji {
             let glyph = item.glyph;
             let shortcode = item.shortcode;
             grid = grid.child(
                 div()
                     .id(ElementId::Name(format!("emoji-{shortcode}").into()))
-                    .w(px(58.))
-                    .h(px(54.))
+                    .w_full()
+                    .h(px(58.))
+                    .px_1()
                     .flex()
                     .flex_col()
                     .items_center()
@@ -437,8 +571,9 @@ impl LoungeApp {
                     .child(div().text_size(px(22.)).child(glyph))
                     .child(
                         div()
-                            .max_w(px(54.))
+                            .w_full()
                             .truncate()
+                            .text_center()
                             .text_size(px(8.))
                             .text_color(theme.muted)
                             .child(shortcode.to_string()),

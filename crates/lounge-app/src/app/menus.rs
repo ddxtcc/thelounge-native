@@ -464,6 +464,17 @@ impl LoungeApp {
     }
 
     pub(super) fn close_overlays(&mut self, cx: &mut Context<Self>) {
+        self.last_overlay_open = false;
+        self.sidebar_overlay = false;
+        self.users_overlay = false;
+        if self.font_picker.is_some() || self.security_open {
+            self.font_picker = None;
+            self.security_open = false;
+            self.settings_open = true;
+            self.pending_focus = false;
+            cx.notify();
+            return;
+        }
         self.settings_open = false;
         self.network_modal_open = false;
         self.search_open = false;
@@ -475,6 +486,7 @@ impl LoungeApp {
         self.user_menu = None;
         self.channel_menu = None;
         self.confirm_remove_network = None;
+        self.lightbox = None;
         self.pending_focus = true;
         cx.notify();
     }

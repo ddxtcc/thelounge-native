@@ -5,6 +5,7 @@ pub(super) fn build_message_text(
     network: &NetworkState,
     channel: &ChannelState,
     config: &AppConfig,
+    nick_column: bool,
     theme: &Theme,
     dark: bool,
 ) -> (
@@ -39,30 +40,7 @@ pub(super) fn build_message_text(
         .and_then(|from| user_mode_prefix_in_message(from, network))
         .unwrap_or_default();
 
-    let status_like = matches!(
-        message.kind,
-        MessageType::Join
-            | MessageType::Part
-            | MessageType::Quit
-            | MessageType::Nick
-            | MessageType::Kick
-            | MessageType::Mode
-            | MessageType::Topic
-            | MessageType::TopicSetBy
-            | MessageType::Away
-            | MessageType::Back
-            | MessageType::Chghost
-            | MessageType::Notice
-            | MessageType::Error
-            | MessageType::Warn
-            | MessageType::ModeChannel
-            | MessageType::ModeUser
-            | MessageType::Raw
-            | MessageType::Whois
-            | MessageType::Wallops
-            | MessageType::MonospaceBlock
-            | MessageType::Note
-    );
+    let status_like = is_status_message(message.kind);
     let muted = if status_like {
         theme.muted
     } else if message.is_self {
@@ -91,78 +69,178 @@ pub(super) fn build_message_text(
         builder.push(&label, &font, theme.faint, None, false, false);
     }
 
-    match message.kind {
-        MessageType::Action => {
-            builder.push("* ", &font, theme.muted, None, false, false);
-            if !nick.is_empty() && !config.nick_column {
-                let start = builder.text.len();
-                builder.push(
-                    &format!("{mode}{nick}"),
-                    &nick_font,
-                    nick_color,
-                    None,
-                    false,
-                    false,
-                );
-                ranges.push(start..builder.text.len());
-                targets.push(ClickTarget::Nick(nick.clone()));
-                builder.push(" ", &font, muted, None, false, false);
+    if status_like {
+        match message.kind {
+            MessageType::Topic => {
+                if nick.is_empty() {
+                    builder.push("The topic is: ", &font, muted, None, false, false);
+                } else {
+                    let start = builder.text.len();
+                    builder.push(
+                        &format!("{mode}{nick}"),
+                        &nick_font,
+                        nick_color,
+                        None,
+                        false,
+                        false,
+                    );
+                    ranges.push(start..builder.text.len());
+                    targets.push(ClickTarget::Nick(nick.clone()));
+                    builder.push(
+                        " has changed the topic to: ",
+                        &font,
+                        muted,
+                        None,
+                        false,
+                        false,
+                    );
+                }
+            }
+            MessageType::TopicSetBy => {
+                builder.push("Topic set by ", &font, muted, None, false, false);
+                if nick.is_empty() {
+                    builder.push("an unknown user", &font, muted, None, false, false);
+                } else {
+                    let start = builder.text.len();
+                    builder.push(
+                        &format!("{mode}{nick}"),
+                        &nick_font,
+                        nick_color,
+                        None,
+                        false,
+                        false,
+                    );
+                    ranges.push(start..builder.text.len());
+                    targets.push(ClickTarget::Nick(nick.clone()));
+                }
+                if let Some(when) = message.when {
+                    builder.push(
+                        &format!(
+                            " on {}",
+                            when.with_timezone(&Local).format("%-d %B %Y, %H:%M:%S")
+                        ),
+                        &font,
+                        muted,
+                        None,
+                        false,
+                        false,
+                    );
+                }
+            }
+            MessageType::ModeChannel => {
+                builder.push("Channel mode is ", &font, muted, None, false, false);
+            }
+            MessageType::ModeUser => {
+                builder.push("Your user mode is ", &font, muted, None, false, false);
+            }
+            _ => {
+                if !nick.is_empty() {
+                    let start = builder.text.len();
+                    builder.push(
+                        &format!("{mode}{nick}"),
+                        &nick_font,
+                        nick_color,
+                        None,
+                        false,
+                        false,
+                    );
+                    ranges.push(start..builder.text.len());
+                    targets.push(ClickTarget::Nick(nick.clone()));
+                    if matches!(
+                        message.kind,
+                        MessageType::Join | MessageType::Part | MessageType::Quit
+                    ) && let Some(hostmask) =
+                        message.hostmask.as_ref().filter(|host| !host.is_empty())
+                    {
+                        builder.push(" (", &font, muted, None, false, false);
+                        builder.push(hostmask, &font, theme.muted, None, false, false);
+                        builder.push(")", &font, muted, None, false, false);
+                    }
+                    builder.push(" ", &font, muted, None, false, false);
+                }
             }
         }
-        MessageType::Message => {
-            if !nick.is_empty() && !config.nick_column {
-                let start = builder.text.len();
-                builder.push(
-                    &format!("{mode}{nick}"),
-                    &nick_font,
-                    nick_color,
-                    None,
-                    false,
-                    false,
-                );
-                ranges.push(start..builder.text.len());
-                targets.push(ClickTarget::Nick(nick.clone()));
-                builder.push("  ", &font, theme.muted, None, false, false);
+    } else {
+        match message.kind {
+            MessageType::Action => {
+                builder.push("* ", &font, theme.muted, None, false, false);
+                if !nick.is_empty() && !nick_column {
+                    let start = builder.text.len();
+                    builder.push(
+                        &format!("{mode}{nick}"),
+                        &nick_font,
+                        nick_color,
+                        None,
+                        false,
+                        false,
+                    );
+                    ranges.push(start..builder.text.len());
+                    targets.push(ClickTarget::Nick(nick.clone()));
+                    builder.push(" ", &font, muted, None, false, false);
+                }
             }
-        }
-        MessageType::Notice => {
-            if !nick.is_empty() && !config.nick_column {
+            MessageType::Message => {
+                if !nick.is_empty() && !nick_column {
+                    let start = builder.text.len();
+                    builder.push(
+                        &format!("{mode}{nick}"),
+                        &nick_font,
+                        nick_color,
+                        None,
+                        false,
+                        false,
+                    );
+                    ranges.push(start..builder.text.len());
+                    targets.push(ClickTarget::Nick(nick.clone()));
+                    builder.push("  ", &font, theme.muted, None, false, false);
+                }
+            }
+            MessageType::Notice => {
+                if !nick.is_empty() && !nick_column {
+                    builder.push(
+                        &format!("-{nick}- "),
+                        &font,
+                        theme.muted,
+                        None,
+                        false,
+                        false,
+                    );
+                }
+            }
+            MessageType::Unhandled => {
+                let command = message.command.clone().unwrap_or_default();
                 builder.push(
-                    &format!("-{nick}- "),
+                    &format!("[{command}] "),
                     &font,
                     theme.muted,
                     None,
                     false,
                     false,
                 );
+                for param in &message.params {
+                    builder.push(param, &font, muted, None, false, false);
+                    builder.push(" ", &font, muted, None, false, false);
+                }
             }
-        }
-        MessageType::Unhandled => {
-            let command = message.command.clone().unwrap_or_default();
-            builder.push(
-                &format!("[{command}] "),
-                &font,
-                theme.muted,
-                None,
-                false,
-                false,
-            );
-            for param in &message.params {
-                builder.push(param, &font, muted, None, false, false);
-                builder.push(" ", &font, muted, None, false, false);
-            }
-        }
-        _ => {
-            if !nick.is_empty() && !config.nick_column {
-                let start = builder.text.len();
-                builder.push(&format!("-{nick}- "), &font, muted, None, false, false);
-                ranges.push(start..builder.text.len());
-                targets.push(ClickTarget::Nick(nick.clone()));
-            }
+            _ => {}
         }
     }
 
-    let body = message_body(message);
+    let body = if status_like {
+        match message.kind {
+            MessageType::Topic => message.text.clone(),
+            MessageType::TopicSetBy => String::new(),
+            MessageType::ModeChannel => message.text.clone(),
+            MessageType::ModeUser => message
+                .raw_modes
+                .as_ref()
+                .map(value_text)
+                .unwrap_or_default(),
+            _ => message_body(message),
+        }
+    } else {
+        message_body(message)
+    };
 
     if !body.is_empty() {
         let spans = format::parse(&body);
@@ -394,6 +472,38 @@ fn value_text(value: &serde_json::Value) -> String {
         serde_json::Value::String(text) => text.clone(),
         other => other.to_string(),
     }
+}
+
+pub(super) fn is_status_message(kind: MessageType) -> bool {
+    matches!(
+        kind,
+        MessageType::Away
+            | MessageType::Back
+            | MessageType::Chghost
+            | MessageType::Ctcp
+            | MessageType::CtcpRequest
+            | MessageType::Error
+            | MessageType::Invite
+            | MessageType::Join
+            | MessageType::Kick
+            | MessageType::Login
+            | MessageType::Logout
+            | MessageType::Mode
+            | MessageType::ModeChannel
+            | MessageType::ModeUser
+            | MessageType::MonospaceBlock
+            | MessageType::Nick
+            | MessageType::Note
+            | MessageType::Notice
+            | MessageType::Part
+            | MessageType::Quit
+            | MessageType::Raw
+            | MessageType::Topic
+            | MessageType::TopicSetBy
+            | MessageType::Wallops
+            | MessageType::Warn
+            | MessageType::Whois
+    )
 }
 
 pub(super) fn user_mode_prefix_in_message(
