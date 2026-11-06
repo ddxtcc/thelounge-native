@@ -174,6 +174,8 @@ pub struct LoungeApp {
     inputs: Inputs,
     input_revisions: HashMap<InputRole, u64>,
     messages_scroll: gpui::ScrollHandle,
+    last_scroll_max: gpui::Size<gpui::Pixels>,
+    last_scroll_offset: gpui::Point<gpui::Pixels>,
     image_cache: Entity<gpui::RetainAllImageCache>,
     collapsed_networks: HashSet<String>,
     expanded_condensed: HashSet<i64>,
@@ -219,7 +221,6 @@ pub struct LoungeApp {
     fonts_loaded: bool,
     font_spinner: usize,
     font_picker: Option<FontTarget>,
-    scroll_generation: u64,
     scroll_after_more: bool,
 }
 
@@ -345,6 +346,14 @@ impl LoungeApp {
             inputs,
             input_revisions: HashMap::new(),
             messages_scroll: gpui::ScrollHandle::new(),
+            last_scroll_max: gpui::Size {
+                width: px(0.),
+                height: px(0.),
+            },
+            last_scroll_offset: gpui::Point {
+                x: px(0.),
+                y: px(0.),
+            },
             image_cache: gpui::RetainAllImageCache::new(cx),
             collapsed_networks: HashSet::new(),
             expanded_condensed: HashSet::new(),
@@ -390,7 +399,6 @@ impl LoungeApp {
             fonts_loaded: false,
             font_spinner: 0,
             font_picker: None,
-            scroll_generation: 0,
             scroll_after_more: false,
         };
         let _ = show_users;

@@ -303,6 +303,14 @@ impl LoungeApp {
         }
         self.image_cache
             .update(cx, |cache, cx| cache.clear(window, cx));
+        self.last_scroll_max = gpui::Size {
+            width: px(0.),
+            height: px(0.),
+        };
+        self.last_scroll_offset = gpui::Point {
+            x: px(0.),
+            y: px(0.),
+        };
         self.save_draft(cx);
         self.scroll_after_more = false;
         self.state.set_active(id);
@@ -489,24 +497,8 @@ impl LoungeApp {
             .unwrap_or_else(|| url.to_string())
     }
 
-    pub(super) fn schedule_scroll_bottom(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn schedule_scroll_bottom(&mut self, _cx: &mut Context<Self>) {
         self.messages_scroll.scroll_to_bottom();
-        self.scroll_generation = self.scroll_generation.wrapping_add(1);
-        let generation = self.scroll_generation;
-        cx.spawn(async move |this, cx| {
-            for delay in [80u64, 220, 450] {
-                cx.background_executor()
-                    .timer(Duration::from_millis(delay))
-                    .await;
-                let _ = this.update(cx, |this, cx| {
-                    if this.scroll_generation == generation {
-                        this.messages_scroll.scroll_to_bottom();
-                        cx.notify();
-                    }
-                });
-            }
-        })
-        .detach();
     }
 
     pub(super) fn at_bottom(&self) -> bool {
