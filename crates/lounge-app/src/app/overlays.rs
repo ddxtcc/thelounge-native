@@ -1,3 +1,4 @@
+use super::tooltip::Tooltip;
 use super::*;
 
 pub(super) struct ModalCard {
@@ -36,7 +37,9 @@ impl LoungeApp {
             .occlude()
             .on_click(cx.listener(|this, _, _, cx| this.close_overlays(cx)));
 
-        if let Some(url) = self.lightbox.clone() {
+        if self.palette.is_some() {
+            overlay = overlay.child(self.render_palette(cx));
+        } else if let Some(url) = self.lightbox.clone() {
             overlay = overlay.child(self.render_lightbox(&url, window, cx));
         } else if let Some(target) = self.font_picker {
             overlay = overlay.child(self.render_font_picker(target, window, cx));
@@ -55,9 +58,11 @@ impl LoungeApp {
         } else if let Some(uuid) = self.network_menu.clone() {
             overlay = overlay.child(self.render_network_menu(&uuid, cx));
         } else if let Some(menu) = self.user_menu.clone() {
-            overlay = overlay.child(self.render_user_menu(menu, cx));
+            overlay = overlay.child(self.render_user_menu(menu, window, cx));
         } else if let Some(menu) = self.channel_menu.clone() {
-            overlay = overlay.child(self.render_channel_menu(menu, cx));
+            overlay = overlay.child(self.render_channel_menu(menu, window, cx));
+        } else if let Some(menu) = self.message_menu.clone() {
+            overlay = overlay.child(self.render_message_menu(menu, window, cx));
         } else if let Some(uuid) = self.confirm_remove_network.clone() {
             overlay = overlay.child(self.render_remove_network(&uuid, cx));
         }
@@ -83,6 +88,7 @@ impl LoungeApp {
                 this.close_overlays(cx);
                 cx.stop_propagation();
             }))
+            .tooltip(move |_, cx| cx.new(|_| Tooltip::new("Close", theme)).into())
             .child("×")
             .into_any_element()
     }
@@ -470,7 +476,7 @@ impl LoungeApp {
                 )
                 .child(reset_label)
                 .when(current == reset_value, |this| {
-                    this.child(div().text_color(theme.accent).child("*"))
+                    this.child(div().text_color(theme.accent).child("✓"))
                 }),
         );
         for font in filtered {
@@ -493,7 +499,7 @@ impl LoungeApp {
                     )
                     .child(div().font_family(preview_font).child(font))
                     .when(selected, |this| {
-                        this.child(div().text_color(theme.accent).child("*"))
+                        this.child(div().text_color(theme.accent).child("✓"))
                     }),
             );
         }
@@ -662,7 +668,7 @@ impl LoungeApp {
                                             this.state.mentions.retain(|m| m.msg_id != msg_id);
                                             cx.notify();
                                         }))
-                                        .child("x"),
+                                        .child("×"),
                                 ),
                         )
                         .child(div().text_size(px(13.)).child(text)),

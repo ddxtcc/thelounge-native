@@ -21,11 +21,10 @@ impl LoungeApp {
         let scroll_offset = self.messages_scroll.offset();
         let scroll_max = self.messages_scroll.max_offset();
         let was_at_bottom = self.last_scroll_max.height <= px(1.)
-            || self.last_scroll_offset.y <= -self.last_scroll_max.height + px(48.);
+            || scroll_offset.y <= -self.last_scroll_max.height + px(48.);
         if scroll_max.height > self.last_scroll_max.height + px(1.) && was_at_bottom {
             self.schedule_scroll_bottom(cx);
         }
-        self.last_scroll_offset = scroll_offset;
         self.last_scroll_max = scroll_max;
         let Some((network, channel)) = self.state.find_channel(active) else {
             return div().flex_1().into_any_element();
@@ -346,34 +345,29 @@ impl LoungeApp {
                 .text_color(theme.text)
                 .cursor_pointer()
                 .hover(|style| style.border_color(theme.accent))
-                .on_click(cx.listener(move |_, _, _, _| {
-                    let _ = open::that(url.clone());
-                }))
                 .flex()
                 .flex_col()
                 .gap_1()
                 .child(div().truncate().child(label));
             if let Some(thumb) = thumb {
                 let lightbox_url = thumb.clone();
-                card = card.child(
-                    div()
-                        .id(ElementId::Name(
-                            format!("preview-image-{}-{}", message.id, preview.link).into(),
-                        ))
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.lightbox = Some(lightbox_url.clone());
-                            cx.stop_propagation();
-                            cx.notify();
-                        }))
-                        .child(
-                            gpui::img(thumb)
-                                .image_cache(&self.image_cache)
-                                .max_w(px(220.))
-                                .max_h(px(140.))
-                                .rounded(px(4.)),
-                        ),
-                );
+                card = card
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.lightbox = Some(lightbox_url.clone());
+                        cx.notify();
+                    }))
+                    .child(
+                        gpui::img(thumb)
+                            .image_cache(&self.image_cache)
+                            .w(px(220.))
+                            .h(px(140.))
+                            .object_fit(gpui::ObjectFit::Contain)
+                            .rounded(px(4.)),
+                    );
+            } else {
+                card = card.on_click(cx.listener(move |_, _, _, _| {
+                    let _ = open::that(url.clone());
+                }));
             }
             previews = previews.child(card);
         }
@@ -426,6 +420,7 @@ impl LoungeApp {
             content = content.child(reply_button);
         }
 
+        let context_message = message.clone();
         let mut row = div()
             .id(ElementId::Name(format!("row-{}", message.id).into()))
             .flex()
@@ -435,7 +430,18 @@ impl LoungeApp {
             .px_4()
             .py(px(self.config.message_spacing))
             .when(highlight, |this| this.bg(theme.highlight_bg))
-            .when(is_self, |this| this.opacity(0.85));
+            .when(is_self, |this| this.opacity(0.85))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.message_menu = Some(MessageMenu {
+                        position: event.position,
+                        message: context_message.clone(),
+                    });
+                    cx.notify();
+                }),
+            );
 
         if self.config.show_timestamps {
             row = row.child(
@@ -474,7 +480,7 @@ impl LoungeApp {
                 .and_then(|from| user_mode_prefix_in_message(from, network))
                 .unwrap_or_default();
             let color = if self.config.colored_nicks && !nick.is_empty() {
-                rgb(format::nick_color(&nick)).into()
+                theme.nick_color(&nick)
             } else {
                 theme.text
             };

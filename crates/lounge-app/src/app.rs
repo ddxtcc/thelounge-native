@@ -5,9 +5,9 @@ use std::time::{Duration, Instant};
 
 use chrono::Local;
 use gpui::{
-    AnyElement, App, Context, ElementId, Entity, ExternalPaths, Focusable, FontWeight, Hsla,
-    InteractiveText, MouseButton, PathPromptOptions, Pixels, Point, SharedString, StyledText,
-    TextRun, UnderlineStyle, Window, div, prelude::*, px, relative, rgb,
+    AnyElement, App, ClipboardItem, Context, ElementId, Entity, ExternalPaths, Focusable,
+    FontWeight, Hsla, InteractiveText, MouseButton, PathPromptOptions, Pixels, Point, SharedString,
+    StyledText, TextRun, UnderlineStyle, Window, div, prelude::*, px, relative, rgb,
 };
 use lounge_core::format::{self, IrcColor};
 use lounge_core::proto::{Message, MessageType, ServerEvent, User};
@@ -68,6 +68,7 @@ pub struct Inputs {
     setting_away_message: Entity<TextInput>,
     emoji_search: Entity<TextInput>,
     font_search: Entity<TextInput>,
+    palette: Entity<TextInput>,
     password_old: Entity<TextInput>,
     password_new: Entity<TextInput>,
     password_verify: Entity<TextInput>,
@@ -84,12 +85,37 @@ struct ReplyTarget {
 struct UserMenu {
     nick: String,
     chan_id: i64,
+    position: Point<Pixels>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FontTarget {
     Ui,
     Mono,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PaletteMode {
+    Commands,
+    Channels,
+}
+
+#[derive(Clone)]
+enum PaletteEntry {
+    Command(PaletteCommand),
+    Channel(i64),
+}
+
+#[derive(Clone, Copy)]
+enum PaletteCommand {
+    Settings,
+    Join,
+    Search,
+    Mentions,
+    Emoji,
+    ToggleSidebar,
+    ToggleUsers,
+    SignOut,
 }
 
 #[derive(Clone)]
@@ -99,6 +125,13 @@ struct ChannelMenu {
     name: String,
     is_query: bool,
     muted: bool,
+    position: Point<Pixels>,
+}
+
+#[derive(Clone)]
+struct MessageMenu {
+    position: Point<Pixels>,
+    message: Message,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -175,7 +208,6 @@ pub struct LoungeApp {
     input_revisions: HashMap<InputRole, u64>,
     messages_scroll: gpui::ScrollHandle,
     last_scroll_max: gpui::Size<gpui::Pixels>,
-    last_scroll_offset: gpui::Point<gpui::Pixels>,
     image_cache: Entity<gpui::RetainAllImageCache>,
     collapsed_networks: HashSet<String>,
     expanded_condensed: HashSet<i64>,
@@ -213,6 +245,7 @@ pub struct LoungeApp {
     network_has_sts: bool,
     user_menu: Option<UserMenu>,
     channel_menu: Option<ChannelMenu>,
+    message_menu: Option<MessageMenu>,
     confirm_remove_network: Option<String>,
     root_focus: gpui::FocusHandle,
     last_overlay_open: bool,
@@ -221,6 +254,9 @@ pub struct LoungeApp {
     fonts_loaded: bool,
     font_spinner: usize,
     font_picker: Option<FontTarget>,
+    palette: Option<PaletteMode>,
+    palette_selection: usize,
+    pending_channel_switch: Option<i64>,
     scroll_after_more: bool,
 }
 
@@ -230,16 +266,18 @@ mod menus;
 mod message_text;
 mod messages;
 mod overlays;
+mod palette;
 mod render;
 mod render_impl;
 mod settings;
 mod sidebar;
+mod tooltip;
 mod uploads;
 
 impl LoungeApp {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let config = AppConfig::load();
-        let theme = Theme::from_mode(&config.theme);
+        let theme = Theme::from_config(&config.theme, config.custom_theme.as_ref());
         let root_focus = cx.focus_handle();
         let colors = theme.input_colors();
         let font = config.font_size;
@@ -274,6 +312,7 @@ impl LoungeApp {
         let setting_away_message = make("Away message", false, false, cx);
         let emoji_search = make("Search emoji...", false, false, cx);
         let font_search = make("Search installed fonts...", false, false, cx);
+        let palette = make("Type a command...", false, false, cx);
         let password_old = make("Current password", false, true, cx);
         let password_new = make("New password", false, true, cx);
         let password_verify = make("Verify new password", false, true, cx);
@@ -296,6 +335,7 @@ impl LoungeApp {
             setting_away_message: setting_away_message.clone(),
             emoji_search: emoji_search.clone(),
             font_search: font_search.clone(),
+            palette: palette.clone(),
             password_old: password_old.clone(),
             password_new: password_new.clone(),
             password_verify: password_verify.clone(),
@@ -322,6 +362,7 @@ impl LoungeApp {
             (InputRole::SettingAwayMessage, setting_away_message),
             (InputRole::EmojiSearch, emoji_search),
             (InputRole::FontSearch, font_search),
+            (InputRole::Palette, palette),
             (InputRole::PasswordOld, password_old),
             (InputRole::PasswordNew, password_new),
             (InputRole::PasswordVerify, password_verify),
@@ -333,7 +374,6 @@ impl LoungeApp {
             .detach();
         }
 
-        let show_users = config.show_user_list;
         let mut app = Self {
             config,
             theme,
@@ -349,10 +389,6 @@ impl LoungeApp {
             last_scroll_max: gpui::Size {
                 width: px(0.),
                 height: px(0.),
-            },
-            last_scroll_offset: gpui::Point {
-                x: px(0.),
-                y: px(0.),
             },
             image_cache: gpui::RetainAllImageCache::new(cx),
             collapsed_networks: HashSet::new(),
@@ -391,6 +427,7 @@ impl LoungeApp {
             network_has_sts: false,
             user_menu: None,
             channel_menu: None,
+            message_menu: None,
             confirm_remove_network: None,
             root_focus,
             last_overlay_open: false,
@@ -399,9 +436,11 @@ impl LoungeApp {
             fonts_loaded: false,
             font_spinner: 0,
             font_picker: None,
+            palette: None,
+            palette_selection: 0,
+            pending_channel_switch: None,
             scroll_after_more: false,
         };
-        let _ = show_users;
         app.prefill_login(cx);
 
         if !app.config.server.is_empty() && !app.config.token.is_empty() {
