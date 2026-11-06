@@ -38,10 +38,6 @@ cargo test -p lounge-core
 cargo build -p lounge-native
 ```
 
-## Releases
-
-Pushes to `main` update the `edge` prerelease with Linux, Windows, and macOS builds. Version tags create stable releases.
-
 ## License
 
 MIT.

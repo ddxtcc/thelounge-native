@@ -232,6 +232,7 @@ mod overlays;
 mod render;
 mod render_impl;
 mod settings;
+mod sidebar;
 mod uploads;
 
 impl LoungeApp {
