@@ -18,6 +18,15 @@ impl LoungeApp {
                 .child("No channel selected")
                 .into_any_element();
         };
+        let scroll_offset = self.messages_scroll.offset();
+        let scroll_max = self.messages_scroll.max_offset();
+        let was_at_bottom = self.last_scroll_max.height <= px(1.)
+            || self.last_scroll_offset.y <= -self.last_scroll_max.height + px(48.);
+        if scroll_max.height > self.last_scroll_max.height + px(1.) && was_at_bottom {
+            self.schedule_scroll_bottom(cx);
+        }
+        self.last_scroll_offset = scroll_offset;
+        self.last_scroll_max = scroll_max;
         let Some((network, channel)) = self.state.find_channel(active) else {
             return div().flex_1().into_any_element();
         };
@@ -26,11 +35,12 @@ impl LoungeApp {
         }
 
         let rows = build_rows(channel, &self.config);
-        let status_column = if self.config.nick_column && !self.narrow {
-            132.
+        let nick_width = if self.config.nick_column && !self.narrow {
+            nick_column_width(channel, self.config.font_size)
         } else {
-            22.
+            0.
         };
+        let status_column = if nick_width > 0. { nick_width } else { 22. };
         let summary_indent =
             px(16. + if self.config.show_timestamps { 62. } else { 0. } + status_column + 8.);
         let mut content = div().flex().flex_col().w_full().py_2();
@@ -114,7 +124,8 @@ impl LoungeApp {
                     );
                 }
                 Row::Message(message) => {
-                    content = content.child(self.render_message_row(network, channel, message, cx));
+                    content = content
+                        .child(self.render_message_row(network, channel, message, nick_width, cx));
                 }
                 Row::Condensed { id, messages } => {
                     let summary = condensed_summary(&messages);
@@ -139,8 +150,9 @@ impl LoungeApp {
                     );
                     if expanded {
                         for message in messages {
-                            content = content
-                                .child(self.render_message_row(network, channel, message, cx));
+                            content = content.child(
+                                self.render_message_row(network, channel, message, nick_width, cx),
+                            );
                         }
                     }
                 }
@@ -163,6 +175,7 @@ impl LoungeApp {
         network: &NetworkState,
         channel: &ChannelState,
         message: &Message,
+        nick_width: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
@@ -435,7 +448,7 @@ impl LoungeApp {
             );
         }
         let status = is_status_message(message.kind);
-        let status_column = if nick_column { 132. } else { 22. };
+        let status_column = if nick_column { nick_width } else { 22. };
         if status {
             let (icon, color) = status_icon(message.kind, &theme);
             row = row.child(
@@ -468,7 +481,7 @@ impl LoungeApp {
             let insert = nick.clone();
             let mut column = div()
                 .id(ElementId::Name(format!("nickcol-{}", message.id).into()))
-                .w(px(132.))
+                .w(px(nick_width))
                 .flex_shrink_0()
                 .pr_2()
                 .flex()
@@ -808,6 +821,21 @@ enum Row<'a> {
     Unread,
     Message(&'a Message),
     Condensed { id: i64, messages: Vec<&'a Message> },
+}
+
+fn nick_column_width(channel: &ChannelState, font_size: f32) -> f32 {
+    let mut chars = 0;
+    for user in &channel.users {
+        let width = user.nick.chars().count() + usize::from(!user.mode.is_empty());
+        chars = chars.max(width);
+    }
+    for message in &channel.chan.messages {
+        if let Some(from) = &message.from {
+            let width = from.nick.chars().count() + usize::from(!from.mode.is_empty());
+            chars = chars.max(width);
+        }
+    }
+    (chars as f32 * font_size * 0.58 + 18.).clamp(70., 180.)
 }
 
 fn status_icon(kind: MessageType, theme: &Theme) -> (&'static str, Hsla) {
