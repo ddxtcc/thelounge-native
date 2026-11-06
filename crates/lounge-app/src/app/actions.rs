@@ -17,7 +17,7 @@ impl LoungeApp {
     }
 
     pub(super) fn apply_theme(&mut self, cx: &mut Context<Self>) {
-        self.theme = Theme::from_mode(&self.config.theme);
+        self.theme = Theme::from_config(&self.config.theme, self.config.custom_theme.as_ref());
         let colors = self.input_colors();
         let (size, line) = (
             self.config.font_size,
@@ -86,7 +86,7 @@ impl LoungeApp {
     ) {
         if matches!(
             role,
-            InputRole::Search | InputRole::EmojiSearch | InputRole::FontSearch
+            InputRole::Search | InputRole::EmojiSearch | InputRole::FontSearch | InputRole::Palette
         ) {
             cx.notify();
         }
@@ -166,6 +166,12 @@ impl LoungeApp {
                 }
             }
             InputRole::EmojiSearch | InputRole::FontSearch => {}
+            InputRole::Palette => match action {
+                InputAction::Submit => self.run_palette_selection(cx),
+                InputAction::PrevHistory => self.move_palette(-1, cx),
+                InputAction::NextHistory => self.move_palette(1, cx),
+                _ => {}
+            },
             InputRole::PasswordOld | InputRole::PasswordNew | InputRole::PasswordVerify => {
                 if action == InputAction::Submit {
                     self.change_password(cx);
@@ -294,11 +300,171 @@ impl LoungeApp {
         }
     }
 
+    pub(super) fn open_palette(&mut self, mode: PaletteMode, cx: &mut Context<Self>) {
+        self.close_overlays(cx);
+        self.settings_open = false;
+        self.security_open = false;
+        self.font_picker = None;
+        self.palette = Some(mode);
+        self.palette_selection = 0;
+        self.inputs.palette.update(cx, |input, cx| {
+            input.set_placeholder(match mode {
+                PaletteMode::Commands => "Type a command...",
+                PaletteMode::Channels => "Switch to channel...",
+            });
+            input.set_content("", cx);
+        });
+        self.focus_request = Some(InputRole::Palette);
+        cx.notify();
+    }
+
+    pub(super) fn palette_entries(&self, cx: &mut Context<Self>) -> Vec<(String, PaletteEntry)> {
+        let query = self.inputs.palette.read(cx).content().to_lowercase();
+        match self.palette {
+            Some(PaletteMode::Commands) => [
+                ("Open settings", PaletteCommand::Settings),
+                ("Join a channel", PaletteCommand::Join),
+                ("Search messages", PaletteCommand::Search),
+                ("Recent mentions", PaletteCommand::Mentions),
+                ("Emoji picker", PaletteCommand::Emoji),
+                ("Toggle sidebar", PaletteCommand::ToggleSidebar),
+                ("Toggle user list", PaletteCommand::ToggleUsers),
+                ("Sign out", PaletteCommand::SignOut),
+            ]
+            .into_iter()
+            .filter(|(label, _)| label.to_lowercase().contains(&query))
+            .map(|(label, command)| (label.to_string(), PaletteEntry::Command(command)))
+            .collect(),
+            Some(PaletteMode::Channels) => {
+                let mut entries = Vec::new();
+                for network in &self.state.networks {
+                    for channel in &network.channels {
+                        let name = if channel.is_lobby() {
+                            network.name.clone()
+                        } else {
+                            channel.chan.name.clone()
+                        };
+                        let label = format!("{} / {}", network.name, name);
+                        if label.to_lowercase().contains(&query) {
+                            entries.push((label, PaletteEntry::Channel(channel.chan.id)));
+                        }
+                    }
+                }
+                entries
+            }
+            None => Vec::new(),
+        }
+    }
+
+    fn move_palette(&mut self, delta: i32, cx: &mut Context<Self>) {
+        let len = self.palette_entries(cx).len();
+        if len == 0 {
+            return;
+        }
+        let current = self.palette_selection.min(len - 1) as i32;
+        self.palette_selection = (current + delta).rem_euclid(len as i32) as usize;
+        cx.notify();
+    }
+
+    fn run_palette_selection(&mut self, cx: &mut Context<Self>) {
+        let entries = self.palette_entries(cx);
+        let Some((_, entry)) = entries
+            .get(self.palette_selection.min(entries.len().saturating_sub(1)))
+            .cloned()
+        else {
+            return;
+        };
+        self.run_palette_entry(entry, cx);
+    }
+
+    pub(super) fn run_palette_entry(&mut self, entry: PaletteEntry, cx: &mut Context<Self>) {
+        self.palette = None;
+        self.palette_selection = 0;
+        match entry {
+            PaletteEntry::Channel(id) => {
+                self.pending_channel_switch = Some(id);
+                cx.notify();
+            }
+            PaletteEntry::Command(command) => match command {
+                PaletteCommand::Settings => self.open_settings(cx),
+                PaletteCommand::Join => {
+                    self.inputs
+                        .composer
+                        .update(cx, |input, cx| input.set_content("/join ", cx));
+                    self.focus_request = Some(InputRole::Composer);
+                    cx.notify();
+                }
+                PaletteCommand::Search => self.open_search(cx),
+                PaletteCommand::Mentions => self.open_mentions(cx),
+                PaletteCommand::Emoji => self.open_emoji_picker(cx),
+                PaletteCommand::ToggleSidebar => {
+                    self.config.show_sidebar = !self.config.show_sidebar;
+                    self.config.save();
+                    cx.notify();
+                }
+                PaletteCommand::ToggleUsers => {
+                    self.config.show_user_list = !self.config.show_user_list;
+                    self.config.save();
+                    cx.notify();
+                }
+                PaletteCommand::SignOut => self.sign_out(cx),
+            },
+        }
+    }
+
+    fn channel_ids(&self) -> Vec<i64> {
+        self.state
+            .networks
+            .iter()
+            .flat_map(|network| network.channels.iter().map(|channel| channel.chan.id))
+            .collect()
+    }
+
+    pub(super) fn cycle_channel(
+        &mut self,
+        delta: isize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ids = self.channel_ids();
+        if ids.is_empty() {
+            return;
+        }
+        let current = self
+            .state
+            .active
+            .and_then(|active| ids.iter().position(|id| *id == active))
+            .unwrap_or(0) as isize;
+        let next = (current + delta).rem_euclid(ids.len() as isize) as usize;
+        self.switch_channel(ids[next], window, cx);
+    }
+
+    pub(super) fn switch_channel_by_index(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(id) = self.channel_ids().get(index).copied() {
+            self.switch_channel(id, window, cx);
+        }
+    }
+
     pub(super) fn switch_channel(&mut self, id: i64, window: &mut Window, cx: &mut Context<Self>) {
+        self.switch_channel_quiet(id, window, cx);
+        self.focus_composer(window, cx);
+    }
+
+    pub(super) fn switch_channel_quiet(
+        &mut self,
+        id: i64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.sidebar_overlay = false;
         self.users_overlay = false;
+        self.palette = None;
         if self.state.active == Some(id) {
-            self.focus_composer(window, cx);
             return;
         }
         self.image_cache
@@ -306,10 +472,6 @@ impl LoungeApp {
         self.last_scroll_max = gpui::Size {
             width: px(0.),
             height: px(0.),
-        };
-        self.last_scroll_offset = gpui::Point {
-            x: px(0.),
-            y: px(0.),
         };
         self.save_draft(cx);
         self.scroll_after_more = false;
@@ -324,7 +486,7 @@ impl LoungeApp {
         self.schedule_scroll_bottom(cx);
         self.reply_to = None;
         self.history_index = 0;
-        self.focus_composer(window, cx);
+        self.pending_focus = true;
         cx.notify();
     }
 
@@ -499,6 +661,21 @@ impl LoungeApp {
 
     pub(super) fn schedule_scroll_bottom(&mut self, _cx: &mut Context<Self>) {
         self.messages_scroll.scroll_to_bottom();
+    }
+
+    pub(super) fn scroll_messages_page(&mut self, direction: f32, cx: &mut Context<Self>) {
+        let offset = self.messages_scroll.offset();
+        let max = self.messages_scroll.max_offset();
+        let height = self.messages_scroll.bounds().size.height;
+        let mut y = offset.y + height * direction;
+        if y > px(0.) {
+            y = px(0.);
+        }
+        if y < -max.height {
+            y = -max.height;
+        }
+        self.messages_scroll.set_offset(Point { x: offset.x, y });
+        cx.notify();
     }
 
     pub(super) fn at_bottom(&self) -> bool {

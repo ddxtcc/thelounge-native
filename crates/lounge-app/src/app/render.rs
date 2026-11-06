@@ -1,3 +1,4 @@
+use super::tooltip::Tooltip;
 use super::*;
 
 impl LoungeApp {
@@ -22,6 +23,7 @@ impl LoungeApp {
             InputRole::SettingAwayMessage => Some(&self.inputs.setting_away_message),
             InputRole::EmojiSearch => Some(&self.inputs.emoji_search),
             InputRole::FontSearch => Some(&self.inputs.font_search),
+            InputRole::Palette => Some(&self.inputs.palette),
             InputRole::PasswordOld => Some(&self.inputs.password_old),
             InputRole::PasswordNew => Some(&self.inputs.password_new),
             InputRole::PasswordVerify => Some(&self.inputs.password_verify),
@@ -255,7 +257,13 @@ impl LoungeApp {
         } else {
             channel.chan.name.clone()
         };
-        let topic = channel.chan.topic.clone();
+        let icon_buttons = self.config.icon_buttons;
+        let topic = format::clean(&channel.chan.topic);
+        let topic_label = if topic.is_empty() {
+            "Set a topic...".to_string()
+        } else {
+            topic
+        };
         let user_count = channel.users.len();
         let users_shown = if self.narrow {
             self.users_overlay
@@ -307,11 +315,7 @@ impl LoungeApp {
                                 this.focus_composer(window, cx);
                                 cx.notify();
                             }))
-                            .child(if topic.is_empty() {
-                                "Set a topic...".to_string()
-                            } else {
-                                topic
-                            }),
+                            .child(gpui::StyledText::new(topic_label).into_any_element()),
                     ),
             )
             .when(channel.is_channel(), |this| {
@@ -328,6 +332,13 @@ impl LoungeApp {
             .when(channel.is_channel() || channel.is_query(), |this| {
                 let muted = channel.chan.muted;
                 this.child(self.header_button(
+                    if icon_buttons {
+                        if muted { "🔊" } else { "🔇" }
+                    } else if muted {
+                        "Unmute"
+                    } else {
+                        "Mute"
+                    },
                     if muted { "Unmute" } else { "Mute" },
                     muted,
                     cx,
@@ -344,8 +355,20 @@ impl LoungeApp {
             })
             .when(channel.is_channel() || channel.is_query(), |this| {
                 let is_query = channel.is_query();
+                let label = if icon_buttons {
+                    "⏏"
+                } else if is_query {
+                    "Close"
+                } else {
+                    "Leave"
+                };
                 this.child(self.header_button(
-                    if is_query { "Close" } else { "Leave" },
+                    label,
+                    if is_query {
+                        "Close query"
+                    } else {
+                        "Leave channel"
+                    },
                     false,
                     cx,
                     move |this, _, cx| {
@@ -356,24 +379,32 @@ impl LoungeApp {
                     },
                 ))
             })
-            .child(self.header_button("Users", users_shown, cx, {
-                let narrow = self.narrow;
-                move |this, _, cx| {
-                    if narrow {
-                        this.users_overlay = !this.users_overlay;
-                        this.sidebar_overlay = false;
-                    } else {
-                        this.config.show_user_list = !this.config.show_user_list;
-                        this.config.save();
+            .child(self.header_button(
+                if icon_buttons { "👥" } else { "Users" },
+                "Toggle user list",
+                users_shown,
+                cx,
+                {
+                    let narrow = self.narrow;
+                    move |this, _, cx| {
+                        if narrow {
+                            this.users_overlay = !this.users_overlay;
+                            this.sidebar_overlay = false;
+                        } else {
+                            this.config.show_user_list = !this.config.show_user_list;
+                            this.config.save();
+                        }
+                        cx.notify();
                     }
-                    cx.notify();
-                }
-            }))
-            .child(
-                self.header_button("Search", self.search_open, cx, |this, _, cx| {
-                    this.open_search(cx)
-                }),
-            )
+                },
+            ))
+            .child(self.header_button(
+                if icon_buttons { "🔍" } else { "Search" },
+                "Search messages",
+                self.search_open,
+                cx,
+                |this, _, cx| this.open_search(cx),
+            ))
             .into_any_element()
     }
 
@@ -383,34 +414,46 @@ impl LoungeApp {
         } else {
             self.config.show_sidebar
         };
-        let label = if open { "<" } else { "☰" };
+        let label = if open { "←" } else { "☰" };
         let narrow = self.narrow;
-        self.header_button(label, false, cx, move |this, _, cx| {
-            if narrow {
-                this.sidebar_overlay = !this.sidebar_overlay;
-                this.users_overlay = false;
+        self.header_button(
+            label,
+            if open {
+                "Collapse sidebar"
             } else {
-                this.config.show_sidebar = !this.config.show_sidebar;
-                this.config.save();
-            }
-            cx.notify();
-        })
+                "Open sidebar"
+            },
+            false,
+            cx,
+            move |this, _, cx| {
+                if narrow {
+                    this.sidebar_overlay = !this.sidebar_overlay;
+                    this.users_overlay = false;
+                } else {
+                    this.config.show_sidebar = !this.config.show_sidebar;
+                    this.config.save();
+                }
+                cx.notify();
+            },
+        )
     }
 
     pub(super) fn header_button(
         &self,
         label: &str,
+        tooltip: &str,
         active: bool,
         cx: &mut Context<Self>,
         on_click: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) -> AnyElement {
         let theme = self.theme;
+        let tooltip = tooltip.to_string();
         div()
             .id(ElementId::Name(format!("head-{label}").into()))
             .px_2()
             .py(px(4.))
             .rounded(px(4.))
-            .text_size(px(12.))
+            .text_size(px(14.))
             .cursor_pointer()
             .when(active, |this| {
                 this.bg(theme.accent_dim).text_color(theme.accent)
@@ -420,6 +463,7 @@ impl LoungeApp {
                     .hover(|style| style.bg(theme.hover))
             })
             .on_click(cx.listener(move |this, _, window, cx| on_click(this, window, cx)))
+            .tooltip(move |_, cx| cx.new(|_| Tooltip::new(tooltip.clone(), theme)).into())
             .child(label.to_string())
             .into_any_element()
     }
@@ -496,7 +540,7 @@ impl LoungeApp {
                                 this.reply_to = None;
                                 cx.notify();
                             }))
-                            .child("x"),
+                            .child("×"),
                     ),
             );
         }
@@ -517,12 +561,16 @@ impl LoungeApp {
             .bg(theme.panel)
             .border_1()
             .border_color(theme.border)
-            .text_size(px(12.))
+            .text_size(px(16.))
             .text_color(theme.muted)
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover).text_color(theme.text))
             .on_click(cx.listener(|this, _, _, cx| this.open_emoji_picker(cx)))
-            .child("Emoji");
+            .child(if self.config.icon_buttons {
+                "☺"
+            } else {
+                "Emoji"
+            });
         let upload_button = upload_enabled.then(|| {
             div()
                 .id("upload-file")
@@ -534,12 +582,16 @@ impl LoungeApp {
                 .bg(theme.panel)
                 .border_1()
                 .border_color(theme.border)
-                .text_size(px(12.))
+                .text_size(px(16.))
                 .text_color(theme.text)
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.hover).text_color(theme.text))
                 .on_click(cx.listener(|this, _, _, cx| this.prompt_for_upload(cx)))
-                .child("Upload")
+                .child(if self.config.icon_buttons {
+                    "📎"
+                } else {
+                    "Upload"
+                })
         });
 
         footer

@@ -49,7 +49,7 @@ pub(super) fn build_message_text(
         theme.text
     };
     let nick_color = if config.colored_nicks && !nick.is_empty() {
-        rgb(format::nick_color(&nick)).into()
+        theme.nick_color(&nick)
     } else {
         theme.text
     };

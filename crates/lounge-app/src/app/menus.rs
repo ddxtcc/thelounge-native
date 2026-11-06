@@ -363,12 +363,14 @@ impl LoungeApp {
         nick: &str,
         network_uuid: &str,
         chan_id: i64,
+        position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
         let _ = network_uuid;
         self.user_menu = Some(UserMenu {
             nick: nick.to_string(),
             chan_id,
+            position,
         });
         cx.notify();
     }
@@ -485,8 +487,10 @@ impl LoungeApp {
         self.network_menu = None;
         self.user_menu = None;
         self.channel_menu = None;
+        self.message_menu = None;
         self.confirm_remove_network = None;
         self.lightbox = None;
+        self.palette = None;
         self.pending_focus = true;
         cx.notify();
     }
@@ -601,12 +605,73 @@ impl LoungeApp {
             .into_any_element()
     }
 
-    pub(super) fn render_user_menu(
+    pub(super) fn render_message_menu(
         &mut self,
-        menu: UserMenu,
+        menu: MessageMenu,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
+        let position = menu.position;
+        let message = menu.message.clone();
+        let text = format::clean(&message.text);
+        let nick = message
+            .from
+            .as_ref()
+            .map(|from| from.nick.clone())
+            .unwrap_or_default();
+        let mut card = self.menu_card("Message", cx);
+        card = card.child(self.menu_button("Copy message", cx, {
+            let text = text.clone();
+            move |this, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                this.message_menu = None;
+                this.toast("Message copied.");
+                cx.notify();
+            }
+        }));
+        if !nick.is_empty() {
+            card = card.child(self.menu_button("Copy nickname", cx, {
+                let nick = nick.clone();
+                move |this, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(nick.clone()));
+                    this.message_menu = None;
+                    this.toast("Nickname copied.");
+                    cx.notify();
+                }
+            }));
+        }
+        if message.msgid.is_some() {
+            let message = message.clone();
+            card = card.child(self.menu_button("Reply", cx, move |this, _, cx| {
+                this.set_reply(&message, cx);
+                this.message_menu = None;
+            }));
+        }
+        card = card.child(
+            div()
+                .text_size(px(11.))
+                .text_color(theme.muted)
+                .child("Right-click a message to copy it."),
+        );
+        let card = card.into_any_element();
+        let (x, y) = menu_origin(window, position, 420., 300.);
+        div()
+            .absolute()
+            .left(x)
+            .top(y)
+            .child(card)
+            .into_any_element()
+    }
+
+    pub(super) fn render_user_menu(
+        &mut self,
+        menu: UserMenu,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = self.theme;
+        let position = menu.position;
         let nick = menu.nick.clone();
         let mention_nick = menu.nick.clone();
         let commands = [
@@ -631,21 +696,31 @@ impl LoungeApp {
                 this.send_user_command(&menu, &command, cx)
             }));
         }
-        card.child(
-            div()
-                .text_size(px(11.))
-                .text_color(theme.muted)
-                .child("Commands act on the active channel."),
-        )
-        .into_any_element()
+        let card = card
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme.muted)
+                    .child("Commands act on the active channel."),
+            )
+            .into_any_element();
+        let (x, y) = menu_origin(window, position, 420., 460.);
+        div()
+            .absolute()
+            .left(x)
+            .top(y)
+            .child(card)
+            .into_any_element()
     }
 
     pub(super) fn render_channel_menu(
         &mut self,
         menu: ChannelMenu,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
+        let position = menu.position;
         let chan_id = menu.chan_id;
         let network_up = menu.network_uuid.clone();
         let network_down = menu.network_uuid.clone();
@@ -710,12 +785,32 @@ impl LoungeApp {
                 cx.notify();
             },
         ));
-        card.child(
-            div()
-                .text_size(px(11.))
-                .text_color(theme.muted)
-                .child("Moving uses the server's channel ordering."),
-        )
-        .into_any_element()
+        let card = card
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme.muted)
+                    .child("Moving uses the server's channel ordering."),
+            )
+            .into_any_element();
+        let (x, y) = menu_origin(window, position, 420., 480.);
+        div()
+            .absolute()
+            .left(x)
+            .top(y)
+            .child(card)
+            .into_any_element()
     }
+}
+
+fn menu_origin(
+    window: &Window,
+    position: Point<Pixels>,
+    width: f32,
+    height: f32,
+) -> (Pixels, Pixels) {
+    let viewport = window.viewport_size();
+    let x = position.x.min((viewport.width - px(width)).max(px(8.)));
+    let y = position.y.min((viewport.height - px(height)).max(px(8.)));
+    (x, y)
 }

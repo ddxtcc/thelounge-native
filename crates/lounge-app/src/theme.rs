@@ -1,4 +1,6 @@
 use gpui::{Hsla, rgb};
+use lounge_core::format;
+use serde::{Deserialize, Serialize};
 
 fn contrast_text(color: u32) -> Hsla {
     let r = ((color >> 16) & 0xff) as f32 / 255.0;
@@ -35,6 +37,94 @@ pub struct Theme {
     pub overlay: Hsla,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomTheme {
+    pub dark: bool,
+    pub bg: String,
+    pub sidebar: String,
+    pub panel: String,
+    pub hover: String,
+    pub border: String,
+    pub text: String,
+    pub muted: String,
+    pub faint: String,
+    pub accent: String,
+    pub accent_dim: String,
+    pub success: String,
+    pub warning: String,
+    pub error: String,
+    pub highlight_bg: String,
+    pub self_text: String,
+    pub input_bg: String,
+}
+
+fn parse_hex(value: &str) -> u32 {
+    u32::from_str_radix(value.trim().trim_start_matches('#'), 16).unwrap_or(0)
+}
+
+fn hex(color: Hsla) -> String {
+    let color = color.to_rgb();
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        (color.r * 255.).round() as u8,
+        (color.g * 255.).round() as u8,
+        (color.b * 255.).round() as u8
+    )
+}
+
+impl Default for CustomTheme {
+    fn default() -> Self {
+        Self::from_theme(&Theme::dark())
+    }
+}
+
+impl CustomTheme {
+    pub fn from_theme(theme: &Theme) -> Self {
+        Self {
+            dark: theme.dark,
+            bg: hex(theme.bg),
+            sidebar: hex(theme.sidebar),
+            panel: hex(theme.panel),
+            hover: hex(theme.hover),
+            border: hex(theme.border),
+            text: hex(theme.text),
+            muted: hex(theme.muted),
+            faint: hex(theme.faint),
+            accent: hex(theme.accent),
+            accent_dim: hex(theme.accent_dim),
+            success: hex(theme.success),
+            warning: hex(theme.warning),
+            error: hex(theme.error),
+            highlight_bg: hex(theme.highlight_bg),
+            self_text: hex(theme.self_text),
+            input_bg: hex(theme.input_bg),
+        }
+    }
+
+    pub fn to_theme(&self) -> Theme {
+        Theme::palette(
+            self.dark,
+            parse_hex(&self.bg),
+            parse_hex(&self.sidebar),
+            parse_hex(&self.panel),
+            parse_hex(&self.hover),
+            parse_hex(&self.border),
+            parse_hex(&self.text),
+            parse_hex(&self.muted),
+            parse_hex(&self.faint),
+            parse_hex(&self.accent),
+            parse_hex(&self.accent_dim),
+            parse_hex(&self.success),
+            parse_hex(&self.warning),
+            parse_hex(&self.error),
+            parse_hex(&self.highlight_bg),
+            parse_hex(&self.self_text),
+            parse_hex(&self.input_bg),
+        )
+    }
+}
+
 pub const THEMES: &[(&str, &str)] = &[
     ("dark", "Dark"),
     ("light", "Light"),
@@ -47,6 +137,15 @@ pub const THEMES: &[(&str, &str)] = &[
 ];
 
 impl Theme {
+    pub fn from_config(mode: &str, custom: Option<&CustomTheme>) -> Self {
+        if mode == "custom"
+            && let Some(custom) = custom
+        {
+            return custom.to_theme();
+        }
+        Self::from_mode(mode)
+    }
+
     pub fn from_mode(mode: &str) -> Self {
         match mode {
             "light" => Self::light(),
@@ -162,6 +261,16 @@ impl Theme {
         }
     }
 
+    pub fn nick_color(&self, nick: &str) -> Hsla {
+        let mut color: Hsla = rgb(format::nick_color(nick)).into();
+        color.l = if self.dark {
+            color.l.max(0.62)
+        } else {
+            color.l.min(0.46)
+        };
+        color
+    }
+
     pub fn input_colors(&self) -> crate::text_input::InputColors {
         crate::text_input::InputColors {
             text: self.text,
@@ -169,5 +278,20 @@ impl Theme {
             border: self.border,
             focus_border: self.accent,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_theme_round_trips_through_toml() {
+        let custom = CustomTheme::from_theme(&Theme::dark());
+        let text = toml::to_string_pretty(&custom).unwrap();
+        let parsed: CustomTheme = toml::from_str(&text).unwrap();
+        assert_eq!(parsed.bg, custom.bg);
+        assert_eq!(parsed.accent, custom.accent);
+        assert_eq!(parsed.dark, custom.dark);
     }
 }

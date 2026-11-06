@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::theme::CustomTheme;
+
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum StatusMessages {
@@ -37,6 +39,8 @@ pub struct AppConfig {
     pub status_messages: StatusMessages,
     pub show_user_list: bool,
     pub notifications: bool,
+    pub icon_buttons: bool,
+    pub custom_theme: Option<CustomTheme>,
 }
 
 impl Default for AppConfig {
@@ -63,6 +67,8 @@ impl Default for AppConfig {
             status_messages: StatusMessages::Condensed,
             show_user_list: true,
             notifications: true,
+            icon_buttons: true,
+            custom_theme: None,
         }
     }
 }

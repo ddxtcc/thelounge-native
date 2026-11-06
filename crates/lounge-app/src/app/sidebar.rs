@@ -1,4 +1,14 @@
+use super::tooltip::Tooltip;
 use super::*;
+
+#[derive(Clone, Copy)]
+enum SidebarAction {
+    Network,
+    Join,
+    Mentions,
+    Settings,
+    SignOut,
+}
 
 impl LoungeApp {
     pub(super) fn render_sidebar(
@@ -169,7 +179,7 @@ impl LoungeApp {
                                 let network_uuid = network_uuid.clone();
                                 let is_query = channel.is_query();
                                 let muted = channel.chan.muted;
-                                move |this, _, _, cx| {
+                                move |this, event: &gpui::MouseDownEvent, _, cx| {
                                     cx.stop_propagation();
                                     this.open_channel_menu(
                                         ChannelMenu {
@@ -178,6 +188,7 @@ impl LoungeApp {
                                             name: name.clone(),
                                             is_query,
                                             muted,
+                                            position: event.position,
                                         },
                                         cx,
                                     );
@@ -323,55 +334,81 @@ impl LoungeApp {
                     .overflow_y_scroll()
                     .child(list),
             )
-            .child(
-                div()
-                    .border_t_1()
-                    .border_color(theme.border)
-                    .p_2()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(self.sidebar_button("Network actions", cx, |this, _, cx| {
-                        let uuid = this
-                            .state
-                            .active_network()
-                            .map(|network| network.uuid.clone())
-                            .or_else(|| {
-                                this.state
-                                    .networks
-                                    .first()
-                                    .map(|network| network.uuid.clone())
-                            });
-                        match uuid {
-                            Some(uuid) => this.open_network_menu(&uuid, cx),
-                            None => this.open_network_modal(cx),
-                        }
-                    }))
-                    .child(self.sidebar_button("Join channel", cx, |this, window, cx| {
-                        this.inputs
-                            .composer
-                            .update(cx, |input, cx| input.set_content("/join ", cx));
-                        this.focus_composer(window, cx);
-                        cx.notify();
-                    }))
-                    .child(
-                        self.sidebar_button("Mentions", cx, |this, _, cx| this.open_mentions(cx)),
-                    )
-                    .child(
-                        self.sidebar_button("Settings", cx, |this, _, cx| this.open_settings(cx)),
-                    )
-                    .child(self.sidebar_button("Sign out", cx, |this, _, cx| this.sign_out(cx))),
-            )
+            .child(self.sidebar_footer(cx))
             .into_any_element()
+    }
+
+    fn sidebar_footer(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let icon_buttons = self.config.icon_buttons;
+        let mut footer = div().border_t_1().border_color(theme.border).p_2();
+        footer = if icon_buttons {
+            footer.flex().items_center().justify_between()
+        } else {
+            footer.flex().flex_col().gap_1()
+        };
+        let entries = if icon_buttons {
+            [
+                ("⋮", "Network actions", SidebarAction::Network),
+                ("+", "Join channel", SidebarAction::Join),
+                ("@", "Recent mentions", SidebarAction::Mentions),
+                ("⚙", "Settings", SidebarAction::Settings),
+                ("⏻", "Sign out", SidebarAction::SignOut),
+            ]
+        } else {
+            [
+                ("Network actions", "Network actions", SidebarAction::Network),
+                ("Join channel", "Join channel", SidebarAction::Join),
+                ("Mentions", "Recent mentions", SidebarAction::Mentions),
+                ("Settings", "Settings", SidebarAction::Settings),
+                ("Sign out", "Sign out", SidebarAction::SignOut),
+            ]
+        };
+        for (label, tooltip, action) in entries {
+            footer =
+                footer.child(
+                    self.sidebar_button(label, tooltip, cx, move |this, window, cx| match action {
+                        SidebarAction::Network => {
+                            let uuid = this
+                                .state
+                                .active_network()
+                                .map(|network| network.uuid.clone())
+                                .or_else(|| {
+                                    this.state
+                                        .networks
+                                        .first()
+                                        .map(|network| network.uuid.clone())
+                                });
+                            match uuid {
+                                Some(uuid) => this.open_network_menu(&uuid, cx),
+                                None => this.open_network_modal(cx),
+                            }
+                        }
+                        SidebarAction::Join => {
+                            this.inputs
+                                .composer
+                                .update(cx, |input, cx| input.set_content("/join ", cx));
+                            this.focus_composer(window, cx);
+                            cx.notify();
+                        }
+                        SidebarAction::Mentions => this.open_mentions(cx),
+                        SidebarAction::Settings => this.open_settings(cx),
+                        SidebarAction::SignOut => this.sign_out(cx),
+                    }),
+                );
+        }
+        footer.into_any_element()
     }
 
     pub(super) fn sidebar_button(
         &self,
         label: &str,
+        tooltip: &str,
         cx: &mut Context<Self>,
         on_click: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) -> AnyElement {
         let theme = self.theme;
+        let tooltip = tooltip.to_string();
         div()
             .id(ElementId::Name(format!("side-{label}").into()))
             .px_2()
@@ -382,6 +419,7 @@ impl LoungeApp {
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover).text_color(theme.text))
             .on_click(cx.listener(move |this, _, window, cx| on_click(this, window, cx)))
+            .tooltip(move |_, cx| cx.new(|_| Tooltip::new(tooltip.clone(), theme)).into())
             .child(label.to_string())
             .into_any_element()
     }
@@ -403,7 +441,7 @@ impl LoungeApp {
             let nick = user.nick.clone();
             let mode = user_mode_prefix(user, network);
             let color = if self.config.colored_nicks {
-                rgb(format::nick_color(&user.nick)).into()
+                theme.nick_color(&user.nick)
             } else {
                 theme.text
             };
@@ -430,9 +468,15 @@ impl LoungeApp {
                             let nick = nick.clone();
                             let network_uuid = network.uuid.clone();
                             let chan_id = channel.chan.id;
-                            move |this, _, _, cx| {
+                            move |this, event: &gpui::MouseDownEvent, _, cx| {
                                 cx.stop_propagation();
-                                this.open_user_menu(&nick, &network_uuid, chan_id, cx);
+                                this.open_user_menu(
+                                    &nick,
+                                    &network_uuid,
+                                    chan_id,
+                                    event.position,
+                                    cx,
+                                );
                             }
                         }),
                     )

@@ -99,6 +99,7 @@ pub enum InputRole {
     SettingAwayMessage,
     EmojiSearch,
     FontSearch,
+    Palette,
     PasswordOld,
     PasswordNew,
     PasswordVerify,
@@ -556,7 +557,10 @@ impl TextInput {
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if event.keystroke.key.eq_ignore_ascii_case("tab") {
+        if event.keystroke.key.eq_ignore_ascii_case("tab")
+            && !event.keystroke.modifiers.control
+            && !event.keystroke.modifiers.platform
+        {
             if event.keystroke.modifiers.shift {
                 window.focus_prev();
             } else if self.tab_completion {

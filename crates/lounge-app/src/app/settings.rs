@@ -130,6 +130,22 @@ impl LoungeApp {
                     cx.notify();
                 }),
             )
+            .child(self.setting_section("Lounge Native"))
+            .child(
+                self.setting_row_toggle("Icon buttons", self.config.icon_buttons, cx, |this| {
+                    this.config.icon_buttons = !this.config.icon_buttons
+                }),
+            )
+            .child(
+                self.setting_row_button("Import custom theme", "Paste", cx, |this, cx| {
+                    this.import_theme(cx)
+                }),
+            )
+            .child(
+                self.setting_row_button("Export current theme", "Copy", cx, |this, cx| {
+                    this.export_theme(cx)
+                }),
+            )
             .child(self.setting_section("Messages"))
             .child(self.setting_row_toggle(
                 "Aligned message text",
@@ -204,10 +220,46 @@ impl LoungeApp {
         card.into_any_element()
     }
 
+    pub(super) fn import_theme(&mut self, cx: &mut Context<Self>) {
+        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
+            self.toast("Clipboard is empty.");
+            return;
+        };
+        match toml::from_str::<crate::theme::CustomTheme>(&text) {
+            Ok(theme) => {
+                self.config.custom_theme = Some(theme);
+                self.config.theme = "custom".into();
+                self.apply_theme(cx);
+                self.config.save();
+                self.toast("Custom theme imported.");
+            }
+            Err(_) => self.toast("Theme TOML is invalid."),
+        }
+    }
+
+    pub(super) fn export_theme(&mut self, cx: &mut Context<Self>) {
+        let theme = self
+            .config
+            .custom_theme
+            .clone()
+            .unwrap_or_else(|| crate::theme::CustomTheme::from_theme(&self.theme));
+        match toml::to_string_pretty(&theme) {
+            Ok(text) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+                self.toast("Theme copied to clipboard.");
+            }
+            Err(_) => self.toast("Could not export this theme."),
+        }
+    }
+
     pub(super) fn theme_picker(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let mut row = div().flex().flex_wrap().gap_2();
-        for (id, label) in crate::theme::THEMES {
+        let mut themes = crate::theme::THEMES.to_vec();
+        if self.config.custom_theme.is_some() {
+            themes.push(("custom", "Custom"));
+        }
+        for (id, label) in themes {
             let active = self.config.theme == *id;
             let id = id.to_string();
             row = row.child(
