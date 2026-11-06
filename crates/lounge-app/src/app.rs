@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -72,6 +73,65 @@ pub struct Inputs {
     password_old: Entity<TextInput>,
     password_new: Entity<TextInput>,
     password_verify: Entity<TextInput>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SelectionPoint {
+    message_id: i64,
+    index: usize,
+}
+
+#[derive(Clone)]
+struct TextSelection {
+    start: SelectionPoint,
+    end: SelectionPoint,
+}
+
+impl TextSelection {
+    fn range_for(
+        &self,
+        channel: &ChannelState,
+        message_id: i64,
+        len: usize,
+    ) -> Option<Range<usize>> {
+        let position = |id: i64| {
+            channel
+                .chan
+                .messages
+                .iter()
+                .position(|message| message.id == id)
+        };
+        let start_position = position(self.start.message_id)?;
+        let end_position = position(self.end.message_id)?;
+        let current_position = position(message_id)?;
+        let (first, second) = if start_position <= end_position {
+            (self.start, self.end)
+        } else {
+            (self.end, self.start)
+        };
+        let first_position = start_position.min(end_position);
+        let second_position = start_position.max(end_position);
+        if current_position < first_position || current_position > second_position {
+            return None;
+        }
+        let start = if current_position == first_position {
+            first.index
+        } else {
+            0
+        };
+        let end = if current_position == second_position {
+            second.index
+        } else {
+            len
+        };
+        let start = start.min(len);
+        let end = end.min(len);
+        Some(start.min(end)..start.max(end))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.start == self.end
+    }
 }
 
 #[derive(Clone)]
@@ -246,6 +306,9 @@ pub struct LoungeApp {
     user_menu: Option<UserMenu>,
     channel_menu: Option<ChannelMenu>,
     message_menu: Option<MessageMenu>,
+    text_selection: Option<TextSelection>,
+    hovered_text: Option<(i64, usize)>,
+    selecting_text: bool,
     confirm_remove_network: Option<String>,
     root_focus: gpui::FocusHandle,
     last_overlay_open: bool,
@@ -271,6 +334,7 @@ mod render;
 mod render_impl;
 mod settings;
 mod sidebar;
+mod special;
 mod tooltip;
 mod uploads;
 
@@ -428,6 +492,9 @@ impl LoungeApp {
             user_menu: None,
             channel_menu: None,
             message_menu: None,
+            text_selection: None,
+            hovered_text: None,
+            selecting_text: false,
             confirm_remove_network: None,
             root_focus,
             last_overlay_open: false,

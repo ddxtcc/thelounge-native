@@ -38,6 +38,7 @@ impl Render for LoungeApp {
         self.last_overlay_open = overlay_open;
 
         if let Some(role) = self.focus_request.take() {
+            self.pending_focus = false;
             if let Some(input) = self.input_for_role(role) {
                 let handle = input.read(cx).focus_handle(cx);
                 window.focus(&handle);
@@ -114,6 +115,14 @@ impl Render for LoungeApp {
                             this.switch_channel_by_index(digit as usize - 1, window, cx);
                             cx.stop_propagation();
                             return;
+                        }
+                        if key == "c" {
+                            let focused = window.focused(cx);
+                            let composer = this.inputs.composer.read(cx).focus_handle(cx);
+                            if focused.as_ref() != Some(&composer) && this.copy_text_selection(cx) {
+                                cx.stop_propagation();
+                                return;
+                            }
                         }
                         if key == "v" {
                             let focused = window.focused(cx);
