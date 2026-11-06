@@ -464,6 +464,9 @@ impl LoungeApp {
         self.sidebar_overlay = false;
         self.users_overlay = false;
         self.palette = None;
+        self.text_selection = None;
+        self.hovered_text = None;
+        self.selecting_text = false;
         if self.state.active == Some(id) {
             return;
         }
@@ -661,6 +664,46 @@ impl LoungeApp {
 
     pub(super) fn schedule_scroll_bottom(&mut self, _cx: &mut Context<Self>) {
         self.messages_scroll.scroll_to_bottom();
+    }
+
+    pub(super) fn copy_text_selection(&mut self, cx: &mut Context<Self>) -> bool {
+        let copied = {
+            let Some(active) = self.state.active else {
+                return false;
+            };
+            let Some((network, channel)) = self.state.find_channel(active) else {
+                return false;
+            };
+            let Some(selection) = &self.text_selection else {
+                return false;
+            };
+            let nick_column = self.config.nick_column && !self.narrow;
+            let mut parts = Vec::new();
+            for message in &channel.chan.messages {
+                let (text, _, _, _) = super::message_text::build_message_text(
+                    message,
+                    network,
+                    channel,
+                    &self.config,
+                    nick_column,
+                    &self.theme,
+                    self.theme.dark,
+                );
+                if let Some(range) = selection.range_for(channel, message.id, text.len())
+                    && !range.is_empty()
+                {
+                    parts.push(text[range].to_string());
+                }
+            }
+            parts.join("\n")
+        };
+        if copied.is_empty() {
+            return false;
+        }
+        cx.write_to_clipboard(ClipboardItem::new_string(copied));
+        self.toast("Copied selection.");
+        cx.notify();
+        true
     }
 
     pub(super) fn scroll_messages_page(&mut self, direction: f32, cx: &mut Context<Self>) {

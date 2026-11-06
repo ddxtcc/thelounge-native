@@ -195,7 +195,15 @@ impl LoungeApp {
             &theme,
             self.theme.dark,
         );
-        let (text, runs, ranges, targets) = body;
+        let (text, mut runs, ranges, targets) = body;
+        if let Some(range) = self
+            .text_selection
+            .as_ref()
+            .and_then(|selection| selection.range_for(channel, message.id, text.len()))
+        {
+            runs = select_runs(runs, range, theme.accent_dim);
+        }
+        let selection_text = text.clone();
 
         let weak = cx.entity().downgrade();
         let targets = Rc::new(targets);
@@ -216,18 +224,87 @@ impl LoungeApp {
             }
         };
 
-        let text_element = if ranges.is_empty() {
-            gpui::StyledText::new(text)
-                .with_runs(runs)
-                .into_any_element()
-        } else {
-            InteractiveText::new(
-                ElementId::Name(format!("msg-{}", message.id).into()),
-                StyledText::new(text).with_runs(runs),
-            )
-            .on_click(ranges, click)
-            .into_any_element()
+        let message_id = message.id;
+        let hover = {
+            let weak = weak.clone();
+            move |index: Option<usize>,
+                  event: gpui::MouseMoveEvent,
+                  _: &mut Window,
+                  cx: &mut App| {
+                let Some(index) = index else {
+                    return;
+                };
+                let _ = weak.update(cx, |this, cx| {
+                    this.hovered_text = Some((message_id, index));
+                    if event.dragging()
+                        && this.selecting_text
+                        && let Some(selection) = &mut this.text_selection
+                    {
+                        selection.end = SelectionPoint { message_id, index };
+                        cx.notify();
+                    }
+                });
+            }
         };
+        let mut text_element = InteractiveText::new(
+            ElementId::Name(format!("msg-{message_id}").into()),
+            StyledText::new(text.clone()).with_runs(runs),
+        )
+        .on_hover(hover);
+        if !ranges.is_empty() {
+            text_element = text_element.on_click(ranges, click);
+        }
+        let text_element = div()
+            .id(ElementId::Name(format!("msg-wrap-{message_id}").into()))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                    window.focus(&this.root_focus);
+                    let index = this
+                        .hovered_text
+                        .filter(|(id, _)| *id == message_id)
+                        .map(|(_, index)| index)
+                        .unwrap_or(0);
+                    let point = SelectionPoint { message_id, index };
+                    if event.click_count >= 2 {
+                        let range = word_range(&selection_text, index);
+                        this.text_selection = Some(TextSelection {
+                            start: SelectionPoint {
+                                message_id,
+                                index: range.start,
+                            },
+                            end: SelectionPoint {
+                                message_id,
+                                index: range.end,
+                            },
+                        });
+                        this.selecting_text = false;
+                    } else {
+                        this.text_selection = Some(TextSelection {
+                            start: point,
+                            end: point,
+                        });
+                        this.selecting_text = true;
+                    }
+                    cx.notify();
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.selecting_text = false;
+                    if this
+                        .text_selection
+                        .as_ref()
+                        .is_some_and(TextSelection::is_empty)
+                    {
+                        this.text_selection = None;
+                    }
+                    cx.notify();
+                }),
+            )
+            .child(text_element)
+            .into_any_element();
 
         let reply_button = if message.msgid.is_some() && message.kind != MessageType::Unknown {
             let message = message.clone();
@@ -373,6 +450,7 @@ impl LoungeApp {
         }
 
         let mut inline = div().flex().flex_col().gap_2();
+        let image_height = if self.narrow { px(170.) } else { px(240.) };
         for (index, url) in inline_images.iter().enumerate() {
             let lightbox_url = url.clone();
             inline = inline.child(
@@ -380,8 +458,12 @@ impl LoungeApp {
                     .id(ElementId::Name(
                         format!("inline-image-{}-{index}", message.id).into(),
                     ))
+                    .w_full()
                     .max_w(px(460.))
+                    .h(image_height)
                     .rounded(px(6.))
+                    .bg(theme.panel)
+                    .overflow_hidden()
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.lightbox = Some(lightbox_url.clone());
@@ -390,8 +472,10 @@ impl LoungeApp {
                     .child(
                         gpui::img(url.clone())
                             .image_cache(&self.image_cache)
-                            .max_w(px(460.))
-                            .max_h(px(360.))
+                            .w_full()
+                            .h(image_height)
+                            .max_h(image_height)
+                            .object_fit(gpui::ObjectFit::Contain)
                             .rounded(px(6.)),
                     ),
             );
@@ -509,249 +593,6 @@ impl LoungeApp {
         }
         row.child(content).into_any_element()
     }
-
-    pub(super) fn render_special(
-        &self,
-        network: &NetworkState,
-        channel: &ChannelState,
-        special: &str,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = self.theme;
-        let data = channel.chan.data.clone();
-        let rows: Vec<serde_json::Value> = data
-            .as_ref()
-            .and_then(|value| value.as_array())
-            .cloned()
-            .unwrap_or_default();
-        let status_text = data
-            .as_ref()
-            .and_then(|value| value.get("text"))
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-
-        let mut headers: Vec<(&str, Option<gpui::Pixels>)> = Vec::new();
-        match special {
-            "list_bans" => {
-                headers = vec![
-                    ("Banned", None),
-                    ("Banned by", Some(px(180.))),
-                    ("Banned at", Some(px(210.))),
-                ];
-            }
-            "list_invites" => {
-                headers = vec![
-                    ("Invited", None),
-                    ("Invited by", Some(px(180.))),
-                    ("Invited at", Some(px(210.))),
-                ];
-            }
-            "list_ignored" => {
-                headers = vec![("Hostmask", None), ("Ignored at", Some(px(230.)))];
-            }
-            "list_channels" => {
-                headers = vec![
-                    ("Channel", Some(px(240.))),
-                    ("Users", Some(px(90.))),
-                    ("Topic", None),
-                ];
-            }
-            _ => {}
-        }
-
-        let mut table = div().flex().flex_col().w_full();
-        if !headers.is_empty() {
-            let mut header_row = div()
-                .flex()
-                .gap_4()
-                .px_4()
-                .py_2()
-                .border_b_1()
-                .border_color(theme.border)
-                .text_size(px(11.))
-                .text_color(theme.muted);
-            for (label, width) in &headers {
-                header_row = header_row.child(
-                    div()
-                        .when_some(*width, |this, width| this.w(width))
-                        .when(width.is_none(), |this| this.flex_1())
-                        .child(label.to_string()),
-                );
-            }
-            table = table.child(header_row);
-        }
-
-        if let Some(text) = status_text {
-            table = table.child(div().p_4().text_color(theme.muted).child(text));
-        } else if rows.is_empty() && !headers.is_empty() {
-            table = table.child(div().p_4().text_color(theme.muted).child("No entries."));
-        } else {
-            for row in rows {
-                let mut cells = div()
-                    .flex()
-                    .gap_4()
-                    .px_4()
-                    .py(px(5.))
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .items_start();
-                match special {
-                    "list_bans" => {
-                        cells = cells
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w(px(0.))
-                                    .child(json_string(&row, "hostmask")),
-                            )
-                            .child(div().w(px(180.)).child(json_string(&row, "banned_by")))
-                            .child(
-                                div()
-                                    .w(px(210.))
-                                    .text_color(theme.muted)
-                                    .child(special_time(row.get("banned_at"))),
-                            );
-                    }
-                    "list_invites" => {
-                        cells = cells
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w(px(0.))
-                                    .child(json_string(&row, "hostmask")),
-                            )
-                            .child(div().w(px(180.)).child(json_string(&row, "invited_by")))
-                            .child(
-                                div()
-                                    .w(px(210.))
-                                    .text_color(theme.muted)
-                                    .child(special_time(row.get("invited_at"))),
-                            );
-                    }
-                    "list_ignored" => {
-                        cells = cells
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w(px(0.))
-                                    .child(json_string(&row, "hostmask")),
-                            )
-                            .child(
-                                div()
-                                    .w(px(230.))
-                                    .text_color(theme.muted)
-                                    .child(special_time(row.get("when"))),
-                            );
-                    }
-                    "list_channels" => {
-                        let name = json_string(&row, "channel");
-                        let join_name = name.clone();
-                        let exists = network
-                            .channels
-                            .iter()
-                            .find(|channel| channel.chan.name.eq_ignore_ascii_case(&name))
-                            .map(|channel| channel.chan.id);
-                        let lobby = network.channels.first().map(|channel| channel.chan.id);
-                        cells = cells
-                            .child(
-                                div()
-                                    .w(px(240.))
-                                    .id(ElementId::Name(format!("special-join-{name}").into()))
-                                    .text_color(theme.accent)
-                                    .cursor_pointer()
-                                    .hover(|style| style.underline())
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        if let Some(id) = exists {
-                                            this.switch_channel(id, window, cx);
-                                        } else if let (Some(conn), Some(lobby)) =
-                                            (&this.conn, lobby)
-                                        {
-                                            conn.input(lobby, format!("/join {join_name}"), None);
-                                        }
-                                    }))
-                                    .child(name),
-                            )
-                            .child(
-                                div().w(px(90.)).text_color(theme.muted).child(
-                                    row.get("num_users")
-                                        .map(|value| value.to_string())
-                                        .unwrap_or_default(),
-                                ),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w(px(0.))
-                                    .text_color(theme.muted)
-                                    .child(json_string(&row, "topic")),
-                            );
-                    }
-                    _ => {
-                        cells = cells.child(row.to_string());
-                    }
-                }
-                table = table.child(cells);
-            }
-        }
-
-        div()
-            .flex_1()
-            .min_h(px(0.))
-            .flex()
-            .flex_col()
-            .child(
-                div()
-                    .px_4()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .text_size(px(12.))
-                    .text_color(theme.muted)
-                    .child(format!("{} - read-only", channel.chan.name)),
-            )
-            .child(
-                div()
-                    .id("special-scroll")
-                    .flex_1()
-                    .min_h(px(0.))
-                    .overflow_y_scroll()
-                    .child(table),
-            )
-            .into_any_element()
-    }
-}
-
-fn json_string(value: &serde_json::Value, key: &str) -> String {
-    value
-        .get(key)
-        .map(|value| match value {
-            serde_json::Value::String(text) => text.clone(),
-            other => other.to_string(),
-        })
-        .unwrap_or_default()
-}
-
-fn special_time(value: Option<&serde_json::Value>) -> String {
-    let Some(value) = value else {
-        return String::new();
-    };
-    let datetime = if let Some(millis) = value.as_i64() {
-        chrono::DateTime::<chrono::Utc>::from_timestamp_millis(millis)
-    } else if let Some(text) = value.as_str() {
-        chrono::DateTime::parse_from_rfc3339(text)
-            .ok()
-            .map(|datetime| datetime.with_timezone(&chrono::Utc))
-    } else {
-        None
-    };
-    datetime
-        .map(|datetime| {
-            datetime
-                .with_timezone(&Local)
-                .format("%d %B %Y, %H:%M:%S")
-                .to_string()
-        })
-        .unwrap_or_default()
 }
 
 fn build_rows<'a>(channel: &'a ChannelState, config: &AppConfig) -> Vec<Row<'a>> {
@@ -842,6 +683,65 @@ fn nick_column_width(channel: &ChannelState, font_size: f32) -> f32 {
         }
     }
     (chars as f32 * font_size * 0.58 + 18.).clamp(70., 180.)
+}
+
+fn word_range(text: &str, index: usize) -> Range<usize> {
+    let index = index.min(text.len());
+    let is_word = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '-';
+    let mut start = index;
+    while let Some(ch) = text[..start].chars().next_back() {
+        if !is_word(ch) {
+            break;
+        }
+        start -= ch.len_utf8();
+    }
+    let mut end = index;
+    while let Some(ch) = text[end..].chars().next() {
+        if !is_word(ch) {
+            break;
+        }
+        end += ch.len_utf8();
+    }
+    start..end
+}
+
+fn select_runs(runs: Vec<TextRun>, range: Range<usize>, color: Hsla) -> Vec<TextRun> {
+    if range.is_empty() {
+        return runs;
+    }
+    let mut result = Vec::with_capacity(runs.len());
+    let mut offset = 0;
+    for run in runs {
+        let start = offset;
+        let end = offset + run.len;
+        offset = end;
+        if end <= range.start || start >= range.end {
+            result.push(run);
+            continue;
+        }
+        let selected_start = range.start.max(start);
+        let selected_end = range.end.min(end);
+        let before = selected_start - start;
+        if before > 0 {
+            let mut part = run.clone();
+            part.len = before;
+            result.push(part);
+        }
+        let inside = selected_end - selected_start;
+        if inside > 0 {
+            let mut part = run.clone();
+            part.len = inside;
+            part.background_color = Some(color);
+            result.push(part);
+        }
+        let after = end - selected_end;
+        if after > 0 {
+            let mut part = run;
+            part.len = after;
+            result.push(part);
+        }
+    }
+    result
 }
 
 fn status_icon(kind: MessageType, theme: &Theme) -> (&'static str, Hsla) {
