@@ -275,17 +275,13 @@ impl LoungeApp {
         } else {
             channel.chan.name.clone()
         };
-        let reserved = if self.narrow {
-            0.
-        } else {
-            (if self.config.show_sidebar { 238. } else { 0. })
-                + (if self.config.show_user_list && channel.is_channel() {
-                    210.
-                } else {
-                    0.
-                })
-        };
-        let compact_header = window.viewport_size().width - px(reserved) < px(900.);
+        let compact_header = compact_header(
+            window.viewport_size().width,
+            self.narrow,
+            self.config.show_sidebar,
+            self.config.show_user_list,
+            channel.is_channel(),
+        );
         let icon_buttons = self.config.icon_buttons || compact_header;
         let topic = format::clean(&channel.chan.topic);
         let topic_label = if topic.is_empty() {
@@ -741,5 +737,45 @@ impl LoungeApp {
                     .children(upload_button),
             )
             .into_any_element()
+    }
+}
+
+fn compact_header(
+    viewport_width: Pixels,
+    narrow: bool,
+    show_sidebar: bool,
+    show_user_list: bool,
+    is_channel: bool,
+) -> bool {
+    let reserved = if narrow {
+        px(0.)
+    } else {
+        (if show_sidebar { px(238.) } else { px(0.) })
+            + (if show_user_list && is_channel {
+                px(210.)
+            } else {
+                px(0.)
+            })
+    };
+    viewport_width - reserved < px(900.)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compact_header;
+    use gpui::px;
+
+    #[test]
+    fn compact_header_uses_chat_width() {
+        assert!(compact_header(px(1347.), false, true, true, true));
+        assert!(!compact_header(px(1348.), false, true, true, true));
+    }
+
+    #[test]
+    fn compact_header_ignores_hidden_side_panels() {
+        assert!(!compact_header(px(900.), false, false, false, true));
+        assert!(compact_header(px(899.), false, false, false, true));
+        assert!(compact_header(px(899.), true, true, true, true));
+        assert!(!compact_header(px(900.), true, true, true, true));
     }
 }

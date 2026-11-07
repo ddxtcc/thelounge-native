@@ -144,13 +144,7 @@ impl LoungeApp {
     }
 
     pub(super) fn message_row_index(&self, rows: &[Row], message_id: i64) -> Option<usize> {
-        rows.iter().position(|row| match row {
-            Row::Message(message) => message.id == message_id,
-            Row::Condensed { messages, .. } => {
-                messages.iter().any(|message| message.id == message_id)
-            }
-            _ => false,
-        })
+        message_row_index(rows, message_id)
     }
 
     pub(super) fn render_list_row(
@@ -287,6 +281,14 @@ impl LoungeApp {
     }
 }
 
+fn message_row_index(rows: &[Row], message_id: i64) -> Option<usize> {
+    rows.iter().position(|row| match row {
+        Row::Message(message) => message.id == message_id,
+        Row::Condensed { messages, .. } => messages.iter().any(|message| message.id == message_id),
+        _ => false,
+    })
+}
+
 fn condensed_summary(messages: &[Message]) -> String {
     let mut joins = 0;
     let mut parts = 0;
@@ -411,6 +413,15 @@ mod tests {
             &rows[0],
             Row::Condensed { messages, .. } if messages.len() == 3
         ));
+    }
+
+    #[test]
+    fn message_rows_map_jump_targets() {
+        let channel = status_channel(MessageType::Join, 3);
+        let config = AppConfig::default();
+        let rows = build_rows(&channel, &config);
+        assert_eq!(message_row_index(&rows, 2), Some(0));
+        assert_eq!(message_row_index(&rows, 99), None);
     }
 
     #[test]

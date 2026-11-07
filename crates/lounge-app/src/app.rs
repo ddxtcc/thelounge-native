@@ -891,3 +891,77 @@ impl LoungeApp {
         app
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn channel_with_ids(ids: &[i64]) -> ChannelState {
+        ChannelState {
+            chan: lounge_core::proto::Channel {
+                messages: ids
+                    .iter()
+                    .map(|id| Message {
+                        id: *id,
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn text_selection_ranges_forward_across_messages() {
+        let channel = channel_with_ids(&[10, 20, 30]);
+        let selection = TextSelection {
+            start: SelectionPoint {
+                message_id: 10,
+                index: 2,
+            },
+            end: SelectionPoint {
+                message_id: 30,
+                index: 4,
+            },
+        };
+        assert_eq!(selection.range_for(&channel, 10, 12), Some(2..12));
+        assert_eq!(selection.range_for(&channel, 20, 12), Some(0..12));
+        assert_eq!(selection.range_for(&channel, 30, 12), Some(0..4));
+        assert_eq!(selection.range_for(&channel, 99, 12), None);
+    }
+
+    #[test]
+    fn text_selection_normalizes_backward_drag() {
+        let channel = channel_with_ids(&[10, 20, 30]);
+        let selection = TextSelection {
+            start: SelectionPoint {
+                message_id: 30,
+                index: 4,
+            },
+            end: SelectionPoint {
+                message_id: 10,
+                index: 2,
+            },
+        };
+        assert_eq!(selection.range_for(&channel, 10, 12), Some(2..12));
+        assert_eq!(selection.range_for(&channel, 20, 12), Some(0..12));
+        assert_eq!(selection.range_for(&channel, 30, 12), Some(0..4));
+    }
+
+    #[test]
+    fn text_selection_clamps_indexes_to_message_length() {
+        let channel = channel_with_ids(&[10]);
+        let selection = TextSelection {
+            start: SelectionPoint {
+                message_id: 10,
+                index: 50,
+            },
+            end: SelectionPoint {
+                message_id: 10,
+                index: 80,
+            },
+        };
+        assert_eq!(selection.range_for(&channel, 10, 12), Some(12..12));
+    }
+}
