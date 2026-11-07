@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -484,7 +485,8 @@ pub struct LoungeApp {
     last_scroll_max: gpui::Size<gpui::Pixels>,
     preview_scroll_message: Option<i64>,
     image_cache: Entity<gpui::RetainAllImageCache>,
-    last_image_cache_trim: Option<Instant>,
+    image_cache_current: RefCell<HashSet<String>>,
+    image_cache_touched: RefCell<VecDeque<String>>,
     message_anchors: HashMap<i64, gpui::ScrollAnchor>,
     pending_focus_message: Option<i64>,
     focused_message: Option<i64>,
@@ -770,7 +772,8 @@ impl LoungeApp {
             },
             preview_scroll_message: None,
             image_cache: gpui::RetainAllImageCache::new(cx),
-            last_image_cache_trim: None,
+            image_cache_current: RefCell::new(HashSet::new()),
+            image_cache_touched: RefCell::new(VecDeque::new()),
             message_anchors: HashMap::new(),
             pending_focus_message: None,
             focused_message: None,

@@ -9,6 +9,7 @@ impl LoungeApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        self.image_cache_current.borrow_mut().clear();
         let theme = self.theme;
         let Some(active) = self.state.active else {
             return div()
@@ -192,6 +193,7 @@ impl LoungeApp {
             }
         }
 
+        self.trim_image_cache(window, cx);
         if let Some(message_id) = self.pending_focus_message.take() {
             if let Some(anchor) = self.message_anchors.get(&message_id) {
                 anchor.scroll_to(window, cx);
@@ -517,6 +519,7 @@ impl LoungeApp {
                             .child(if video { "Play video" } else { "Play audio" }),
                     );
                 if let Some(thumb) = thumb {
+                    self.touch_image(&thumb);
                     card = card.child(
                         div()
                             .w(px(220.))
@@ -536,6 +539,7 @@ impl LoungeApp {
                     );
                 }
             } else if let Some(thumb) = thumb {
+                self.touch_image(&thumb);
                 let lightbox_url = thumb.clone();
                 card = card
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -570,6 +574,7 @@ impl LoungeApp {
         let image_height = if self.narrow { px(170.) } else { px(240.) };
         for (index, url) in inline_images.iter().enumerate() {
             let lightbox_url = url.clone();
+            self.touch_image(url);
             inline = inline.child(
                 div()
                     .id(ElementId::Name(

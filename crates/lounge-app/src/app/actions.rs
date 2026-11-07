@@ -406,6 +406,8 @@ impl LoungeApp {
             return;
         }
         self.message_anchors.clear();
+        self.image_cache_current.borrow_mut().clear();
+        self.image_cache_touched.borrow_mut().clear();
         self.image_cache
             .update(cx, |cache, cx| cache.clear(window, cx));
         self.last_scroll_max = gpui::Size {
@@ -652,6 +654,33 @@ impl LoungeApp {
         let mut seen = HashSet::new();
         urls.retain(|url| seen.insert(url.clone()));
         urls
+    }
+
+    pub(super) fn touch_image(&self, url: &str) {
+        let url = url.to_string();
+        self.image_cache_current.borrow_mut().insert(url.clone());
+        let mut touched = self.image_cache_touched.borrow_mut();
+        if let Some(position) = touched.iter().position(|candidate| candidate == &url) {
+            touched.remove(position);
+        }
+        touched.push_back(url);
+    }
+
+    pub(super) fn trim_image_cache(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let limit = self.config.image_cache_limit.max(64);
+        let current = self.image_cache_current.borrow().clone();
+        let mut touched = self.image_cache_touched.borrow_mut();
+        while touched.len() > limit {
+            let Some(position) = touched.iter().position(|url| !current.contains(url)) else {
+                break;
+            };
+            let Some(url) = touched.remove(position) else {
+                break;
+            };
+            let resource = gpui::Resource::Uri(url.into());
+            self.image_cache
+                .update(cx, |cache, cx| cache.remove(&resource, window, cx));
+        }
     }
 
     pub(super) fn absolute_media_url(&self, url: &str) -> String {

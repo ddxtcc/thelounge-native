@@ -137,6 +137,7 @@ impl LoungeApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
+        self.touch_image(url);
         let viewport = window.viewport_size();
         let max_w = viewport.width * 0.88;
         let max_h = viewport.height * 0.82;

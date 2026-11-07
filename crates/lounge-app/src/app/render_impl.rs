@@ -32,18 +32,6 @@ impl Render for LoungeApp {
                 }
             }
         }
-        let cache_len = self.image_cache.read(cx).len();
-        if cache_len > self.config.image_cache_limit.max(64) {
-            let now = Instant::now();
-            if self
-                .last_image_cache_trim
-                .is_none_or(|last| now.duration_since(last) > Duration::from_secs(2))
-            {
-                self.image_cache
-                    .update(cx, |cache, cx| cache.clear(window, cx));
-                self.last_image_cache_trim = Some(now);
-            }
-        }
         let unread = self.state.total_unread();
         let title = if unread > 0 {
             format!("Lounge Native ({unread})")
