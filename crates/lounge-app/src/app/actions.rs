@@ -210,6 +210,8 @@ impl LoungeApp {
                 InputAction::Submit => {
                     if self.palette == Some(PaletteMode::Alias) {
                         self.save_command_alias(cx);
+                    } else if self.palette == Some(PaletteMode::Hotkey) {
+                        self.save_global_hotkey(cx);
                     } else {
                         self.run_palette_selection(cx);
                     }
@@ -886,6 +888,63 @@ impl LoungeApp {
             let _ = cx;
         }
         cx.notify();
+    }
+
+    pub(super) fn open_hotkey_palette(&mut self, return_to_settings: bool, cx: &mut Context<Self>) {
+        self.hotkey_settings_return = return_to_settings;
+        self.open_palette(PaletteMode::Hotkey, cx);
+    }
+
+    pub(super) fn set_global_hotkey(&mut self, spec: &str, cx: &mut Context<Self>) -> bool {
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = spec;
+            let _ = cx;
+            self.toast("Global shortcuts are only available on Linux X11.");
+            return false;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            use global_hotkey::{GlobalHotKeyManager, hotkey::HotKey};
+            let Ok(hotkey) = spec.parse::<HotKey>() else {
+                self.toast("Invalid shortcut. Try control+alt+l.");
+                return false;
+            };
+            if hotkey.mods.is_empty() {
+                self.toast("Include at least one modifier.");
+                return false;
+            }
+            let old = self.config.global_hotkey.parse::<HotKey>().ok();
+            let manager = match self.hotkey_manager.take() {
+                Some(manager) => manager,
+                None => match GlobalHotKeyManager::new() {
+                    Ok(manager) => manager,
+                    Err(error) => {
+                        self.toast(format!("Could not enable global shortcut: {error}"));
+                        return false;
+                    }
+                },
+            };
+            if let Some(old) = old {
+                let _ = manager.unregister(old);
+            }
+            if let Err(error) = manager.register(hotkey) {
+                if let Some(old) = old {
+                    let _ = manager.register(old);
+                }
+                self.hotkey_manager = Some(manager);
+                self.toast(format!("Shortcut unavailable: {error}"));
+                return false;
+            }
+            self.hotkey_manager = Some(manager);
+            self.config.global_hotkey = hotkey.into_string();
+            self.config.enable_global_hotkey = true;
+            self.config.save();
+            self.toast(format!("Global shortcut: {}", self.config.global_hotkey));
+            self.hotkey_settings_return = false;
+            cx.notify();
+            true
+        }
     }
 
     pub(super) fn unread_mentions(&self) -> usize {

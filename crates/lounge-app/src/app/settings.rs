@@ -270,10 +270,17 @@ impl LoungeApp {
                 ))
                 .child(self.setting_row_value_button(
                     "Global shortcut",
+                    &self.config.global_hotkey,
+                    "Change",
+                    cx,
+                    |this, _, cx| this.open_hotkey_palette(true, cx),
+                ))
+                .child(self.setting_row_value_button(
+                    "Global shortcut enabled",
                     if self.config.enable_global_hotkey {
-                        "Ctrl+Shift+L"
+                        "On"
                     } else {
-                        "Disabled"
+                        "Off"
                     },
                     "Toggle",
                     cx,

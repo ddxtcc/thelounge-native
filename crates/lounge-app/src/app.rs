@@ -178,6 +178,7 @@ enum PaletteMode {
     Channels,
     Themes,
     Alias,
+    Hotkey,
     Users(PaletteUserAction),
 }
 
@@ -191,7 +192,10 @@ impl PaletteCommand {
             | Self::SettingsAwayMessage
             | Self::AddAlias => "Settings",
             Self::Shortcuts => "Help",
-            Self::SettingsTab(_) | Self::ToggleTray | Self::ToggleGlobalHotkey => "Settings",
+            Self::SettingsTab(_)
+            | Self::ToggleTray
+            | Self::ToggleGlobalHotkey
+            | Self::SetGlobalHotkey => "Settings",
             Self::SwitchChannel
             | Self::NextChannel
             | Self::PreviousChannel
@@ -322,6 +326,7 @@ enum PaletteCommand {
     SettingsTab(SettingsTab),
     ToggleTray,
     ToggleGlobalHotkey,
+    SetGlobalHotkey,
     UserAction(PaletteUserAction),
 }
 
@@ -504,6 +509,7 @@ pub struct LoungeApp {
     notification_action_tx: std::sync::mpsc::Sender<i64>,
     notification_action_rx: std::sync::mpsc::Receiver<i64>,
     window_title: String,
+    hotkey_settings_return: bool,
     #[cfg(target_os = "linux")]
     tray_handle: Option<ksni::blocking::Handle<tray::LoungeTray>>,
     #[cfg(target_os = "linux")]
@@ -716,10 +722,15 @@ impl LoungeApp {
                 .then(GlobalHotKeyManager::new)
                 .and_then(Result::ok);
             if let Some(manager) = &manager {
-                let _ = manager.register(HotKey::new(
-                    Some(Modifiers::CONTROL | Modifiers::SHIFT),
-                    Code::KeyL,
-                ));
+                let hotkey = config
+                    .global_hotkey
+                    .parse::<HotKey>()
+                    .ok()
+                    .filter(|hotkey| !hotkey.mods.is_empty())
+                    .unwrap_or_else(|| {
+                        HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyL)
+                    });
+                let _ = manager.register(hotkey);
             }
             manager
         };
@@ -766,6 +777,7 @@ impl LoungeApp {
             notification_action_tx,
             notification_action_rx,
             window_title: "Lounge Native".to_string(),
+            hotkey_settings_return: false,
             #[cfg(target_os = "linux")]
             tray_handle,
             #[cfg(target_os = "linux")]

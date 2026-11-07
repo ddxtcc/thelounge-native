@@ -502,6 +502,7 @@ impl LoungeApp {
         self.message_context = None;
         self.pending_context = None;
         self.shortcuts_open = false;
+        self.hotkey_settings_return = false;
         self.pending_focus = true;
         cx.notify();
     }

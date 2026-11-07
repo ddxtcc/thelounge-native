@@ -10,6 +10,7 @@ impl LoungeApp {
             Some(PaletteMode::Channels) => "Switch channel",
             Some(PaletteMode::Themes) => "Choose theme",
             Some(PaletteMode::Alias) => "Add command alias",
+            Some(PaletteMode::Hotkey) => "Global shortcut",
             Some(PaletteMode::Users(action)) => action.title(),
             None => "Command palette",
         };
