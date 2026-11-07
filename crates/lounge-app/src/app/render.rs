@@ -171,9 +171,11 @@ impl LoungeApp {
         if !self.narrow && show_sidebar {
             root = root.child(self.render_sidebar(window, cx));
         }
+        let layout_weak = cx.entity().downgrade();
         root = root.child(
             div()
                 .flex_1()
+                .h(window.viewport_size().height)
                 .min_w(px(0.))
                 .flex()
                 .flex_col()
@@ -181,6 +183,21 @@ impl LoungeApp {
                 .child(self.render_messages(window, cx))
                 .when(!special_channel, |this| {
                     this.child(self.render_composer(window, cx))
+                })
+                .on_children_prepainted(move |bounds, window, cx| {
+                    if bounds.len() < 3 {
+                        return;
+                    }
+                    let available = (window.viewport_size().height
+                        - bounds[0].size.height
+                        - bounds[bounds.len() - 1].size.height)
+                        .max(px(0.));
+                    let _ = layout_weak.update(cx, |this, cx| {
+                        if this.messages_available != available {
+                            this.messages_available = available;
+                            cx.notify();
+                        }
+                    });
                 }),
         );
         if !self.narrow && show_users {

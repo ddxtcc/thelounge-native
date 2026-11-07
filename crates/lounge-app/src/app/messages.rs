@@ -73,7 +73,11 @@ impl LoungeApp {
             }
         }
 
-        let list_height = (window.viewport_size().height - px(150.)).max(px(120.));
+        let list_height = if self.messages_available > px(0.) {
+            self.messages_available
+        } else {
+            (window.viewport_size().height - px(150.)).max(px(120.))
+        };
         let rows = Rc::new(rows);
         let entity = cx.entity();
         let item_rows = rows.clone();
@@ -122,7 +126,10 @@ impl LoungeApp {
                 })
                 .w_full()
                 .h(list_height)
-                .min_h(px(0.)),
+                .min_h(px(0.))
+                .line_height(relative(self.config.line_height))
+                .text_size(px(self.config.font_size))
+                .font_family(self.config.font_family.clone()),
             )
             .into_any_element()
     }
