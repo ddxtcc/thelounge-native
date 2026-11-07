@@ -92,6 +92,11 @@ struct SelectionPoint {
     index: usize,
 }
 
+struct ActiveUpload {
+    name: String,
+    progress: lounge_core::upload::UploadProgress,
+}
+
 #[derive(Clone)]
 struct MessageContext {
     channel: String,
@@ -546,6 +551,7 @@ pub struct LoungeApp {
     last_known_revision: u64,
     pending_uploads: Vec<PathBuf>,
     uploads_in_flight: usize,
+    active_upload: Option<ActiveUpload>,
     window_active: bool,
     focus_request: Option<InputRole>,
     focus_root_request: bool,
@@ -833,6 +839,7 @@ impl LoungeApp {
             last_known_revision: 0,
             pending_uploads: Vec::new(),
             uploads_in_flight: 0,
+            active_upload: None,
             window_active: true,
             focus_request: None,
             focus_root_request: false,

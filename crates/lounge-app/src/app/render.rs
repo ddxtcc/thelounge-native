@@ -533,6 +533,42 @@ impl LoungeApp {
             );
         }
 
+        if let Some(upload) = &self.active_upload {
+            let sent = upload.progress.sent();
+            let total = upload.progress.total();
+            let percent = if total == 0 {
+                0
+            } else {
+                (sent.min(total) * 100 / total) as u32
+            };
+            let progress = upload.progress.clone();
+            footer = footer.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .py_1()
+                    .rounded(px(4.))
+                    .bg(theme.panel)
+                    .text_size(px(11.))
+                    .text_color(theme.muted)
+                    .child(format!("Uploading {} ({percent}%)", upload.name))
+                    .child(
+                        div()
+                            .id("cancel-upload")
+                            .px_1()
+                            .cursor_pointer()
+                            .hover(|style| style.text_color(theme.error))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                progress.cancel();
+                                cx.notify();
+                            }))
+                            .child("Cancel"),
+                    ),
+            );
+        }
+
         if let Some(reply) = &self.reply_to {
             footer = footer.child(
                 div()
