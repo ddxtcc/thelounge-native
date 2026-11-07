@@ -16,12 +16,6 @@ At the login screen enter the server URL, for example:
 https://lounge.example.com
 ```
 
-If The Lounge is hosted under a subpath, include it:
-
-```text
-https://example.com/lounge
-```
-
 ## Install
 
 ```sh
