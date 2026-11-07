@@ -454,6 +454,7 @@ impl LoungeApp {
         let url = inline.url.clone();
         let video = inline.video.clone();
         let toggle = video.clone();
+        let click_video = video.clone();
         let mute = video.clone();
         let open_url = url.clone();
         let paused = video.paused();
@@ -478,12 +479,22 @@ impl LoungeApp {
                 .flex_col()
                 .gap_2()
                 .child(
-                    div().w_full().flex().justify_center().child(
-                        gpui_video_player::video(video)
-                            .id(ElementId::Name(format!("inline-video-{url}").into()))
-                            .buffer_capacity(30)
-                            .size(display_width, display_height),
-                    ),
+                    div()
+                        .id(ElementId::Name(format!("inline-video-area-{url}").into()))
+                        .w_full()
+                        .flex()
+                        .justify_center()
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            click_video.set_paused(!click_video.paused());
+                            cx.notify();
+                        }))
+                        .child(
+                            gpui_video_player::video(video)
+                                .id(ElementId::Name(format!("inline-video-{url}").into()))
+                                .buffer_capacity(30)
+                                .size(display_width, display_height),
+                        ),
                 )
                 .child(
                     div()
@@ -603,6 +614,7 @@ impl LoungeApp {
         };
         let video = video.clone();
         let controls_video = video.clone();
+        let click_video = video.clone();
         let mute_video = video.clone();
         let paused = video.paused();
         let muted = video.muted();
@@ -617,10 +629,19 @@ impl LoungeApp {
             .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()));
         if kind == MediaKind::Video {
             body = body.child(
-                gpui_video_player::video(video)
-                    .id("lightbox-video")
-                    .buffer_capacity(30)
-                    .size(max_w, max_h),
+                div()
+                    .id("lightbox-video-area")
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        click_video.set_paused(!click_video.paused());
+                        cx.notify();
+                    }))
+                    .child(
+                        gpui_video_player::video(video)
+                            .id("lightbox-video")
+                            .buffer_capacity(30)
+                            .size(max_w, max_h),
+                    ),
             );
         } else {
             body = body.child(

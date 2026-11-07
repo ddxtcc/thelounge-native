@@ -685,15 +685,28 @@ impl LoungeApp {
                                     .child(
                                         div()
                                             .absolute()
-                                            .bottom_2()
-                                            .right_2()
-                                            .px_2()
-                                            .py(px(1.))
-                                            .rounded(px(4.))
-                                            .bg(theme.overlay)
-                                            .text_size(px(11.))
-                                            .text_color(theme.text)
-                                            .child("Play"),
+                                            .top_0()
+                                            .left_0()
+                                            .size_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .child(
+                                                div()
+                                                    .size(px(52.))
+                                                    .rounded_full()
+                                                    .bg(theme.overlay)
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .child(
+                                                        gpui::svg()
+                                                            .path("icons/play.svg")
+                                                            .w(px(24.))
+                                                            .h(px(24.))
+                                                            .text_color(theme.text),
+                                                    ),
+                                            ),
                                     ),
                             ),
                         );
