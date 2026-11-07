@@ -133,6 +133,11 @@ impl LoungeApp {
                 let is_more = matches!(event, ServerEvent::More(_));
                 let signed_out = matches!(event, ServerEvent::SignedOut);
                 let is_message = matches!(event, ServerEvent::Message(_));
+                let is_search_results = matches!(event, ServerEvent::SearchResults(_));
+                let preview_message = match &event {
+                    ServerEvent::MessagePreview(preview) => Some(preview.id),
+                    _ => None,
+                };
                 let upload_token = match &event {
                     ServerEvent::UploadAuth(token) => Some(token.clone()),
                     _ => None,
@@ -179,6 +184,13 @@ impl LoungeApp {
                     });
                 }
                 self.state.apply(event);
+                if is_search_results {
+                    self.search_selection = 0;
+                    self.search_scroll.scroll_to_item(0);
+                }
+                if let Some(message_id) = preview_message {
+                    self.preview_scroll_message = Some(message_id);
+                }
                 if let Some(token) = upload_token {
                     self.upload_next(token, cx);
                 }

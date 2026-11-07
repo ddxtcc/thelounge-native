@@ -24,28 +24,49 @@ impl LoungeApp {
         if entries.is_empty() {
             list = list.child(div().p_2().text_color(theme.muted).child("No matches."));
         }
+        let mut last_section = None;
         for (index, (label, entry)) in entries.into_iter().enumerate() {
+            let section = match &entry {
+                PaletteEntry::Recent(_) => Some("Recent"),
+                PaletteEntry::Command(command)
+                    if matches!(self.palette, Some(PaletteMode::Commands)) =>
+                {
+                    Some(command.section())
+                }
+                _ => None,
+            };
+            let show_section = section.is_some() && last_section != section;
+            last_section = section;
             let action = entry.clone();
-            list =
-                list.child(
-                    div()
-                        .id(ElementId::Name(format!("palette-{index}").into()))
-                        .px_2()
-                        .py_1()
-                        .rounded(px(4.))
-                        .cursor_pointer()
-                        .text_color(if index == selection {
-                            theme.accent
-                        } else {
-                            theme.text
-                        })
-                        .when(index == selection, |this| this.bg(theme.hover))
-                        .hover(|style| style.bg(theme.hover))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.run_palette_entry(action.clone(), cx)
-                        }))
-                        .child(label),
+            let mut item = div()
+                .id(ElementId::Name(format!("palette-{index}").into()))
+                .px_2()
+                .py_1()
+                .rounded(px(4.))
+                .cursor_pointer()
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .text_color(if index == selection {
+                    theme.accent
+                } else {
+                    theme.text
+                })
+                .when(index == selection, |this| this.bg(theme.hover))
+                .hover(|style| style.bg(theme.hover))
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.run_palette_entry(action.clone(), cx)),
                 );
+            if show_section {
+                item = item.child(
+                    div()
+                        .text_size(px(10.))
+                        .text_color(theme.muted)
+                        .child(section.unwrap_or_default()),
+                );
+            }
+            item = item.child(label);
+            list = list.child(item);
         }
         self.modal_card(title, cx)
             .child(self.inputs.palette.clone())

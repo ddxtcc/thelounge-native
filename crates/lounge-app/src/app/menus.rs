@@ -96,6 +96,8 @@ impl LoungeApp {
 
     pub(super) fn open_search(&mut self, cx: &mut Context<Self>) {
         self.search_open = true;
+        self.search_selection = 0;
+        self.search_scroll = gpui::ScrollHandle::new();
         self.focus_request = Some(InputRole::Search);
         self.state.search_results = None;
         cx.notify();

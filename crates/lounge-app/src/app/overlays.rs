@@ -116,12 +116,29 @@ impl LoungeApp {
             .child(
                 div()
                     .id("lightbox-image")
+                    .w(max_w)
+                    .h(max_h)
+                    .flex()
+                    .items_center()
+                    .justify_center()
                     .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
                     .child(
                         gpui::img(url.to_string())
                             .image_cache(&self.image_cache)
-                            .max_w(max_w)
-                            .max_h(max_h)
+                            .w_full()
+                            .h_full()
+                            .object_fit(gpui::ObjectFit::Contain)
+                            .with_fallback(move || {
+                                div()
+                                    .w_full()
+                                    .h_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_color(theme.muted)
+                                    .child("Image failed to load")
+                                    .into_any_element()
+                            })
                             .rounded(px(6.)),
                     ),
             )
@@ -314,8 +331,18 @@ impl LoungeApp {
                         .child("No results. Search requires message logging on the server."),
                 );
             }
-            let mut list = div().flex().flex_col().gap_2();
-            for result in &results.results {
+            let selection = self
+                .search_selection
+                .min(results.results.len().saturating_sub(1));
+            let mut list = div()
+                .id("search-results")
+                .flex()
+                .flex_col()
+                .gap_2()
+                .max_h(px(420.))
+                .overflow_y_scroll()
+                .track_scroll(&self.search_scroll);
+            for (index, result) in results.results.iter().enumerate() {
                 let time = format::format_time(
                     result.time,
                     self.config.show_seconds,
@@ -327,18 +354,7 @@ impl LoungeApp {
                     .map(|from| from.nick.clone())
                     .unwrap_or_default();
                 let text = format::clean(&result.text);
-                let network_uuid = results.query.network_uuid.clone();
-                let channel_name = results.query.channel_name.clone();
-                let target = self.state.networks.iter().find_map(|network| {
-                    if network.uuid != network_uuid {
-                        return None;
-                    }
-                    network
-                        .channels
-                        .iter()
-                        .find(|channel| channel.chan.name == channel_name)
-                        .map(|channel| channel.chan.id)
-                });
+                let selected = index == selection;
                 list = list.child(
                     div()
                         .id(ElementId::Name(format!("search-{}", result.id).into()))
@@ -348,13 +364,10 @@ impl LoungeApp {
                         .py_1()
                         .rounded(px(4.))
                         .cursor_pointer()
+                        .when(selected, |this| this.bg(theme.hover))
                         .hover(|style| style.bg(theme.hover))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            if let Some(id) = target {
-                                this.switch_channel(id, window, cx);
-                                this.search_open = false;
-                            }
-                            cx.notify();
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.activate_search_result(index, cx);
                         }))
                         .child(
                             div()

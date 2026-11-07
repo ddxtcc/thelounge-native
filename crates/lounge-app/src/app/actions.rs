@@ -92,6 +92,11 @@ impl LoungeApp {
                 self.palette_selection = 0;
                 self.palette_scroll.scroll_to_item(0);
             }
+            if role == InputRole::Search {
+                self.state.search_results = None;
+                self.search_selection = 0;
+                self.search_scroll.scroll_to_item(0);
+            }
             cx.notify();
         }
         if role == InputRole::Composer {
@@ -157,11 +162,23 @@ impl LoungeApp {
                     self.submit_network(cx);
                 }
             }
-            InputRole::Search => {
-                if action == InputAction::Submit {
-                    self.submit_search(cx);
+            InputRole::Search => match action {
+                InputAction::Submit => {
+                    if self
+                        .state
+                        .search_results
+                        .as_ref()
+                        .is_some_and(|results| !results.results.is_empty())
+                    {
+                        self.activate_search_result(self.search_selection, cx);
+                    } else {
+                        self.submit_search(cx);
+                    }
                 }
-            }
+                InputAction::PrevHistory => self.move_search(-1, cx),
+                InputAction::NextHistory => self.move_search(1, cx),
+                _ => {}
+            },
             InputRole::SettingHighlights
             | InputRole::SettingHighlightExceptions
             | InputRole::SettingAwayMessage => {
@@ -598,6 +615,16 @@ impl LoungeApp {
         true
     }
 
+    pub(super) fn scroll_messages_by(&mut self, delta: Pixels, cx: &mut Context<Self>) {
+        let offset = self.messages_scroll.offset();
+        let max = self.messages_scroll.max_offset();
+        let y = (offset.y + delta).min(px(0.)).max(-max.height);
+        if y != offset.y {
+            self.messages_scroll.set_offset(Point { x: offset.x, y });
+            cx.notify();
+        }
+    }
+
     pub(super) fn scroll_messages_page(&mut self, direction: f32, cx: &mut Context<Self>) {
         let offset = self.messages_scroll.offset();
         let max = self.messages_scroll.max_offset();
@@ -705,6 +732,48 @@ impl LoungeApp {
             self.toast("Connecting network...");
         }
         cx.notify();
+    }
+
+    fn move_search(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let len = self
+            .state
+            .search_results
+            .as_ref()
+            .map(|results| results.results.len())
+            .unwrap_or(0);
+        if len == 0 {
+            return;
+        }
+        let current = self.search_selection.min(len - 1) as isize;
+        self.search_selection = (current + delta).rem_euclid(len as isize) as usize;
+        self.search_scroll.scroll_to_item(self.search_selection);
+        cx.notify();
+    }
+
+    pub(super) fn activate_search_result(&mut self, index: usize, cx: &mut Context<Self>) {
+        let target = {
+            let Some(results) = &self.state.search_results else {
+                return;
+            };
+            if results.results.get(index).is_none() {
+                return;
+            }
+            self.state.networks.iter().find_map(|network| {
+                if network.uuid != results.query.network_uuid {
+                    return None;
+                }
+                network
+                    .channels
+                    .iter()
+                    .find(|channel| channel.chan.name == results.query.channel_name)
+                    .map(|channel| channel.chan.id)
+            })
+        };
+        if let Some(id) = target {
+            self.search_open = false;
+            self.pending_channel_switch = Some(id);
+            cx.notify();
+        }
     }
 
     pub(super) fn submit_search(&mut self, cx: &mut Context<Self>) {

@@ -162,9 +162,70 @@ enum PaletteMode {
     Users(PaletteUserAction),
 }
 
+impl PaletteCommand {
+    fn section(self) -> &'static str {
+        match self {
+            Self::Settings
+            | Self::Security
+            | Self::SettingsHighlights
+            | Self::SettingsHighlightExceptions
+            | Self::SettingsAwayMessage => "Settings",
+            Self::SwitchChannel
+            | Self::NextChannel
+            | Self::PreviousChannel
+            | Self::Join
+            | Self::LoadOlder
+            | Self::JumpToBottom => "Navigation",
+            Self::Search | Self::Mentions | Self::Emoji => "Messages",
+            Self::UploadFile | Self::ClearComposer | Self::CancelReply | Self::CopySelection => {
+                "Composer"
+            }
+            Self::Theme
+            | Self::ChooseUiFont
+            | Self::ChooseMonoFont
+            | Self::ImportTheme
+            | Self::ExportTheme
+            | Self::ToggleSidebar
+            | Self::ToggleUsers
+            | Self::ToggleInlineImages
+            | Self::TogglePreviews
+            | Self::ToggleTimestamps
+            | Self::Toggle24Hour
+            | Self::ToggleSeconds
+            | Self::ToggleColoredNicks
+            | Self::ToggleNotifications
+            | Self::ToggleIconButtons
+            | Self::ToggleAlignedText
+            | Self::CycleStatusMessages
+            | Self::FontSizeUp
+            | Self::FontSizeDown
+            | Self::LineHeightUp
+            | Self::LineHeightDown
+            | Self::MessageSpacingUp
+            | Self::MessageSpacingDown => "Appearance",
+            Self::MoveChannelUp
+            | Self::MoveChannelDown
+            | Self::LeaveChannel
+            | Self::ToggleMute
+            | Self::ClearChannelHistory
+            | Self::EditTopic => "Channels",
+            Self::AddNetwork
+            | Self::EditNetwork
+            | Self::ReconnectNetwork
+            | Self::DisconnectNetwork
+            | Self::RemoveNetwork
+            | Self::MoveNetworkUp
+            | Self::MoveNetworkDown => "Networks",
+            Self::UserAction(_) => "Users",
+            Self::SignOut => "Account",
+        }
+    }
+}
+
 #[derive(Clone)]
 enum PaletteEntry {
     Command(PaletteCommand),
+    Recent(PaletteCommand),
     Channel(i64),
     Theme(String, String),
     User {
@@ -173,7 +234,7 @@ enum PaletteEntry {
     },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum PaletteCommand {
     Settings,
     Security,
@@ -384,6 +445,7 @@ pub struct LoungeApp {
     input_revisions: HashMap<InputRole, u64>,
     messages_scroll: gpui::ScrollHandle,
     last_scroll_max: gpui::Size<gpui::Pixels>,
+    preview_scroll_message: Option<i64>,
     image_cache: Entity<gpui::RetainAllImageCache>,
     collapsed_networks: HashSet<String>,
     expanded_condensed: HashSet<i64>,
@@ -403,6 +465,8 @@ pub struct LoungeApp {
     settings_open: bool,
     network_modal_open: bool,
     search_open: bool,
+    search_selection: usize,
+    search_scroll: gpui::ScrollHandle,
     mentions_open: bool,
     network_tls: bool,
     network_defaults_applied: bool,
@@ -436,6 +500,7 @@ pub struct LoungeApp {
     palette: Option<PaletteMode>,
     palette_selection: usize,
     palette_scroll: gpui::ScrollHandle,
+    recent_commands: Vec<PaletteCommand>,
     pending_channel_switch: Option<i64>,
     scroll_after_more: bool,
 }
@@ -572,6 +637,7 @@ impl LoungeApp {
                 width: px(0.),
                 height: px(0.),
             },
+            preview_scroll_message: None,
             image_cache: gpui::RetainAllImageCache::new(cx),
             collapsed_networks: HashSet::new(),
             expanded_condensed: HashSet::new(),
@@ -591,6 +657,8 @@ impl LoungeApp {
             settings_open: false,
             network_modal_open: false,
             search_open: false,
+            search_selection: 0,
+            search_scroll: gpui::ScrollHandle::new(),
             mentions_open: false,
             network_tls: true,
             network_defaults_applied: false,
@@ -624,6 +692,7 @@ impl LoungeApp {
             palette: None,
             palette_selection: 0,
             palette_scroll: gpui::ScrollHandle::new(),
+            recent_commands: Vec::new(),
             pending_channel_switch: None,
             scroll_after_more: false,
         };

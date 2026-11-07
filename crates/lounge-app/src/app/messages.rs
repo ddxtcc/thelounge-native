@@ -24,7 +24,22 @@ impl LoungeApp {
             || scroll_offset.y <= -self.last_scroll_max.height + px(48.);
         if scroll_max.height > self.last_scroll_max.height + px(1.) && was_at_bottom {
             self.schedule_scroll_bottom(cx);
+        } else if let Some(preview_message) = self.preview_scroll_message.take()
+            && scroll_max.height > self.last_scroll_max.height + px(1.)
+            && !was_at_bottom
+            && self
+                .state
+                .active_channel()
+                .and_then(|(_, channel)| channel.chan.messages.last())
+                .map(|message| message.id)
+                != Some(preview_message)
+        {
+            let delta = scroll_max.height - self.last_scroll_max.height;
+            let offset = self.messages_scroll.offset();
+            let y = (offset.y - delta).min(px(0.)).max(-scroll_max.height);
+            self.messages_scroll.set_offset(Point { x: offset.x, y });
         }
+        self.preview_scroll_message = None;
         self.last_scroll_max = scroll_max;
         let Some((network, channel)) = self.state.find_channel(active) else {
             return div().flex_1().into_any_element();
@@ -165,6 +180,23 @@ impl LoungeApp {
             .min_h(px(0.))
             .overflow_y_scroll()
             .track_scroll(&self.messages_scroll)
+            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
+                if !this.selecting_text {
+                    return;
+                }
+                let bounds = this.messages_scroll.bounds();
+                let edge = px(32.);
+                let delta = if event.position.y < bounds.top() + edge {
+                    px(18.)
+                } else if event.position.y > bounds.bottom() - edge {
+                    px(-18.)
+                } else {
+                    px(0.)
+                };
+                if delta != px(0.) {
+                    this.scroll_messages_by(delta, cx);
+                }
+            }))
             .child(content)
             .into_any_element()
     }
@@ -278,6 +310,11 @@ impl LoungeApp {
                                 index: range.end,
                             },
                         });
+                        this.selecting_text = false;
+                    } else if event.modifiers.shift
+                        && let Some(selection) = &mut this.text_selection
+                    {
+                        selection.end = point;
                         this.selecting_text = false;
                     } else {
                         this.text_selection = Some(TextSelection {
@@ -450,12 +487,21 @@ impl LoungeApp {
                     );
                 if let Some(thumb) = thumb {
                     card = card.child(
-                        gpui::img(thumb)
-                            .image_cache(&self.image_cache)
+                        div()
                             .w(px(220.))
                             .h(px(140.))
-                            .object_fit(gpui::ObjectFit::Contain)
-                            .rounded(px(4.)),
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                gpui::img(thumb)
+                                    .image_cache(&self.image_cache)
+                                    .w(px(220.))
+                                    .h(px(140.))
+                                    .object_fit(gpui::ObjectFit::Contain)
+                                    .with_fallback(move || image_fallback(theme, "Image failed"))
+                                    .rounded(px(4.)),
+                            ),
                     );
                 }
             } else if let Some(thumb) = thumb {
@@ -466,12 +512,21 @@ impl LoungeApp {
                         cx.notify();
                     }))
                     .child(
-                        gpui::img(thumb)
-                            .image_cache(&self.image_cache)
+                        div()
                             .w(px(220.))
                             .h(px(140.))
-                            .object_fit(gpui::ObjectFit::Contain)
-                            .rounded(px(4.)),
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                gpui::img(thumb)
+                                    .image_cache(&self.image_cache)
+                                    .w(px(220.))
+                                    .h(px(140.))
+                                    .object_fit(gpui::ObjectFit::Contain)
+                                    .with_fallback(move || image_fallback(theme, "Image failed"))
+                                    .rounded(px(4.)),
+                            ),
                     );
             } else {
                 card = card.on_click(cx.listener(move |_, _, _, _| {
@@ -508,6 +563,7 @@ impl LoungeApp {
                             .h(image_height)
                             .max_h(image_height)
                             .object_fit(gpui::ObjectFit::Contain)
+                            .with_fallback(move || image_fallback(theme, "Image failed to load"))
                             .rounded(px(6.)),
                     ),
             );
@@ -735,6 +791,19 @@ fn word_range(text: &str, index: usize) -> Range<usize> {
         end += ch.len_utf8();
     }
     start..end
+}
+
+fn image_fallback(theme: Theme, label: &'static str) -> AnyElement {
+    div()
+        .w_full()
+        .h_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(11.))
+        .text_color(theme.muted)
+        .child(label)
+        .into_any_element()
 }
 
 fn select_runs(runs: Vec<TextRun>, range: Range<usize>, color: Hsla) -> Vec<TextRun> {

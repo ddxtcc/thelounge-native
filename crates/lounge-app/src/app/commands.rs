@@ -25,124 +25,30 @@ impl LoungeApp {
     pub(super) fn palette_entries(&self, cx: &mut Context<Self>) -> Vec<(String, PaletteEntry)> {
         let query = self.inputs.palette.read(cx).content().to_lowercase();
         match self.palette {
-            Some(PaletteMode::Commands) => [
-                ("Open settings", PaletteCommand::Settings),
-                ("Security & sessions", PaletteCommand::Security),
-                ("Switch channel", PaletteCommand::SwitchChannel),
-                ("Next channel", PaletteCommand::NextChannel),
-                ("Previous channel", PaletteCommand::PreviousChannel),
-                ("Join a channel", PaletteCommand::Join),
-                ("Upload a file", PaletteCommand::UploadFile),
-                (
-                    "Mention user",
-                    PaletteCommand::UserAction(PaletteUserAction::Mention),
-                ),
-                (
-                    "Open query",
-                    PaletteCommand::UserAction(PaletteUserAction::Query),
-                ),
-                (
-                    "Whois user",
-                    PaletteCommand::UserAction(PaletteUserAction::Whois),
-                ),
-                ("Give op", PaletteCommand::UserAction(PaletteUserAction::Op)),
-                (
-                    "Remove op",
-                    PaletteCommand::UserAction(PaletteUserAction::Deop),
-                ),
-                (
-                    "Give voice",
-                    PaletteCommand::UserAction(PaletteUserAction::Voice),
-                ),
-                (
-                    "Remove voice",
-                    PaletteCommand::UserAction(PaletteUserAction::Devoice),
-                ),
-                (
-                    "Kick user",
-                    PaletteCommand::UserAction(PaletteUserAction::Kick),
-                ),
-                (
-                    "Ban user",
-                    PaletteCommand::UserAction(PaletteUserAction::Ban),
-                ),
-                ("Search messages", PaletteCommand::Search),
-                ("Recent mentions", PaletteCommand::Mentions),
-                ("Emoji picker", PaletteCommand::Emoji),
-                ("Choose theme", PaletteCommand::Theme),
-                ("Choose message font", PaletteCommand::ChooseUiFont),
-                ("Choose monospace font", PaletteCommand::ChooseMonoFont),
-                ("Import custom theme", PaletteCommand::ImportTheme),
-                ("Export current theme", PaletteCommand::ExportTheme),
-                ("Toggle sidebar", PaletteCommand::ToggleSidebar),
-                ("Toggle user list", PaletteCommand::ToggleUsers),
-                ("Toggle inline images", PaletteCommand::ToggleInlineImages),
-                ("Toggle link previews", PaletteCommand::TogglePreviews),
-                ("Toggle timestamps", PaletteCommand::ToggleTimestamps),
-                ("Toggle 24-hour clock", PaletteCommand::Toggle24Hour),
-                ("Toggle seconds", PaletteCommand::ToggleSeconds),
-                (
-                    "Toggle colored nicknames",
-                    PaletteCommand::ToggleColoredNicks,
-                ),
-                (
-                    "Toggle desktop notifications",
-                    PaletteCommand::ToggleNotifications,
-                ),
-                ("Toggle icon buttons", PaletteCommand::ToggleIconButtons),
-                (
-                    "Toggle aligned message text",
-                    PaletteCommand::ToggleAlignedText,
-                ),
-                ("Cycle status messages", PaletteCommand::CycleStatusMessages),
-                ("Increase font size", PaletteCommand::FontSizeUp),
-                ("Decrease font size", PaletteCommand::FontSizeDown),
-                ("Increase line height", PaletteCommand::LineHeightUp),
-                ("Decrease line height", PaletteCommand::LineHeightDown),
-                ("Increase message spacing", PaletteCommand::MessageSpacingUp),
-                (
-                    "Decrease message spacing",
-                    PaletteCommand::MessageSpacingDown,
-                ),
-                ("Edit highlight words", PaletteCommand::SettingsHighlights),
-                (
-                    "Edit highlight exceptions",
-                    PaletteCommand::SettingsHighlightExceptions,
-                ),
-                ("Edit away message", PaletteCommand::SettingsAwayMessage),
-                ("Move current channel up", PaletteCommand::MoveChannelUp),
-                ("Move current channel down", PaletteCommand::MoveChannelDown),
-                ("Add network", PaletteCommand::AddNetwork),
-                ("Edit current network", PaletteCommand::EditNetwork),
-                (
-                    "Reconnect current network",
-                    PaletteCommand::ReconnectNetwork,
-                ),
-                (
-                    "Disconnect current network",
-                    PaletteCommand::DisconnectNetwork,
-                ),
-                ("Remove current network", PaletteCommand::RemoveNetwork),
-                ("Move current network up", PaletteCommand::MoveNetworkUp),
-                ("Move current network down", PaletteCommand::MoveNetworkDown),
-                ("Leave current channel", PaletteCommand::LeaveChannel),
-                ("Mute/unmute current channel", PaletteCommand::ToggleMute),
-                (
-                    "Clear current channel history",
-                    PaletteCommand::ClearChannelHistory,
-                ),
-                ("Edit current channel topic", PaletteCommand::EditTopic),
-                ("Load older messages", PaletteCommand::LoadOlder),
-                ("Jump to bottom", PaletteCommand::JumpToBottom),
-                ("Clear composer", PaletteCommand::ClearComposer),
-                ("Cancel reply", PaletteCommand::CancelReply),
-                ("Copy selected text", PaletteCommand::CopySelection),
-                ("Sign out", PaletteCommand::SignOut),
-            ]
-            .into_iter()
-            .filter(|(label, _)| label.to_lowercase().contains(&query))
-            .map(|(label, command)| (label.to_string(), PaletteEntry::Command(command)))
-            .collect(),
+            Some(PaletteMode::Commands) => {
+                let mut definitions = command_defs().to_vec();
+                definitions.sort_by_key(|(_, command)| command.section());
+                let mut entries = Vec::new();
+                if query.is_empty() {
+                    for command in &self.recent_commands {
+                        if let Some((label, _)) = definitions
+                            .iter()
+                            .find(|(_, candidate)| candidate == command)
+                        {
+                            entries.push((label.to_string(), PaletteEntry::Recent(*command)));
+                        }
+                    }
+                }
+                for (label, command) in definitions {
+                    if query.is_empty() && self.recent_commands.contains(&command) {
+                        continue;
+                    }
+                    if label.to_lowercase().contains(&query) {
+                        entries.push((label.to_string(), PaletteEntry::Command(command)));
+                    }
+                }
+                entries
+            }
             Some(PaletteMode::Channels) => {
                 let mut entries = Vec::new();
                 for network in &self.state.networks {
@@ -229,13 +135,20 @@ impl LoungeApp {
     }
 
     pub(super) fn run_palette_entry(&mut self, entry: PaletteEntry, cx: &mut Context<Self>) {
+        if let Some(command) = match &entry {
+            PaletteEntry::Command(command) | PaletteEntry::Recent(command) => Some(*command),
+            _ => None,
+        } {
+            self.remember_palette_command(command);
+        }
         self.palette = None;
         self.palette_selection = 0;
         match entry {
             PaletteEntry::User { action, nick } => {
                 self.run_palette_user_action(action, &nick, cx);
             }
-            PaletteEntry::Command(PaletteCommand::UserAction(action)) => {
+            PaletteEntry::Command(PaletteCommand::UserAction(action))
+            | PaletteEntry::Recent(PaletteCommand::UserAction(action)) => {
                 self.open_palette(PaletteMode::Users(action), cx);
             }
             PaletteEntry::Theme(id, label) => {
@@ -249,7 +162,7 @@ impl LoungeApp {
                 self.pending_channel_switch = Some(id);
                 cx.notify();
             }
-            PaletteEntry::Command(command) => match command {
+            PaletteEntry::Command(command) | PaletteEntry::Recent(command) => match command {
                 PaletteCommand::Settings => self.open_settings(cx),
                 PaletteCommand::Security => {
                     self.settings_open = false;
@@ -552,6 +465,12 @@ impl LoungeApp {
         cx.notify();
     }
 
+    fn remember_palette_command(&mut self, command: PaletteCommand) {
+        self.recent_commands.retain(|recent| *recent != command);
+        self.recent_commands.insert(0, command);
+        self.recent_commands.truncate(6);
+    }
+
     fn active_network_uuid(&self) -> Option<String> {
         self.state
             .active
@@ -577,4 +496,120 @@ impl LoungeApp {
         }
         cx.notify();
     }
+}
+fn command_defs() -> &'static [(&'static str, PaletteCommand)] {
+    &[
+        ("Open settings", PaletteCommand::Settings),
+        ("Security & sessions", PaletteCommand::Security),
+        ("Switch channel", PaletteCommand::SwitchChannel),
+        ("Next channel", PaletteCommand::NextChannel),
+        ("Previous channel", PaletteCommand::PreviousChannel),
+        ("Join a channel", PaletteCommand::Join),
+        ("Upload a file", PaletteCommand::UploadFile),
+        (
+            "Mention user",
+            PaletteCommand::UserAction(PaletteUserAction::Mention),
+        ),
+        (
+            "Open query",
+            PaletteCommand::UserAction(PaletteUserAction::Query),
+        ),
+        (
+            "Whois user",
+            PaletteCommand::UserAction(PaletteUserAction::Whois),
+        ),
+        ("Give op", PaletteCommand::UserAction(PaletteUserAction::Op)),
+        (
+            "Remove op",
+            PaletteCommand::UserAction(PaletteUserAction::Deop),
+        ),
+        (
+            "Give voice",
+            PaletteCommand::UserAction(PaletteUserAction::Voice),
+        ),
+        (
+            "Remove voice",
+            PaletteCommand::UserAction(PaletteUserAction::Devoice),
+        ),
+        (
+            "Kick user",
+            PaletteCommand::UserAction(PaletteUserAction::Kick),
+        ),
+        (
+            "Ban user",
+            PaletteCommand::UserAction(PaletteUserAction::Ban),
+        ),
+        ("Search messages", PaletteCommand::Search),
+        ("Recent mentions", PaletteCommand::Mentions),
+        ("Emoji picker", PaletteCommand::Emoji),
+        ("Choose theme", PaletteCommand::Theme),
+        ("Choose message font", PaletteCommand::ChooseUiFont),
+        ("Choose monospace font", PaletteCommand::ChooseMonoFont),
+        ("Import custom theme", PaletteCommand::ImportTheme),
+        ("Export current theme", PaletteCommand::ExportTheme),
+        ("Toggle sidebar", PaletteCommand::ToggleSidebar),
+        ("Toggle user list", PaletteCommand::ToggleUsers),
+        ("Toggle inline images", PaletteCommand::ToggleInlineImages),
+        ("Toggle link previews", PaletteCommand::TogglePreviews),
+        ("Toggle timestamps", PaletteCommand::ToggleTimestamps),
+        ("Toggle 24-hour clock", PaletteCommand::Toggle24Hour),
+        ("Toggle seconds", PaletteCommand::ToggleSeconds),
+        (
+            "Toggle colored nicknames",
+            PaletteCommand::ToggleColoredNicks,
+        ),
+        (
+            "Toggle desktop notifications",
+            PaletteCommand::ToggleNotifications,
+        ),
+        ("Toggle icon buttons", PaletteCommand::ToggleIconButtons),
+        (
+            "Toggle aligned message text",
+            PaletteCommand::ToggleAlignedText,
+        ),
+        ("Cycle status messages", PaletteCommand::CycleStatusMessages),
+        ("Increase font size", PaletteCommand::FontSizeUp),
+        ("Decrease font size", PaletteCommand::FontSizeDown),
+        ("Increase line height", PaletteCommand::LineHeightUp),
+        ("Decrease line height", PaletteCommand::LineHeightDown),
+        ("Increase message spacing", PaletteCommand::MessageSpacingUp),
+        (
+            "Decrease message spacing",
+            PaletteCommand::MessageSpacingDown,
+        ),
+        ("Edit highlight words", PaletteCommand::SettingsHighlights),
+        (
+            "Edit highlight exceptions",
+            PaletteCommand::SettingsHighlightExceptions,
+        ),
+        ("Edit away message", PaletteCommand::SettingsAwayMessage),
+        ("Move current channel up", PaletteCommand::MoveChannelUp),
+        ("Move current channel down", PaletteCommand::MoveChannelDown),
+        ("Add network", PaletteCommand::AddNetwork),
+        ("Edit current network", PaletteCommand::EditNetwork),
+        (
+            "Reconnect current network",
+            PaletteCommand::ReconnectNetwork,
+        ),
+        (
+            "Disconnect current network",
+            PaletteCommand::DisconnectNetwork,
+        ),
+        ("Remove current network", PaletteCommand::RemoveNetwork),
+        ("Move current network up", PaletteCommand::MoveNetworkUp),
+        ("Move current network down", PaletteCommand::MoveNetworkDown),
+        ("Leave current channel", PaletteCommand::LeaveChannel),
+        ("Mute/unmute current channel", PaletteCommand::ToggleMute),
+        (
+            "Clear current channel history",
+            PaletteCommand::ClearChannelHistory,
+        ),
+        ("Edit current channel topic", PaletteCommand::EditTopic),
+        ("Load older messages", PaletteCommand::LoadOlder),
+        ("Jump to bottom", PaletteCommand::JumpToBottom),
+        ("Clear composer", PaletteCommand::ClearComposer),
+        ("Cancel reply", PaletteCommand::CancelReply),
+        ("Copy selected text", PaletteCommand::CopySelection),
+        ("Sign out", PaletteCommand::SignOut),
+    ]
 }
