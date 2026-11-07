@@ -73,8 +73,10 @@ impl LoungeApp {
             }
         }
 
+        let chrome = if self.narrow { 110. } else { 80. };
+        let max_list_height = (window.viewport_size().height - px(chrome)).max(px(120.));
         let list_height = if self.messages_available > px(0.) {
-            self.messages_available
+            self.messages_available.min(max_list_height)
         } else {
             (window.viewport_size().height - px(150.)).max(px(120.))
         };

@@ -530,8 +530,7 @@ impl LoungeApp {
             .border_t_1()
             .border_color(theme.border)
             .px_3()
-            .pt_2()
-            .pb_3()
+            .py_2()
             .flex()
             .flex_col()
             .gap_2();
