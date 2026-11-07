@@ -51,10 +51,6 @@ jobs:
             target: x86_64-pc-windows-msvc
             artifact: lounge-native-windows-x86_64
             package: lounge-native-x86_64-pc-windows-msvc.zip
-          - os: macos-15
-            target: aarch64-apple-darwin
-            artifact: lounge-native-macos-aarch64
-            package: lounge-native-aarch64-apple-darwin.tar.gz
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -88,13 +84,6 @@ jobs:
           Copy-Item "target/${{ matrix.target }}/release/lounge-native.exe" dist/
           Copy-Item README.md, LICENSE dist/
           Compress-Archive -Path dist/* -DestinationPath "${{ matrix.package }}" -Force
-      - name: Package macOS
-        if: runner.os == 'macOS'
-        run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/lounge-native dist/
-          cp README.md LICENSE dist/
-          tar -C dist -czf ${{ matrix.package }} .
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
