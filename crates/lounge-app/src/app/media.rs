@@ -1,19 +1,15 @@
 use gstreamer as gst;
-use gstreamer::glib::object::Cast;
 use gstreamer::prelude::*;
-use image::{ImageBuffer, Rgba};
-use std::hash::{Hash, Hasher};
-use yuv::{YuvBiPlanarImage, YuvConversionMode, YuvRange, YuvStandardMatrix, yuv_nv12_to_bgra};
 
-use super::tooltip::Tooltip;
+use super::media_audio::{
+    audio_event, audio_muted, audio_playing, finish_audio, format_clock, seek_audio,
+    set_audio_volume, start_audio,
+};
+use super::media_download::download_media_file;
+pub(super) use super::media_kind::{MediaKind, media_kind};
+pub(super) use super::media_poster::Poster;
+use super::media_poster::generate_poster;
 use super::*;
-
-#[derive(Clone)]
-pub(super) struct Poster {
-    pub path: PathBuf,
-    pub width: u32,
-    pub height: u32,
-}
 
 pub(super) struct InlineAudio {
     pub message_id: i64,
@@ -25,234 +21,6 @@ pub(super) struct InlineMedia {
     pub message_id: i64,
     pub url: String,
     pub video: gpui_video_player::Video,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum MediaKind {
-    Video,
-    Audio,
-}
-
-pub(super) fn media_kind(url: &str) -> Option<MediaKind> {
-    let path = url
-        .split(['?', '#'])
-        .next()
-        .unwrap_or(url)
-        .to_ascii_lowercase();
-    let extension = path.rsplit('.').next()?;
-    match extension {
-        "mp4" | "m4v" | "webm" | "mkv" | "mov" => Some(MediaKind::Video),
-        "mp3" | "m4a" | "aac" | "ogg" | "oga" | "opus" | "wav" | "flac" => Some(MediaKind::Audio),
-        _ => None,
-    }
-}
-
-fn start_audio(url: &str) -> Result<gst::Pipeline, String> {
-    gst::init().map_err(|error| error.to_string())?;
-    let uri = url.replace('"', "%22");
-    let pipeline = gst::parse::launch(&format!("playbin uri=\"{uri}\""))
-        .map_err(|error| error.to_string())?
-        .downcast::<gst::Pipeline>()
-        .map_err(|_| "audio pipeline was not a playbin".to_string())?;
-    pipeline
-        .set_state(gst::State::Playing)
-        .map_err(|error| error.to_string())?;
-    Ok(pipeline)
-}
-
-fn audio_playing(pipeline: &gst::Pipeline) -> bool {
-    pipeline.state(gst::ClockTime::ZERO).1 == gst::State::Playing
-}
-
-fn audio_muted(pipeline: &gst::Pipeline) -> bool {
-    pipeline.property::<bool>("mute")
-}
-
-fn generate_poster(url: &str) -> Option<Poster> {
-    let parsed = url::Url::parse(url).ok()?;
-    let video = gpui_video_player::Video::new(&parsed).ok()?;
-    video.set_muted(true);
-    let started = std::time::Instant::now();
-    let (yuv, width, height) = loop {
-        if let Some(frame) = video.current_frame_data()
-            && frame.1 > 0
-            && frame.2 > 0
-        {
-            break frame;
-        }
-        if started.elapsed() > std::time::Duration::from_secs(3) {
-            return None;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    };
-    let width_usize = width as usize;
-    let height_usize = height as usize;
-    let y_size = width_usize * height_usize;
-    let uv_size = y_size / 2;
-    if yuv.len() < y_size + uv_size {
-        return None;
-    }
-    let image = YuvBiPlanarImage {
-        y_plane: &yuv[..y_size],
-        y_stride: width,
-        uv_plane: &yuv[y_size..y_size + uv_size],
-        uv_stride: width,
-        width,
-        height,
-    };
-    let mut bgra = vec![0u8; width_usize * height_usize * 4];
-    let mut converted = false;
-    for (range, matrix) in [
-        (YuvRange::Full, YuvStandardMatrix::Bt709),
-        (YuvRange::Limited, YuvStandardMatrix::Bt709),
-        (YuvRange::Limited, YuvStandardMatrix::Bt601),
-    ] {
-        if yuv_nv12_to_bgra(
-            &image,
-            &mut bgra,
-            width * 4,
-            range,
-            matrix,
-            YuvConversionMode::Balanced,
-        )
-        .is_ok()
-        {
-            converted = true;
-            break;
-        }
-    }
-    if !converted {
-        return None;
-    }
-    let mut rgba = vec![0u8; bgra.len()];
-    for (source, target) in bgra
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .zip(rgba.as_chunks_mut::<4>().0)
-    {
-        target[0] = source[2];
-        target[1] = source[1];
-        target[2] = source[0];
-        target[3] = source[3];
-    }
-    let buffer: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_raw(width, height, rgba)?;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    url.hash(&mut hasher);
-    let path = std::env::temp_dir().join(format!("lounge-native-poster-{:x}.png", hasher.finish()));
-    buffer.save(&path).ok()?;
-    Some(Poster {
-        path,
-        width,
-        height,
-    })
-}
-
-fn format_clock(seconds: u64) -> String {
-    format!("{}:{:02}", seconds / 60, seconds % 60)
-}
-
-fn seek_audio(pipeline: &gst::Pipeline, bounds: Bounds<Pixels>, x: Pixels) {
-    if bounds.size.width <= px(0.) {
-        return;
-    }
-    let fraction = ((x - bounds.origin.x) / bounds.size.width).clamp(0., 1.);
-    let Some(duration) = pipeline.query_duration::<gst::ClockTime>() else {
-        return;
-    };
-    let target =
-        gst::ClockTime::from_nseconds((duration.nseconds() as f64 * fraction as f64) as u64);
-    let _ = pipeline.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, target);
-}
-
-fn set_audio_volume(pipeline: &gst::Pipeline, bounds: Bounds<Pixels>, x: Pixels) {
-    if bounds.size.width <= px(0.) {
-        return;
-    }
-    let fraction: f32 = ((x - bounds.origin.x) / bounds.size.width).clamp(0., 1.);
-    pipeline.set_property("volume", f64::from(fraction));
-}
-
-fn download_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("XDG_DOWNLOAD_DIR") {
-        let dir = PathBuf::from(dir);
-        if dir.is_absolute() {
-            return Some(dir);
-        }
-    }
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    Some(PathBuf::from(home).join("Downloads"))
-}
-
-fn download_name(url: &str) -> String {
-    let raw = url::Url::parse(url)
-        .ok()
-        .and_then(|parsed| {
-            parsed
-                .path_segments()
-                .and_then(|mut segments| segments.next_back().map(str::to_string))
-        })
-        .filter(|name| !name.is_empty() && name != "." && name != "..")
-        .unwrap_or_else(|| "media".to_string());
-    raw.chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_') {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-fn open_download_file(url: &str) -> Result<(PathBuf, std::fs::File), String> {
-    let dir = download_dir().ok_or_else(|| "Could not find a download directory.".to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    let name = download_name(url);
-    let path = PathBuf::from(&name);
-    let stem = path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("media")
-        .to_string();
-    let extension = path.extension().and_then(|extension| extension.to_str());
-    for attempt in 0..1000 {
-        let filename = if attempt == 0 {
-            name.clone()
-        } else if let Some(extension) = extension {
-            format!("{stem}-{attempt}.{extension}")
-        } else {
-            format!("{stem}-{attempt}")
-        };
-        let candidate = dir.join(filename);
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(file) => return Ok((candidate, file)),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error.to_string()),
-        }
-    }
-    Err("Could not choose a download filename.".to_string())
-}
-
-fn download_media_file(url: &str) -> Result<PathBuf, String> {
-    let mut response = ureq::get(url)
-        .config()
-        .timeout_global(Some(std::time::Duration::from_secs(600)))
-        .build()
-        .call()
-        .map_err(|error| error.to_string())?;
-    let (path, mut file) = open_download_file(url)?;
-    let mut reader = response.body_mut().as_reader();
-    if let Err(error) = std::io::copy(&mut reader, &mut file) {
-        drop(file);
-        let _ = std::fs::remove_file(&path);
-        return Err(error.to_string());
-    }
-    Ok(path)
 }
 
 impl LoungeApp {
@@ -268,12 +36,15 @@ impl LoungeApp {
                     if this.audio_ticker_generation != generation {
                         return false;
                     }
-                    if this.inline_audio.is_some() || this.media_audio.is_some() {
-                        cx.notify();
-                        true
-                    } else {
-                        false
+                    let active = this.inline_audio.is_some() || this.media_audio.is_some();
+                    if !active {
+                        return false;
                     }
+                    let changed = this.service_audio(cx);
+                    if changed || this.audio_playing() {
+                        cx.notify();
+                    }
+                    true
                 });
                 if !matches!(active, Ok(true)) {
                     break;
@@ -281,6 +52,58 @@ impl LoungeApp {
             }
         })
         .detach();
+    }
+
+    fn audio_playing(&self) -> bool {
+        self.inline_audio
+            .as_ref()
+            .is_some_and(|audio| audio_playing(&audio.pipeline))
+            || self.media_audio.as_ref().is_some_and(audio_playing)
+    }
+
+    fn service_audio(&mut self, cx: &mut Context<Self>) -> bool {
+        let inline_event = self
+            .inline_audio
+            .as_ref()
+            .and_then(|audio| audio_event(&audio.pipeline));
+        let media_event = self.media_audio.as_ref().and_then(audio_event);
+        let mut changed = false;
+        if let Some(event) = inline_event {
+            changed = true;
+            match event {
+                Ok(()) => {
+                    if let Some(audio) = self.inline_audio.as_ref() {
+                        finish_audio(&audio.pipeline);
+                    }
+                }
+                Err(error) => {
+                    if let Some(audio) = self.inline_audio.take() {
+                        let _ = audio.pipeline.set_state(gst::State::Null);
+                    }
+                    self.toast(format!("Media playback failed: {error}"));
+                }
+            }
+        }
+        if let Some(event) = media_event {
+            changed = true;
+            match event {
+                Ok(()) => {
+                    if let Some(audio) = self.media_audio.as_ref() {
+                        finish_audio(audio);
+                    }
+                }
+                Err(error) => {
+                    if let Some(audio) = self.media_audio.take() {
+                        let _ = audio.set_state(gst::State::Null);
+                    }
+                    self.media_error = Some(error);
+                }
+            }
+        }
+        if changed {
+            cx.notify();
+        }
+        changed
     }
 
     pub(super) fn download_media(&mut self, url: String, cx: &mut Context<Self>) {
@@ -310,8 +133,12 @@ impl LoungeApp {
         self.lightbox_drag_last = None;
         self.media_fullscreen = false;
         self.media_video = None;
+        self.media_video_loading = None;
+        self.inline_video_loading = None;
         self.media_audio = None;
         self.media_error = None;
+        self.media_request_generation = self.media_request_generation.wrapping_add(1);
+        let generation = self.media_request_generation;
         let kind = media_kind(&url).unwrap_or(MediaKind::Video);
         let inline_audio = self.inline_audio.take().filter(|inline| inline.url == url);
         let inline_video = self.inline_video.take().filter(|inline| inline.url == url);
@@ -320,7 +147,10 @@ impl LoungeApp {
                 self.media_audio = Some(inline.pipeline);
             } else {
                 match start_audio(&url) {
-                    Ok(pipeline) => self.media_audio = Some(pipeline),
+                    Ok(pipeline) => {
+                        pipeline.set_property("mute", self.audio_start_muted);
+                        self.media_audio = Some(pipeline);
+                    }
                     Err(error) => self.media_error = Some(error),
                 }
             }
@@ -333,26 +163,41 @@ impl LoungeApp {
             cx.notify();
             return;
         }
-        let parsed = match url::Url::parse(&url) {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                self.media_error = Some(error.to_string());
-                cx.notify();
-                return;
-            }
+        let Ok(parsed) = url::Url::parse(&url) else {
+            self.media_error = Some("Invalid media URL.".to_string());
+            cx.notify();
+            return;
         };
-        match gpui_video_player::Video::new(&parsed) {
-            Ok(video) => {
-                video.set_looping(true);
-                self.media_video = Some((url, video));
-            }
-            Err(error) => self.media_error = Some(error.to_string()),
-        }
+        self.media_video_loading = Some(url.clone());
+        let target = url.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { gpui_video_player::Video::new(&parsed) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.media_request_generation != generation {
+                    return;
+                }
+                this.media_video_loading = None;
+                match result {
+                    Ok(video) => {
+                        video.set_looping(true);
+                        this.media_video = Some((target, video));
+                    }
+                    Err(error) => this.media_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
         cx.notify();
     }
 
     pub(super) fn clear_media(&mut self) {
+        self.media_request_generation = self.media_request_generation.wrapping_add(1);
         self.media_video = None;
+        self.media_video_loading = None;
         if let Some(audio) = self.media_audio.take() {
             let _ = audio.set_state(gst::State::Null);
         }
@@ -361,15 +206,22 @@ impl LoungeApp {
     }
 
     pub(super) fn clear_inline_media(&mut self) {
+        self.media_request_generation = self.media_request_generation.wrapping_add(1);
         self.inline_video = None;
+        self.inline_video_loading = None;
         if let Some(audio) = self.inline_audio.take() {
             let _ = audio.pipeline.set_state(gst::State::Null);
         }
     }
 
-    pub(super) fn clear_media_posters(&mut self) {
-        for (_, poster) in self.media_posters.borrow_mut().drain() {
+    pub(super) fn clear_media_posters(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let posters: Vec<_> = self.media_posters.borrow_mut().drain().collect();
+        for (_, poster) in posters {
             if let Some(poster) = poster {
+                let path = poster.path.clone();
+                self.image_cache.update(cx, |cache, cx| {
+                    cache.remove(&gpui::Resource::Path(path.into()), window, cx);
+                });
                 let _ = std::fs::remove_file(poster.path);
             }
         }
@@ -418,6 +270,12 @@ impl LoungeApp {
             cx.notify();
             return;
         }
+        if let Some((pending_message, pending_url)) = self.inline_video_loading.as_ref()
+            && *pending_message == message_id
+            && pending_url == &url
+        {
+            return;
+        }
         if let Some(inline) = self.inline_audio.as_mut()
             && inline.url == url
         {
@@ -429,12 +287,17 @@ impl LoungeApp {
             return;
         }
         self.inline_video = None;
+        self.inline_video_loading = None;
+        self.media_video_loading = None;
+        self.media_request_generation = self.media_request_generation.wrapping_add(1);
+        let generation = self.media_request_generation;
         if let Some(audio) = self.inline_audio.take() {
             let _ = audio.pipeline.set_state(gst::State::Null);
         }
         if kind == MediaKind::Audio {
             match start_audio(&url) {
                 Ok(pipeline) => {
+                    pipeline.set_property("mute", self.audio_start_muted);
                     self.inline_audio = Some(InlineAudio {
                         message_id,
                         url,
@@ -451,84 +314,34 @@ impl LoungeApp {
             self.toast("Invalid media URL.");
             return;
         };
-        match gpui_video_player::Video::new(&parsed) {
-            Ok(video) => {
-                video.set_looping(true);
-                self.inline_video = Some(InlineMedia {
-                    message_id,
-                    url,
-                    video,
-                });
-            }
-            Err(error) => self.toast(format!("Could not play media: {error}")),
-        }
+        self.inline_video_loading = Some((message_id, url.clone()));
+        let target = url.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { gpui_video_player::Video::new(&parsed) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.media_request_generation != generation {
+                    return;
+                }
+                this.inline_video_loading = None;
+                match result {
+                    Ok(video) => {
+                        video.set_looping(true);
+                        this.inline_video = Some(InlineMedia {
+                            message_id,
+                            url: target,
+                            video,
+                        });
+                    }
+                    Err(error) => this.toast(format!("Could not play media: {error}")),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
         cx.notify();
-    }
-
-    pub(super) fn media_icon_button(
-        &self,
-        icon: &str,
-        tooltip: &str,
-        active: bool,
-        cx: &mut Context<Self>,
-        on_click: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
-    ) -> AnyElement {
-        let theme = self.theme;
-        let tooltip = tooltip.to_string();
-        let color = if active { theme.accent } else { theme.muted };
-        let icon = icon.to_string();
-        div()
-            .id(ElementId::Name(format!("media-{icon}-{tooltip}").into()))
-            .size(px(26.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(4.))
-            .cursor_pointer()
-            .when(active, |this| this.bg(theme.accent_dim))
-            .when(!active, |this| this.hover(|style| style.bg(theme.hover)))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                on_click(this, window, cx);
-                cx.stop_propagation();
-            }))
-            .tooltip(move |_, cx| cx.new(|_| Tooltip::new(tooltip.clone(), theme)).into())
-            .child(
-                gpui::svg()
-                    .path(format!("icons/{icon}.svg"))
-                    .w(px(16.))
-                    .h(px(16.))
-                    .text_color(color),
-            )
-            .into_any_element()
-    }
-
-    fn toggle_media_fullscreen(&mut self, cx: &mut Context<Self>) {
-        if self.media_fullscreen {
-            self.media_fullscreen = false;
-            cx.notify();
-            return;
-        }
-        if let Some(inline) = self.inline_video.take() {
-            self.lightbox = Some(inline.url.clone());
-            self.media_video = Some((inline.url, inline.video));
-        } else if let Some(inline) = self.inline_audio.take() {
-            self.lightbox = Some(inline.url.clone());
-            self.media_audio = Some(inline.pipeline);
-        }
-        self.media_fullscreen = self.media_video.is_some() || self.media_audio.is_some();
-        cx.notify();
-    }
-
-    fn media_fullscreen_button(&self, cx: &mut Context<Self>) -> AnyElement {
-        self.media_icon_button(
-            "maximize",
-            "Full screen",
-            self.media_fullscreen,
-            cx,
-            |this, _, cx| {
-                this.toggle_media_fullscreen(cx);
-            },
-        )
     }
 
     fn render_audio_controls(
@@ -719,8 +532,10 @@ impl LoungeApp {
                         if muted { "Unmute" } else { "Mute" },
                         false,
                         cx,
-                        move |_, _, cx| {
-                            mute.set_property("mute", !audio_muted(&mute));
+                        move |this, _, cx| {
+                            let muted = !audio_muted(&mute);
+                            mute.set_property("mute", muted);
+                            this.audio_start_muted = muted;
                             cx.notify();
                         },
                     ))
@@ -742,117 +557,6 @@ impl LoungeApp {
                             move |this, _, cx| this.download_media(url.clone(), cx),
                         ))
                     }),
-            )
-            .into_any_element()
-    }
-
-    pub(super) fn render_audio_preview(
-        &self,
-        message_id: i64,
-        url: &str,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let play_url = url.to_string();
-        let expand_url = url.to_string();
-        let download_url = url.to_string();
-        let file = url.rsplit('/').next().unwrap_or(url).to_string();
-        div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        gpui::svg()
-                            .path("icons/music.svg")
-                            .w(px(14.))
-                            .h(px(14.))
-                            .text_color(self.theme.accent),
-                    )
-                    .child(div().flex_1().truncate().child(file)),
-            )
-            .child(
-                div()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(
-                        div()
-                            .h(px(5.))
-                            .w_full()
-                            .rounded_full()
-                            .bg(self.theme.border),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .text_size(px(10.))
-                            .text_color(self.theme.muted)
-                            .child("0:00 / --:--")
-                            .child(
-                                div()
-                                    .w(px(54.))
-                                    .h(px(3.))
-                                    .rounded_full()
-                                    .bg(self.theme.border),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .gap_1()
-                            .child(self.media_icon_button(
-                                "play",
-                                "Play",
-                                false,
-                                cx,
-                                move |this, _, cx| {
-                                    this.play_inline_media(
-                                        message_id,
-                                        play_url.clone(),
-                                        MediaKind::Audio,
-                                        cx,
-                                    );
-                                },
-                            ))
-                            .child(
-                                div()
-                                    .size(px(26.))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .child(
-                                        gpui::svg()
-                                            .path("icons/volume-2.svg")
-                                            .w(px(16.))
-                                            .h(px(16.))
-                                            .text_color(self.theme.muted),
-                                    ),
-                            )
-                            .child(self.media_icon_button(
-                                "expand",
-                                "Expand",
-                                false,
-                                cx,
-                                move |this, _, cx| this.open_lightbox(expand_url.clone(), cx),
-                            ))
-                            .child(self.media_icon_button(
-                                "download",
-                                "Download",
-                                false,
-                                cx,
-                                move |this, _, cx| this.download_media(download_url.clone(), cx),
-                            )),
-                    ),
             )
             .into_any_element()
     }
@@ -1087,38 +791,21 @@ impl LoungeApp {
             .items_center()
             .gap_3()
             .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()));
-        if kind == MediaKind::Video {
-            body = body.child(
-                div()
-                    .id("lightbox-video-area")
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        click_video.set_paused(!click_video.paused());
-                        cx.notify();
-                    }))
-                    .child(
-                        gpui_video_player::video(video)
-                            .id("lightbox-video")
-                            .buffer_capacity(30)
-                            .size(max_w, max_h),
-                    ),
-            );
-        } else {
-            body = body.child(
-                div()
-                    .w(max_w)
-                    .py_12()
-                    .rounded(px(6.))
-                    .bg(theme.panel)
-                    .border_1()
-                    .border_color(theme.border)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(theme.text)
-                    .child("Audio"),
-            );
-        }
+        body = body.child(
+            div()
+                .id("lightbox-video-area")
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    click_video.set_paused(!click_video.paused());
+                    cx.notify();
+                }))
+                .child(
+                    gpui_video_player::video(video)
+                        .id("lightbox-video")
+                        .buffer_capacity(30)
+                        .size(max_w, max_h),
+                ),
+        );
         body = body.child(
             div()
                 .w_full()
@@ -1167,37 +854,5 @@ impl LoungeApp {
                 ),
         );
         body.into_any_element()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn detects_direct_media_urls() {
-        assert!(matches!(
-            media_kind("https://example.com/a.webm?x=1"),
-            Some(MediaKind::Video)
-        ));
-        assert!(matches!(
-            media_kind("https://example.com/a.mp3"),
-            Some(MediaKind::Audio)
-        ));
-        assert_eq!(media_kind("https://example.com/a.png"), None);
-        assert_eq!(media_kind("https://example.com/a"), None);
-    }
-
-    #[test]
-    fn download_names_follow_urls() {
-        assert_eq!(
-            download_name("https://example.com/a/level-bg-2.mp3?x=1"),
-            "level-bg-2.mp3"
-        );
-        assert_eq!(
-            download_name("https://example.com/a/a%20b.mp3"),
-            "a_20b.mp3"
-        );
-        assert_eq!(download_name("https://example.com/"), "media");
     }
 }

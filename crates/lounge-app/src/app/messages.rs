@@ -413,6 +413,8 @@ impl LoungeApp {
         inline_images.sort();
         inline_images.dedup();
 
+        #[cfg(feature = "media")]
+        let mut preview_media_urls = HashSet::new();
         for preview in &message.previews {
             if !self.config.show_previews
                 || preview.head.is_empty()
@@ -450,6 +452,11 @@ impl LoungeApp {
                     .filter(|url| !url.is_empty())
                     .unwrap_or(&preview.link),
             );
+            #[cfg(feature = "media")]
+            if playable {
+                preview_media_urls.insert(play_url.clone());
+                preview_media_urls.insert(self.absolute_media_url(&preview.link));
+            }
             let mut card = div()
                 .id(ElementId::Name(
                     format!("preview-{}-{}", message.id, preview.link).into(),
@@ -594,11 +601,15 @@ impl LoungeApp {
         let media_cards = div().flex().flex_col().gap_2();
         #[cfg(feature = "media")]
         {
+            let mut seen_media_urls = HashSet::new();
             for (index, link) in format::find_links(&message.text).into_iter().enumerate() {
                 let url = self.absolute_media_url(&link.url);
                 let Some(kind) = super::media::media_kind(&url) else {
                     continue;
                 };
+                if !seen_media_urls.insert(url.clone()) || preview_media_urls.contains(&url) {
+                    continue;
+                }
                 let file = url.rsplit('/').next().unwrap_or(url.as_str()).to_string();
                 let badge = match kind {
                     super::media::MediaKind::Video => "VIDEO",

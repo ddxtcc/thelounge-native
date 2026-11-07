@@ -22,7 +22,7 @@ use crate::text_input::{InputAction, InputColors, InputRole, TextInput};
 use crate::theme::Theme;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SettingsTab {
+pub(crate) enum SettingsTab {
     Appearance,
     Messages,
     General,
@@ -180,225 +180,6 @@ enum FontTarget {
     Mono,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PaletteMode {
-    Commands,
-    Channels,
-    Themes,
-    Alias,
-    Hotkey,
-    Users(PaletteUserAction),
-}
-
-impl PaletteCommand {
-    fn section(self) -> &'static str {
-        match self {
-            Self::Settings
-            | Self::Security
-            | Self::SettingsHighlights
-            | Self::SettingsHighlightExceptions
-            | Self::SettingsAwayMessage
-            | Self::AddAlias => "Settings",
-            Self::Shortcuts => "Help",
-            Self::SettingsTab(_)
-            | Self::ToggleTray
-            | Self::ToggleGlobalHotkey
-            | Self::SetGlobalHotkey => "Settings",
-            Self::SwitchChannel
-            | Self::NextChannel
-            | Self::PreviousChannel
-            | Self::Join
-            | Self::LoadOlder
-            | Self::JumpToBottom => "Navigation",
-            Self::Search | Self::Mentions | Self::Emoji => "Messages",
-            Self::UploadFile
-            | Self::ClearComposer
-            | Self::PasteImage
-            | Self::CancelReply
-            | Self::CopySelection => "Composer",
-            Self::Theme
-            | Self::ChooseUiFont
-            | Self::ChooseMonoFont
-            | Self::ImportTheme
-            | Self::ExportTheme
-            | Self::ToggleSidebar
-            | Self::ToggleUsers
-            | Self::ToggleInlineImages
-            | Self::TogglePreviews
-            | Self::ToggleTimestamps
-            | Self::Toggle24Hour
-            | Self::ToggleSeconds
-            | Self::ToggleColoredNicks
-            | Self::ToggleNotifications
-            | Self::ToggleIconButtons
-            | Self::ToggleAlignedText
-            | Self::CycleStatusMessages
-            | Self::FontSizeUp
-            | Self::FontSizeDown
-            | Self::LineHeightUp
-            | Self::LineHeightDown
-            | Self::MessageSpacingUp
-            | Self::MessageSpacingDown => "Appearance",
-            Self::MoveChannelUp
-            | Self::MoveChannelDown
-            | Self::LeaveChannel
-            | Self::ToggleMute
-            | Self::ClearChannelHistory
-            | Self::EditTopic => "Channels",
-            Self::AddNetwork
-            | Self::EditNetwork
-            | Self::ReconnectNetwork
-            | Self::DisconnectNetwork
-            | Self::RemoveNetwork
-            | Self::MoveNetworkUp
-            | Self::MoveNetworkDown => "Networks",
-            Self::UserAction(_) => "Users",
-            Self::SignOut => "Account",
-        }
-    }
-}
-
-#[derive(Clone)]
-enum PaletteEntry {
-    Command(PaletteCommand),
-    Recent(PaletteCommand),
-    Favorite(PaletteCommand),
-    Channel(i64),
-    Theme(String, String),
-    User {
-        action: PaletteUserAction,
-        nick: String,
-    },
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PaletteCommand {
-    Settings,
-    Security,
-    SwitchChannel,
-    NextChannel,
-    PreviousChannel,
-    Join,
-    UploadFile,
-    Search,
-    Mentions,
-    Emoji,
-    Theme,
-    ChooseUiFont,
-    ChooseMonoFont,
-    ImportTheme,
-    ExportTheme,
-    ToggleSidebar,
-    ToggleUsers,
-    ToggleInlineImages,
-    TogglePreviews,
-    ToggleTimestamps,
-    Toggle24Hour,
-    ToggleSeconds,
-    ToggleColoredNicks,
-    ToggleNotifications,
-    ToggleIconButtons,
-    ToggleAlignedText,
-    CycleStatusMessages,
-    FontSizeUp,
-    FontSizeDown,
-    LineHeightUp,
-    LineHeightDown,
-    MessageSpacingUp,
-    MessageSpacingDown,
-    SettingsHighlights,
-    SettingsHighlightExceptions,
-    SettingsAwayMessage,
-    MoveChannelUp,
-    MoveChannelDown,
-    AddNetwork,
-    EditNetwork,
-    ReconnectNetwork,
-    DisconnectNetwork,
-    RemoveNetwork,
-    MoveNetworkUp,
-    MoveNetworkDown,
-    LeaveChannel,
-    ToggleMute,
-    ClearChannelHistory,
-    EditTopic,
-    LoadOlder,
-    JumpToBottom,
-    ClearComposer,
-    PasteImage,
-    CancelReply,
-    CopySelection,
-    SignOut,
-    AddAlias,
-    Shortcuts,
-    SettingsTab(SettingsTab),
-    ToggleTray,
-    ToggleGlobalHotkey,
-    SetGlobalHotkey,
-    UserAction(PaletteUserAction),
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PaletteUserAction {
-    Mention,
-    Query,
-    Whois,
-    Op,
-    Deop,
-    Voice,
-    Devoice,
-    Kick,
-    Ban,
-}
-
-impl PaletteUserAction {
-    fn command(self) -> &'static str {
-        match self {
-            Self::Mention => "mention",
-            Self::Query => "query",
-            Self::Whois => "whois",
-            Self::Op => "op",
-            Self::Deop => "deop",
-            Self::Voice => "voice",
-            Self::Devoice => "devoice",
-            Self::Kick => "kick",
-            Self::Ban => "ban",
-        }
-    }
-
-    fn prompt(self) -> &'static str {
-        match self {
-            Self::Mention => "Choose a user to mention...",
-            Self::Query => "Choose a user to query...",
-            Self::Whois => "Choose a user to inspect...",
-            Self::Op => "Choose a user to op...",
-            Self::Deop => "Choose a user to deop...",
-            Self::Voice => "Choose a user to voice...",
-            Self::Devoice => "Choose a user to devoice...",
-            Self::Kick => "Choose a user to kick...",
-            Self::Ban => "Choose a user to ban...",
-        }
-    }
-
-    fn title(self) -> &'static str {
-        match self {
-            Self::Mention => "Mention user",
-            Self::Query => "Open query",
-            Self::Whois => "Whois user",
-            Self::Op => "Give op",
-            Self::Deop => "Remove op",
-            Self::Voice => "Give voice",
-            Self::Devoice => "Remove voice",
-            Self::Kick => "Kick user",
-            Self::Ban => "Ban user",
-        }
-    }
-
-    fn destructive(self) -> bool {
-        matches!(self, Self::Kick | Self::Ban)
-    }
-}
-
 #[derive(Clone)]
 struct ChannelMenu {
     chan_id: i64,
@@ -517,6 +298,14 @@ pub struct LoungeApp {
     #[cfg(feature = "media")]
     audio_ticker_generation: u64,
     #[cfg(feature = "media")]
+    audio_start_muted: bool,
+    #[cfg(feature = "media")]
+    media_request_generation: u64,
+    #[cfg(feature = "media")]
+    inline_video_loading: Option<(i64, String)>,
+    #[cfg(feature = "media")]
+    media_video_loading: Option<String>,
+    #[cfg(feature = "media")]
     inline_video: Option<media::InlineMedia>,
     #[cfg(feature = "media")]
     media_audio: Option<gstreamer::Pipeline>,
@@ -610,6 +399,16 @@ mod connection;
 mod desktop;
 #[cfg(feature = "media")]
 mod media;
+#[cfg(feature = "media")]
+mod media_audio;
+#[cfg(feature = "media")]
+mod media_download;
+#[cfg(feature = "media")]
+mod media_kind;
+#[cfg(feature = "media")]
+mod media_poster;
+#[cfg(feature = "media")]
+mod media_ui;
 mod menus;
 mod message_list;
 mod message_text;
@@ -617,6 +416,7 @@ mod messages;
 mod navigation;
 mod overlays;
 mod palette;
+pub(super) use palette::{PaletteCommand, PaletteEntry, PaletteMode, PaletteUserAction};
 mod render;
 mod render_impl;
 mod settings;
@@ -818,6 +618,14 @@ impl LoungeApp {
             media_fullscreen: false,
             #[cfg(feature = "media")]
             audio_ticker_generation: 0,
+            #[cfg(feature = "media")]
+            audio_start_muted: false,
+            #[cfg(feature = "media")]
+            media_request_generation: 0,
+            #[cfg(feature = "media")]
+            inline_video_loading: None,
+            #[cfg(feature = "media")]
+            media_video_loading: None,
             #[cfg(feature = "media")]
             inline_video: None,
             #[cfg(feature = "media")]

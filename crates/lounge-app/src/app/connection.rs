@@ -62,7 +62,6 @@ impl LoungeApp {
         #[cfg(feature = "media")]
         {
             self.clear_inline_media();
-            self.clear_media_posters();
         }
         self.messages_at_bottom = true;
         self.scroll_to_bottom_pending = false;

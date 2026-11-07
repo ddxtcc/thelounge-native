@@ -27,11 +27,6 @@ The installer writes to `$HOME/.local` by default. Set `PREFIX` or `XDG_DATA_HOM
 
 ## Media playback
 
-Media playback is enabled by default. Video cards show a still poster and play in
-place. Audio cards show progress, time, seek, and volume controls before and during
-playback. Both support expanding to the media overlay and saving the original file
-to `$XDG_DOWNLOAD_DIR` or `~/Downloads`.
-
 The build requires Rust 1.96 or newer and GStreamer with its base, good, and bad
 plugins. On Arch Linux:
 
@@ -49,8 +44,8 @@ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
 macOS builds require GStreamer from Homebrew or the official GStreamer packages.
 Windows builds require the GStreamer SDK and a working `pkg-config` setup. Release
 archives are not bundled with GStreamer, so Windows and macOS users need the GStreamer
-runtime installed for media playback. Use `--no-default-features` to build without
-media support.
+runtime installed before launching. Use `--no-default-features` to build without media
+support.
 
 ## Development
 
