@@ -325,6 +325,26 @@ fn typing_expires() {
 }
 
 #[test]
+fn typing_expires_by_age() {
+    let mut state = init_state();
+    state.apply(ServerEvent::Typing(TypingEvent {
+        network: "u1".into(),
+        chan: 2,
+        nick: "alice".into(),
+        status: TypingStatus::Active,
+    }));
+    state
+        .find_channel_mut(2)
+        .unwrap()
+        .typing
+        .first_mut()
+        .unwrap()
+        .updated = Instant::now() - Duration::from_secs(20);
+    state.prune_typing(Duration::from_secs(10));
+    assert!(state.find_channel(2).unwrap().1.typing.is_empty());
+}
+
+#[test]
 fn more_keeps_loaded_history_at_capacity() {
     let mut state = init_state();
     {

@@ -45,11 +45,7 @@ impl LoungeApp {
         self.config.save();
 
         self.login_error = None;
-        let auth = if user.is_empty() && password.is_empty() {
-            Auth::Public
-        } else {
-            Auth::Password { user, password }
-        };
+        let auth = login_auth(user, password, &self.config.token, &self.config.user);
         self.start_connection(auth, server, cx);
     }
 
@@ -440,5 +436,50 @@ impl LoungeApp {
         self.login_error = Some("Signed out.".into());
         self.pending_focus = true;
         cx.notify();
+    }
+}
+
+fn login_auth(user: String, password: String, token: &str, configured_user: &str) -> Auth {
+    if user.is_empty() && password.is_empty() {
+        Auth::Public
+    } else if password.is_empty() && !token.is_empty() && user == configured_user {
+        Auth::Token {
+            user,
+            token: token.to_string(),
+        }
+    } else {
+        Auth::Password { user, password }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn login_prefers_stored_token_when_password_is_empty() {
+        match login_auth("alice".into(), String::new(), "secret", "alice") {
+            Auth::Token { user, token } => {
+                assert_eq!(user, "alice");
+                assert_eq!(token, "secret");
+            }
+            _ => panic!("expected token auth"),
+        }
+    }
+
+    #[test]
+    fn login_uses_password_when_provided() {
+        assert!(matches!(
+            login_auth("alice".into(), "pass".into(), "secret", "alice"),
+            Auth::Password { .. }
+        ));
+    }
+
+    #[test]
+    fn login_does_not_reuse_another_users_token() {
+        assert!(matches!(
+            login_auth("bob".into(), String::new(), "secret", "alice"),
+            Auth::Password { .. }
+        ));
     }
 }

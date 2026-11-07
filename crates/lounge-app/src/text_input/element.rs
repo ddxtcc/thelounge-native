@@ -112,19 +112,25 @@ impl EntityInputHandler for TextInput {
     fn bounds_for_range(
         &mut self,
         range_utf16: Range<usize>,
-        bounds: Bounds<Pixels>,
-        window: &mut Window,
+        _bounds: Bounds<Pixels>,
+        _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let range = self.range_from_utf16(&range_utf16);
         let line_ix = self.content[..range.start.min(self.content.len())]
             .matches('\n')
             .count();
-        let line_height = window.line_height();
-        let x = bounds.left();
+        let layout = self.last_layout.as_ref()?;
+        let line = layout.lines.get(line_ix)?;
+        let line_start = layout.starts.get(line_ix).copied().unwrap_or(0);
+        let line_end = layout.ends.get(line_ix).copied().unwrap_or(line_start);
+        let display_index = range.start.clamp(line_start, line_end) - line_start;
+        let visible_line = line_ix.saturating_sub(layout.visible_start);
+        let x = layout.bounds.left() + line.x_for_index(display_index);
+        let top = layout.bounds.top() + layout.line_height * visible_line as f32;
         Some(Bounds::from_corners(
-            point(x, bounds.top() + line_height * line_ix as f32),
-            point(x, bounds.top() + line_height * (line_ix + 1) as f32),
+            point(x, top),
+            point(x, top + layout.line_height),
         ))
     }
 
