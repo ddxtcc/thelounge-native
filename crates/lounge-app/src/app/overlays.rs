@@ -45,6 +45,8 @@ impl LoungeApp {
             overlay = overlay.child(self.render_font_picker(target, window, cx));
         } else if self.message_context.is_some() {
             overlay = overlay.child(self.render_message_context(cx));
+        } else if self.shortcuts_open {
+            overlay = overlay.child(self.render_shortcuts(cx));
         } else if self.settings_open {
             overlay = overlay.child(self.render_settings(window, cx));
         } else if self.network_modal_open {
@@ -95,6 +97,33 @@ impl LoungeApp {
             .into_any_element()
     }
 
+    pub(super) fn open_lightbox(&mut self, url: String, cx: &mut Context<Self>) {
+        let urls = self.channel_image_urls();
+        self.lightbox_index = urls.iter().position(|candidate| candidate == &url);
+        self.lightbox = Some(url);
+        self.lightbox_zoom = 1.0;
+        self.lightbox_pan = Point::default();
+        self.lightbox_drag_last = None;
+        cx.notify();
+    }
+
+    fn move_lightbox(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let urls = self.channel_image_urls();
+        let Some(index) = self.lightbox_index else {
+            return;
+        };
+        if urls.is_empty() {
+            return;
+        }
+        let next = (index as isize + delta).rem_euclid(urls.len() as isize) as usize;
+        self.lightbox_index = Some(next);
+        self.lightbox = Some(urls[next].clone());
+        self.lightbox_zoom = 1.0;
+        self.lightbox_pan = Point::default();
+        self.lightbox_drag_last = None;
+        cx.notify();
+    }
+
     pub(super) fn render_lightbox(
         &self,
         url: &str,
@@ -106,6 +135,8 @@ impl LoungeApp {
         let max_w = viewport.width * 0.88;
         let max_h = viewport.height * 0.82;
         let open_url = url.to_string();
+        let zoom = self.lightbox_zoom;
+        let pan = self.lightbox_pan;
         div()
             .id("lightbox")
             .max_w(max_w)
@@ -120,28 +151,67 @@ impl LoungeApp {
                     .id("lightbox-image")
                     .w(max_w)
                     .h(max_h)
-                    .flex()
-                    .items_center()
-                    .justify_center()
+                    .relative()
+                    .overflow_hidden()
+                    .rounded(px(6.))
                     .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                            this.lightbox_drag_last = Some(event.position);
+                            cx.notify();
+                        }),
+                    )
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.lightbox_drag_last = None;
+                            cx.notify();
+                        }),
+                    )
+                    .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
+                        if !event.dragging() {
+                            return;
+                        }
+                        if let Some(last) = this.lightbox_drag_last {
+                            this.lightbox_pan.x += event.position.x - last.x;
+                            this.lightbox_pan.y += event.position.y - last.y;
+                            this.lightbox_drag_last = Some(event.position);
+                            cx.notify();
+                        }
+                    }))
+                    .on_scroll_wheel(cx.listener(|this, event: &gpui::ScrollWheelEvent, _, cx| {
+                        let delta = event.delta.pixel_delta(px(20.)).y;
+                        let factor = if delta > px(0.) { 0.9 } else { 1.1 };
+                        this.lightbox_zoom = (this.lightbox_zoom * factor).clamp(0.5, 5.0);
+                        cx.notify();
+                    }))
                     .child(
-                        gpui::img(url.to_string())
-                            .image_cache(&self.image_cache)
-                            .w_full()
-                            .h_full()
-                            .object_fit(gpui::ObjectFit::Contain)
-                            .with_fallback(move || {
-                                div()
+                        div()
+                            .absolute()
+                            .left(pan.x)
+                            .top(pan.y)
+                            .w(max_w * zoom)
+                            .h(max_h * zoom)
+                            .child(
+                                gpui::img(url.to_string())
+                                    .image_cache(&self.image_cache)
                                     .w_full()
                                     .h_full()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(theme.muted)
-                                    .child("Image failed to load")
-                                    .into_any_element()
-                            })
-                            .rounded(px(6.)),
+                                    .object_fit(gpui::ObjectFit::Contain)
+                                    .with_fallback(move || {
+                                        div()
+                                            .w_full()
+                                            .h_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .text_color(theme.muted)
+                                            .child("Image failed to load")
+                                            .into_any_element()
+                                    })
+                                    .rounded(px(6.)),
+                            ),
                     ),
             )
             .child(
@@ -153,8 +223,32 @@ impl LoungeApp {
                         div()
                             .text_size(px(11.))
                             .text_color(theme.muted)
-                            .child("Click outside to close"),
+                            .child("Scroll to zoom · Drag to pan · Click outside to close"),
                     )
+                    .when(self.lightbox_index.is_some(), |this| {
+                        this.child(
+                            div()
+                                .id("lightbox-prev")
+                                .px_1()
+                                .text_size(px(11.))
+                                .text_color(theme.accent)
+                                .cursor_pointer()
+                                .hover(|style| style.underline())
+                                .on_click(cx.listener(|this, _, _, cx| this.move_lightbox(-1, cx)))
+                                .child("Previous"),
+                        )
+                        .child(
+                            div()
+                                .id("lightbox-next")
+                                .px_1()
+                                .text_size(px(11.))
+                                .text_color(theme.accent)
+                                .cursor_pointer()
+                                .hover(|style| style.underline())
+                                .on_click(cx.listener(|this, _, _, cx| this.move_lightbox(1, cx)))
+                                .child("Next"),
+                        )
+                    })
                     .child(
                         div()
                             .id("lightbox-open")
@@ -312,6 +406,45 @@ impl LoungeApp {
                     .on_click(cx.listener(|this, _, _, cx| this.submit_network(cx)))
                     .child(if editing { "Save" } else { "Connect" }),
             );
+        card.into_any_element()
+    }
+
+    pub(super) fn render_shortcuts(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let shortcuts = [
+            ("Ctrl+P", "Switch channel"),
+            ("Ctrl+Shift+P", "Command palette"),
+            ("Ctrl+F", "Search messages"),
+            ("Ctrl+Tab / Ctrl+PageDown", "Next channel"),
+            ("Ctrl+Shift+Tab / Ctrl+PageUp", "Previous channel"),
+            ("Up / Down", "Previous / next input history"),
+            ("Ctrl+Shift+V", "Paste image from clipboard"),
+            ("Ctrl+C", "Copy text selection"),
+            ("Ctrl+,", "Open settings"),
+            ("Escape", "Close overlay or cancel reply"),
+        ];
+        let mut card = self.modal_card("Keyboard shortcuts", cx);
+        for (keys, description) in shortcuts {
+            card = card.child(
+                div()
+                    .flex()
+                    .gap_3()
+                    .py_0p5()
+                    .child(
+                        div()
+                            .w(px(220.))
+                            .text_size(px(12.))
+                            .text_color(theme.accent)
+                            .child(keys),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(theme.muted)
+                            .child(description),
+                    ),
+            );
+        }
         card.into_any_element()
     }
 

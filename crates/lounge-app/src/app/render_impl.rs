@@ -2,6 +2,22 @@ use super::*;
 
 impl Render for LoungeApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let bounds = window.window_bounds().get_bounds();
+        let x = f32::from(bounds.origin.x);
+        let y = f32::from(bounds.origin.y);
+        let width = f32::from(bounds.size.width);
+        let height = f32::from(bounds.size.height);
+        if self.config.window_x != Some(x)
+            || self.config.window_y != Some(y)
+            || self.config.window_width != Some(width)
+            || self.config.window_height != Some(height)
+        {
+            self.config.window_x = Some(x);
+            self.config.window_y = Some(y);
+            self.config.window_width = Some(width);
+            self.config.window_height = Some(height);
+            self.config.save();
+        }
         if let Some(toast) = &self.toast
             && Instant::now() > toast.until
         {
@@ -15,6 +31,7 @@ impl Render for LoungeApp {
         let overlay_open = self.settings_open
             || self.network_modal_open
             || self.search_open
+            || self.shortcuts_open
             || self.mentions_open
             || self.emoji_picker_open
             || self.font_picker.is_some()
@@ -247,6 +264,7 @@ impl Render for LoungeApp {
         let overlay_needed = self.settings_open
             || self.network_modal_open
             || self.search_open
+            || self.shortcuts_open
             || self.mentions_open
             || self.emoji_picker_open
             || self.font_picker.is_some()

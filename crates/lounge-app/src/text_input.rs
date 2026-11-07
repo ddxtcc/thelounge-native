@@ -102,6 +102,7 @@ pub enum InputRole {
     SettingAwayMessage,
     EmojiSearch,
     FontSearch,
+    UsersFilter,
     Palette,
     PasswordOld,
     PasswordNew,

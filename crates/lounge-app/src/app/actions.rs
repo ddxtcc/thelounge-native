@@ -86,7 +86,11 @@ impl LoungeApp {
     ) {
         if matches!(
             role,
-            InputRole::Search | InputRole::EmojiSearch | InputRole::FontSearch | InputRole::Palette
+            InputRole::Search
+                | InputRole::EmojiSearch
+                | InputRole::FontSearch
+                | InputRole::UsersFilter
+                | InputRole::Palette
         ) {
             if role == InputRole::Palette && self.palette.is_some() {
                 self.palette_selection = 0;
@@ -192,6 +196,7 @@ impl LoungeApp {
                     self.save_server_setting(role, cx);
                 }
             }
+            InputRole::UsersFilter => {}
             InputRole::EmojiSearch => match action {
                 InputAction::Submit => self.insert_selected_emoji(cx),
                 InputAction::PrevHistory => self.move_emoji(-7, cx),
@@ -292,6 +297,7 @@ impl LoungeApp {
         self.history_index = 0;
         self.history_draft.clear();
         self.drafts.remove(&target);
+        self.persist_chat_state();
         self.reply_to = None;
         self.inputs.composer.update(cx, |input, cx| input.clear(cx));
         self.schedule_scroll_bottom(cx);
@@ -432,6 +438,27 @@ impl LoungeApp {
                 self.drafts.insert(active, text);
             }
         }
+        self.persist_chat_state();
+    }
+
+    fn persist_chat_state(&mut self) {
+        self.config.saved_drafts = self
+            .drafts
+            .iter()
+            .map(|(channel, text)| crate::config::SavedDraft {
+                channel: *channel,
+                text: text.clone(),
+            })
+            .collect();
+        self.config.saved_histories = self
+            .histories
+            .iter()
+            .map(|(channel, entries)| crate::config::SavedHistory {
+                channel: *channel,
+                entries: entries.clone(),
+            })
+            .collect();
+        self.config.save();
     }
 
     pub(super) fn restore_draft(&mut self, cx: &mut Context<Self>) {
@@ -575,6 +602,56 @@ impl LoungeApp {
         });
         self.pending_focus = true;
         cx.notify();
+    }
+
+    pub(super) fn channel_image_urls(&self) -> Vec<String> {
+        let Some((_, channel)) = self.state.active_channel() else {
+            return Vec::new();
+        };
+        let mut urls = Vec::new();
+        for message in &channel.chan.messages {
+            for preview in &message.previews {
+                let is_image = preview.kind == "image"
+                    || preview
+                        .media_type
+                        .as_deref()
+                        .map(|kind| kind.starts_with("image/"))
+                        .unwrap_or(false);
+                if !is_image {
+                    continue;
+                }
+                let candidate = preview
+                    .media
+                    .as_deref()
+                    .filter(|url| !url.is_empty())
+                    .or_else(|| {
+                        preview
+                            .thumb_actual_url
+                            .as_deref()
+                            .filter(|url| !url.is_empty())
+                    })
+                    .or_else(|| Some(preview.thumb.as_str()).filter(|url| !url.is_empty()))
+                    .unwrap_or(&preview.link);
+                urls.push(self.absolute_media_url(candidate));
+            }
+            for link in format::find_links(&message.text) {
+                let path = link
+                    .url
+                    .split(['?', '#'])
+                    .next()
+                    .unwrap_or(&link.url)
+                    .to_lowercase();
+                if [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp"]
+                    .iter()
+                    .any(|extension| path.ends_with(extension))
+                {
+                    urls.push(self.absolute_media_url(&link.url));
+                }
+            }
+        }
+        let mut seen = HashSet::new();
+        urls.retain(|url| seen.insert(url.clone()));
+        urls
     }
 
     pub(super) fn absolute_media_url(&self, url: &str) -> String {

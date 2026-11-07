@@ -287,6 +287,7 @@ impl LoungeApp {
         };
 
         let message_id = message.id;
+        let channel_id = channel.chan.id;
         let hover = {
             let weak = weak.clone();
             move |index: Option<usize>,
@@ -538,8 +539,7 @@ impl LoungeApp {
                 let lightbox_url = thumb.clone();
                 card = card
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.lightbox = Some(lightbox_url.clone());
-                        cx.notify();
+                        this.open_lightbox(lightbox_url.clone(), cx);
                     }))
                     .child(
                         div()
@@ -583,8 +583,7 @@ impl LoungeApp {
                     .overflow_hidden()
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.lightbox = Some(lightbox_url.clone());
-                        cx.notify();
+                        this.open_lightbox(lightbox_url.clone(), cx);
                     }))
                     .child(
                         gpui::img(url.clone())
@@ -648,6 +647,7 @@ impl LoungeApp {
                     cx.stop_propagation();
                     this.message_menu = Some(MessageMenu {
                         position: event.position,
+                        channel_id,
                         message: context_message.clone(),
                     });
                     cx.notify();
