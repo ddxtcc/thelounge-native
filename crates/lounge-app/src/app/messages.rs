@@ -999,3 +999,23 @@ fn condensed_summary(messages: &[&Message]) -> String {
         format!("{}, and {last}", strings[..strings.len() - 1].join(", "))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn word_range_handles_unicode_and_boundaries() {
+        let text = "hello wörld_test!";
+        assert_eq!(word_range(text, 2), 0..5);
+        assert_eq!(word_range(text, 7), 6..17);
+        assert_eq!(word_range(text, 17), 6..17);
+        assert_eq!(word_range(text, 18), 18..18);
+    }
+
+    #[test]
+    fn word_range_includes_irc_nick_characters() {
+        let text = "prefix [nick-name] suffix";
+        assert_eq!(word_range(text, 9), 8..17);
+    }
+}

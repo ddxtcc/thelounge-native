@@ -671,7 +671,7 @@ impl LoungeApp {
         let current = self.image_cache_current.borrow().clone();
         let mut touched = self.image_cache_touched.borrow_mut();
         while touched.len() > limit {
-            let Some(position) = touched.iter().position(|url| !current.contains(url)) else {
+            let Some(position) = image_eviction_position(&touched, &current) else {
                 break;
             };
             let Some(url) = touched.remove(position) else {
@@ -1170,5 +1170,32 @@ impl LoungeApp {
                 "offset": 0,
             })),
         );
+    }
+}
+
+fn image_eviction_position(touched: &VecDeque<String>, current: &HashSet<String>) -> Option<usize> {
+    touched.iter().position(|url| !current.contains(url))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_eviction_skips_currently_rendered_images() {
+        let touched = VecDeque::from([
+            "old".to_string(),
+            "visible".to_string(),
+            "older".to_string(),
+        ]);
+        let current = HashSet::from(["visible".to_string()]);
+        assert_eq!(image_eviction_position(&touched, &current), Some(0));
+    }
+
+    #[test]
+    fn image_eviction_returns_none_when_all_images_are_visible() {
+        let touched = VecDeque::from(["one".to_string(), "two".to_string()]);
+        let current = HashSet::from(["one".to_string(), "two".to_string()]);
+        assert_eq!(image_eviction_position(&touched, &current), None);
     }
 }
