@@ -13,7 +13,14 @@ impl Render for LoungeApp {
                 tray::TrayAction::Quit => cx.quit(),
             }
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(target_os = "windows")]
+        while let Ok(action) = self.tray_action_rx.try_recv() {
+            match action {
+                tray_windows::TrayAction::Show => window.activate_window(),
+                tray_windows::TrayAction::Quit => cx.quit(),
+            }
+        }
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         if self.hotkey_manager.is_some() {
             while let Ok(event) = global_hotkey::GlobalHotKeyEvent::receiver().try_recv() {
                 if event.state == global_hotkey::HotKeyState::Pressed {
@@ -35,8 +42,15 @@ impl Render for LoungeApp {
             window.set_window_title(&title);
             self.window_title = title;
             #[cfg(target_os = "linux")]
+            {
+                badge::update(unread);
+                if let Some(tray) = &self.tray_handle {
+                    tray.update(|tray| tray.unread = unread);
+                }
+            }
+            #[cfg(target_os = "windows")]
             if let Some(tray) = &self.tray_handle {
-                tray.update(|tray| tray.unread = unread);
+                tray.set_unread(unread);
             }
         }
         let bounds = window.window_bounds().get_bounds();

@@ -755,5 +755,4 @@ fn sort_users(users: &mut [User], options: Option<&ServerOptions>) {
 }
 
 #[cfg(test)]
-#[cfg(test)]
 mod tests;

@@ -851,7 +851,22 @@ impl LoungeApp {
                 self.tray_action_rx = std::sync::mpsc::channel().1;
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
+        {
+            if enabled {
+                if self.tray_handle.is_none()
+                    && let Some((handle, receiver)) = crate::app::tray_windows::spawn()
+                {
+                    handle.set_unread(self.state.total_unread());
+                    self.tray_handle = Some(handle);
+                    self.tray_action_rx = receiver;
+                }
+            } else if let Some(handle) = self.tray_handle.take() {
+                handle.stop();
+                self.tray_action_rx = std::sync::mpsc::channel().1;
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
             let _ = enabled;
             let _ = cx;
@@ -862,7 +877,7 @@ impl LoungeApp {
     pub(super) fn set_global_hotkey_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
         self.config.enable_global_hotkey = enabled;
         self.config.save();
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         {
             use global_hotkey::{
                 GlobalHotKeyManager,
@@ -880,7 +895,7 @@ impl LoungeApp {
                 let _ = manager.unregister(hotkey);
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
             let _ = enabled;
             let _ = cx;
@@ -894,14 +909,14 @@ impl LoungeApp {
     }
 
     pub(super) fn set_global_hotkey(&mut self, spec: &str, cx: &mut Context<Self>) -> bool {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
             let _ = spec;
             let _ = cx;
-            self.toast("Global shortcuts are only available on Linux X11.");
+            self.toast("Global shortcuts are not available on this platform.");
             return false;
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         {
             use global_hotkey::{GlobalHotKeyManager, hotkey::HotKey};
             let Ok(hotkey) = spec.parse::<HotKey>() else {

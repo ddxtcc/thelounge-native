@@ -514,8 +514,12 @@ pub struct LoungeApp {
     tray_handle: Option<ksni::blocking::Handle<tray::LoungeTray>>,
     #[cfg(target_os = "linux")]
     tray_action_rx: std::sync::mpsc::Receiver<tray::TrayAction>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     hotkey_manager: Option<global_hotkey::GlobalHotKeyManager>,
+    #[cfg(target_os = "windows")]
+    tray_handle: Option<tray_windows::TrayHandle>,
+    #[cfg(target_os = "windows")]
+    tray_action_rx: std::sync::mpsc::Receiver<tray_windows::TrayAction>,
     settings_open: bool,
     settings_tab: SettingsTab,
     network_modal_open: bool,
@@ -570,6 +574,8 @@ pub struct LoungeApp {
 }
 
 mod actions;
+#[cfg(target_os = "linux")]
+mod badge;
 mod commands;
 mod connection;
 mod menus;
@@ -585,6 +591,8 @@ mod special;
 mod tooltip;
 #[cfg(target_os = "linux")]
 mod tray;
+#[cfg(target_os = "windows")]
+mod tray_windows;
 mod uploads;
 
 impl LoungeApp {
@@ -711,7 +719,16 @@ impl LoungeApp {
         } else {
             (None, std::sync::mpsc::channel().1)
         };
-        #[cfg(target_os = "linux")]
+        #[cfg(target_os = "windows")]
+        let (tray_handle, tray_action_rx) = if config.show_tray_icon {
+            tray_windows::spawn().map_or_else(
+                || (None, std::sync::mpsc::channel().1),
+                |(handle, receiver)| (Some(handle), receiver),
+            )
+        } else {
+            (None, std::sync::mpsc::channel().1)
+        };
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         let hotkey_manager = {
             use global_hotkey::{
                 GlobalHotKeyManager,
@@ -782,8 +799,12 @@ impl LoungeApp {
             tray_handle,
             #[cfg(target_os = "linux")]
             tray_action_rx,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             hotkey_manager,
+            #[cfg(target_os = "windows")]
+            tray_handle,
+            #[cfg(target_os = "windows")]
+            tray_action_rx,
             settings_open: false,
             settings_tab: SettingsTab::Appearance,
             network_modal_open: false,

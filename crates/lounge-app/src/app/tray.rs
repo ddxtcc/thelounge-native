@@ -1,5 +1,3 @@
-#![cfg(target_os = "linux")]
-
 use std::sync::mpsc;
 
 use ksni::{

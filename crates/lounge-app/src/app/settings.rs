@@ -254,7 +254,7 @@ impl LoungeApp {
                 cx,
                 |this| this.config.notifications = !this.config.notifications,
             ));
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         {
             card = card
                 .child(self.setting_row_value_button(
