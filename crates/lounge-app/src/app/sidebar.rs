@@ -555,7 +555,7 @@ fn unread_badge(count: u32, highlight: bool, theme: Theme) -> AnyElement {
         .into_any_element()
 }
 
-fn user_mode_prefix(user: &User, network: &NetworkState) -> Option<String> {
+pub(super) fn user_mode_prefix(user: &User, network: &NetworkState) -> Option<String> {
     let options = network.server_options.as_ref()?;
     for prefix in &options.prefix.prefix {
         if user.modes.contains(&prefix.mode) {

@@ -682,6 +682,7 @@ impl LoungeApp {
             ("Give voice", "voice"),
             ("Remove voice", "devoice"),
             ("Kick", "kick"),
+            ("Ban", "ban"),
         ];
         let mut card = self.menu_card(&nick, cx);
         card = card.child(self.menu_button("Mention", cx, move |this, _, cx| {

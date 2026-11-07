@@ -158,24 +158,140 @@ enum FontTarget {
 enum PaletteMode {
     Commands,
     Channels,
+    Themes,
+    Users(PaletteUserAction),
 }
 
 #[derive(Clone)]
 enum PaletteEntry {
     Command(PaletteCommand),
     Channel(i64),
+    Theme(String, String),
+    User {
+        action: PaletteUserAction,
+        nick: String,
+    },
 }
 
 #[derive(Clone, Copy)]
 enum PaletteCommand {
     Settings,
+    Security,
+    SwitchChannel,
+    NextChannel,
+    PreviousChannel,
     Join,
+    UploadFile,
     Search,
     Mentions,
     Emoji,
+    Theme,
+    ChooseUiFont,
+    ChooseMonoFont,
+    ImportTheme,
+    ExportTheme,
     ToggleSidebar,
     ToggleUsers,
+    ToggleInlineImages,
+    TogglePreviews,
+    ToggleTimestamps,
+    Toggle24Hour,
+    ToggleSeconds,
+    ToggleColoredNicks,
+    ToggleNotifications,
+    ToggleIconButtons,
+    ToggleAlignedText,
+    CycleStatusMessages,
+    FontSizeUp,
+    FontSizeDown,
+    LineHeightUp,
+    LineHeightDown,
+    MessageSpacingUp,
+    MessageSpacingDown,
+    SettingsHighlights,
+    SettingsHighlightExceptions,
+    SettingsAwayMessage,
+    MoveChannelUp,
+    MoveChannelDown,
+    AddNetwork,
+    EditNetwork,
+    ReconnectNetwork,
+    DisconnectNetwork,
+    RemoveNetwork,
+    MoveNetworkUp,
+    MoveNetworkDown,
+    LeaveChannel,
+    ToggleMute,
+    ClearChannelHistory,
+    EditTopic,
+    LoadOlder,
+    JumpToBottom,
+    ClearComposer,
+    CancelReply,
+    CopySelection,
     SignOut,
+    UserAction(PaletteUserAction),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PaletteUserAction {
+    Mention,
+    Query,
+    Whois,
+    Op,
+    Deop,
+    Voice,
+    Devoice,
+    Kick,
+    Ban,
+}
+
+impl PaletteUserAction {
+    fn command(self) -> &'static str {
+        match self {
+            Self::Mention => "mention",
+            Self::Query => "query",
+            Self::Whois => "whois",
+            Self::Op => "op",
+            Self::Deop => "deop",
+            Self::Voice => "voice",
+            Self::Devoice => "devoice",
+            Self::Kick => "kick",
+            Self::Ban => "ban",
+        }
+    }
+
+    fn prompt(self) -> &'static str {
+        match self {
+            Self::Mention => "Choose a user to mention...",
+            Self::Query => "Choose a user to query...",
+            Self::Whois => "Choose a user to inspect...",
+            Self::Op => "Choose a user to op...",
+            Self::Deop => "Choose a user to deop...",
+            Self::Voice => "Choose a user to voice...",
+            Self::Devoice => "Choose a user to devoice...",
+            Self::Kick => "Choose a user to kick...",
+            Self::Ban => "Choose a user to ban...",
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::Mention => "Mention user",
+            Self::Query => "Open query",
+            Self::Whois => "Whois user",
+            Self::Op => "Give op",
+            Self::Deop => "Remove op",
+            Self::Voice => "Give voice",
+            Self::Devoice => "Remove voice",
+            Self::Kick => "Kick user",
+            Self::Ban => "Ban user",
+        }
+    }
+
+    fn destructive(self) -> bool {
+        matches!(self, Self::Kick | Self::Ban)
+    }
 }
 
 #[derive(Clone)]
@@ -319,11 +435,13 @@ pub struct LoungeApp {
     font_picker: Option<FontTarget>,
     palette: Option<PaletteMode>,
     palette_selection: usize,
+    palette_scroll: gpui::ScrollHandle,
     pending_channel_switch: Option<i64>,
     scroll_after_more: bool,
 }
 
 mod actions;
+mod commands;
 mod connection;
 mod menus;
 mod message_text;
@@ -505,6 +623,7 @@ impl LoungeApp {
             font_picker: None,
             palette: None,
             palette_selection: 0,
+            palette_scroll: gpui::ScrollHandle::new(),
             pending_channel_switch: None,
             scroll_after_more: false,
         };

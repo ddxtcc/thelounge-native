@@ -88,6 +88,10 @@ impl LoungeApp {
             role,
             InputRole::Search | InputRole::EmojiSearch | InputRole::FontSearch | InputRole::Palette
         ) {
+            if role == InputRole::Palette && self.palette.is_some() {
+                self.palette_selection = 0;
+                self.palette_scroll.scroll_to_item(0);
+            }
             cx.notify();
         }
         if role == InputRole::Composer {
@@ -297,118 +301,6 @@ impl LoungeApp {
                 });
             })
             .detach();
-        }
-    }
-
-    pub(super) fn open_palette(&mut self, mode: PaletteMode, cx: &mut Context<Self>) {
-        self.close_overlays(cx);
-        self.settings_open = false;
-        self.security_open = false;
-        self.font_picker = None;
-        self.palette = Some(mode);
-        self.palette_selection = 0;
-        self.inputs.palette.update(cx, |input, cx| {
-            input.set_placeholder(match mode {
-                PaletteMode::Commands => "Type a command...",
-                PaletteMode::Channels => "Switch to channel...",
-            });
-            input.set_content("", cx);
-        });
-        self.focus_request = Some(InputRole::Palette);
-        cx.notify();
-    }
-
-    pub(super) fn palette_entries(&self, cx: &mut Context<Self>) -> Vec<(String, PaletteEntry)> {
-        let query = self.inputs.palette.read(cx).content().to_lowercase();
-        match self.palette {
-            Some(PaletteMode::Commands) => [
-                ("Open settings", PaletteCommand::Settings),
-                ("Join a channel", PaletteCommand::Join),
-                ("Search messages", PaletteCommand::Search),
-                ("Recent mentions", PaletteCommand::Mentions),
-                ("Emoji picker", PaletteCommand::Emoji),
-                ("Toggle sidebar", PaletteCommand::ToggleSidebar),
-                ("Toggle user list", PaletteCommand::ToggleUsers),
-                ("Sign out", PaletteCommand::SignOut),
-            ]
-            .into_iter()
-            .filter(|(label, _)| label.to_lowercase().contains(&query))
-            .map(|(label, command)| (label.to_string(), PaletteEntry::Command(command)))
-            .collect(),
-            Some(PaletteMode::Channels) => {
-                let mut entries = Vec::new();
-                for network in &self.state.networks {
-                    for channel in &network.channels {
-                        let name = if channel.is_lobby() {
-                            network.name.clone()
-                        } else {
-                            channel.chan.name.clone()
-                        };
-                        let label = format!("{} / {}", network.name, name);
-                        if label.to_lowercase().contains(&query) {
-                            entries.push((label, PaletteEntry::Channel(channel.chan.id)));
-                        }
-                    }
-                }
-                entries
-            }
-            None => Vec::new(),
-        }
-    }
-
-    fn move_palette(&mut self, delta: i32, cx: &mut Context<Self>) {
-        let len = self.palette_entries(cx).len();
-        if len == 0 {
-            return;
-        }
-        let current = self.palette_selection.min(len - 1) as i32;
-        self.palette_selection = (current + delta).rem_euclid(len as i32) as usize;
-        cx.notify();
-    }
-
-    fn run_palette_selection(&mut self, cx: &mut Context<Self>) {
-        let entries = self.palette_entries(cx);
-        let Some((_, entry)) = entries
-            .get(self.palette_selection.min(entries.len().saturating_sub(1)))
-            .cloned()
-        else {
-            return;
-        };
-        self.run_palette_entry(entry, cx);
-    }
-
-    pub(super) fn run_palette_entry(&mut self, entry: PaletteEntry, cx: &mut Context<Self>) {
-        self.palette = None;
-        self.palette_selection = 0;
-        match entry {
-            PaletteEntry::Channel(id) => {
-                self.pending_channel_switch = Some(id);
-                cx.notify();
-            }
-            PaletteEntry::Command(command) => match command {
-                PaletteCommand::Settings => self.open_settings(cx),
-                PaletteCommand::Join => {
-                    self.inputs
-                        .composer
-                        .update(cx, |input, cx| input.set_content("/join ", cx));
-                    self.focus_request = Some(InputRole::Composer);
-                    cx.notify();
-                }
-                PaletteCommand::Search => self.open_search(cx),
-                PaletteCommand::Mentions => self.open_mentions(cx),
-                PaletteCommand::Emoji => self.open_emoji_picker(cx),
-                PaletteCommand::ToggleSidebar => {
-                    self.config.show_sidebar = !self.config.show_sidebar;
-                    self.config.save();
-                    cx.notify();
-                }
-                PaletteCommand::ToggleUsers => {
-                    self.config.show_user_list = !self.config.show_user_list;
-                    self.config.save();
-                    cx.notify();
-                }
-                PaletteCommand::SignOut => self.sign_out(cx),
-            },
         }
     }
 

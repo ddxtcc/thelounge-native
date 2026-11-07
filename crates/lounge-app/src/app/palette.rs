@@ -8,9 +8,19 @@ impl LoungeApp {
         let title = match self.palette {
             Some(PaletteMode::Commands) => "Command palette",
             Some(PaletteMode::Channels) => "Switch channel",
+            Some(PaletteMode::Themes) => "Choose theme",
+            Some(PaletteMode::Users(action)) => action.title(),
             None => "Command palette",
         };
-        let mut list = div().flex().flex_col().gap_0p5().w_full();
+        let mut list = div()
+            .id("palette-list")
+            .flex()
+            .flex_col()
+            .gap_0p5()
+            .w_full()
+            .max_h(px(420.))
+            .overflow_y_scroll()
+            .track_scroll(&self.palette_scroll);
         if entries.is_empty() {
             list = list.child(div().p_2().text_color(theme.muted).child("No matches."));
         }

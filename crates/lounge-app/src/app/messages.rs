@@ -408,6 +408,17 @@ impl LoungeApp {
                         .filter(|url| !url.is_empty())
                 })
                 .map(|url| self.absolute_media_url(url));
+            let media_type = preview.media_type.as_deref().unwrap_or_default();
+            let video = preview.kind == "video" || media_type.starts_with("video/");
+            let audio = preview.kind == "audio" || media_type.starts_with("audio/");
+            let playable = video || audio;
+            let play_url = self.absolute_media_url(
+                preview
+                    .media
+                    .as_deref()
+                    .filter(|url| !url.is_empty())
+                    .unwrap_or(&preview.link),
+            );
             let mut card = div()
                 .id(ElementId::Name(
                     format!("preview-{}-{}", message.id, preview.link).into(),
@@ -426,7 +437,28 @@ impl LoungeApp {
                 .flex_col()
                 .gap_1()
                 .child(div().truncate().child(label));
-            if let Some(thumb) = thumb {
+            if playable {
+                card = card
+                    .on_click(cx.listener(move |_, _, _, _| {
+                        let _ = open::that(play_url.clone());
+                    }))
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.accent)
+                            .child(if video { "Play video" } else { "Play audio" }),
+                    );
+                if let Some(thumb) = thumb {
+                    card = card.child(
+                        gpui::img(thumb)
+                            .image_cache(&self.image_cache)
+                            .w(px(220.))
+                            .h(px(140.))
+                            .object_fit(gpui::ObjectFit::Contain)
+                            .rounded(px(4.)),
+                    );
+                }
+            } else if let Some(thumb) = thumb {
                 let lightbox_url = thumb.clone();
                 card = card
                     .on_click(cx.listener(move |this, _, _, cx| {
