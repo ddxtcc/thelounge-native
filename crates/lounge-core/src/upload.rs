@@ -1,13 +1,86 @@
+use std::fs::File;
+use std::io::{self, Read};
 use std::path::Path;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
 
-use ureq::unversioned::multipart::Form;
+use ureq::unversioned::multipart::{Form, Part};
 
-pub fn upload_file(base_url: &str, token: &str, path: &Path) -> Result<String, String> {
+#[derive(Clone)]
+pub struct UploadProgress {
+    sent: Arc<AtomicU64>,
+    total: u64,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl UploadProgress {
+    pub fn new(total: u64) -> Self {
+        Self {
+            sent: Arc::new(AtomicU64::new(0)),
+            total,
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn sent(&self) -> u64 {
+        self.sent.load(Ordering::Relaxed)
+    }
+
+    pub fn total(&self) -> u64 {
+        self.total
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+    }
+}
+
+struct ProgressReader {
+    file: File,
+    progress: UploadProgress,
+}
+
+impl Read for ProgressReader {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.progress.is_cancelled() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "upload cancelled",
+            ));
+        }
+        let read = self.file.read(buffer)?;
+        self.progress.sent.fetch_add(read as u64, Ordering::Relaxed);
+        Ok(read)
+    }
+}
+
+pub fn upload_file(
+    base_url: &str,
+    token: &str,
+    path: &Path,
+    progress: UploadProgress,
+) -> Result<String, String> {
     let base_url = base_url.trim_end_matches('/');
     let endpoint = format!("{base_url}/uploads/new/{token}");
-    let form = Form::new()
-        .file("file", path)
-        .map_err(|error| format!("could not open file: {error}"))?;
+    let file = File::open(path).map_err(|error| format!("could not open file: {error}"))?;
+    let display_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.to_string_lossy().to_string());
+    let part = Part::owned_reader(ProgressReader {
+        file,
+        progress: progress.clone(),
+    })
+    .file_name(&display_name)
+    .mime_str("application/octet-stream")
+    .map_err(|error| format!("invalid file type: {error}"))?;
+    let form = Form::new().part("file", part);
 
     let mut response = ureq::post(&endpoint)
         .send(form)
@@ -32,4 +105,117 @@ pub fn upload_file(base_url: &str, token: &str, path: &Path) -> Result<String, S
     base.join(url)
         .map(|url| url.to_string())
         .map_err(|error| format!("invalid upload URL: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::thread;
+
+    use super::*;
+
+    fn read_chunked(stream: &mut std::net::TcpStream, initial: &[u8]) -> Vec<u8> {
+        let mut buffer = initial.to_vec();
+        let mut body = Vec::new();
+        loop {
+            let line_end = loop {
+                if let Some(position) = buffer.windows(2).position(|window| window == b"\r\n") {
+                    break position;
+                }
+                let mut chunk = [0u8; 8192];
+                let read = stream.read(&mut chunk).expect("chunk size read");
+                if read == 0 {
+                    return body;
+                }
+                buffer.extend_from_slice(&chunk[..read]);
+            };
+            let size_line = String::from_utf8_lossy(&buffer[..line_end]).to_string();
+            let size = usize::from_str_radix(size_line.trim(), 16).expect("hex chunk size");
+            buffer.drain(..line_end + 2);
+            if size == 0 {
+                return body;
+            }
+            while buffer.len() < size + 2 {
+                let mut chunk = [0u8; 8192];
+                let read = stream.read(&mut chunk).expect("chunk body");
+                if read == 0 {
+                    return body;
+                }
+                buffer.extend_from_slice(&chunk[..read]);
+            }
+            body.extend_from_slice(&buffer[..size]);
+            buffer.drain(..size + 2);
+        }
+    }
+
+    #[test]
+    fn streams_multipart_upload_and_reports_progress() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let (body_tx, body_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut headers = Vec::new();
+            let header_end = loop {
+                let mut byte = [0u8; 1];
+                stream.read_exact(&mut byte).expect("header");
+                headers.push(byte[0]);
+                if headers.ends_with(b"\r\n\r\n") {
+                    break headers.len();
+                }
+            };
+            let request = String::from_utf8_lossy(&headers[..header_end]).to_string();
+            let mut rest = headers[header_end..].to_vec();
+            let chunked = request
+                .to_lowercase()
+                .contains("transfer-encoding: chunked");
+            let body = if chunked {
+                read_chunked(&mut stream, &rest)
+            } else {
+                let length = request
+                    .lines()
+                    .find_map(|line| {
+                        line.to_lowercase()
+                            .strip_prefix("content-length:")
+                            .and_then(|value| value.trim().parse::<usize>().ok())
+                    })
+                    .unwrap_or(0);
+                while rest.len() < length {
+                    let mut chunk = [0u8; 8192];
+                    let read = stream.read(&mut chunk).expect("body");
+                    if read == 0 {
+                        break;
+                    }
+                    rest.extend_from_slice(&chunk[..read]);
+                }
+                rest
+            };
+            body_tx.send(body).expect("body channel");
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 27\r\nconnection: close\r\n\r\n{\"url\":\"/uploads/file.zip\"}",
+                )
+                .expect("response");
+        });
+
+        let path =
+            std::env::temp_dir().join(format!("lounge-upload-test-{}.bin", std::process::id()));
+        std::fs::write(&path, b"upload payload").expect("temp file");
+        let progress = UploadProgress::new(14);
+        let result = upload_file(
+            &format!("http://{address}"),
+            "test-token",
+            &path,
+            progress.clone(),
+        );
+        let body = body_rx.recv().expect("body");
+        server.join().expect("server");
+        let _ = std::fs::remove_file(&path);
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(body.windows(14).any(|window| window == b"upload payload"));
+        assert_eq!(progress.sent(), 14);
+    }
 }

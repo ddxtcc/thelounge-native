@@ -1,3 +1,4 @@
+use super::message_list::{Row, build_rows, nick_column_width};
 use super::message_text::{
     build_message_text, image_fallback, is_status_message, user_mode_prefix_in_message,
 };
@@ -9,6 +10,7 @@ impl LoungeApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        self.image_cache_current.borrow_mut().clear();
         let theme = self.theme;
         let Some(active) = self.state.active else {
             return div()
@@ -20,181 +22,48 @@ impl LoungeApp {
                 .child("No channel selected")
                 .into_any_element();
         };
-        let scroll_offset = self.messages_scroll.offset();
-        let scroll_max = self.messages_scroll.max_offset();
-        let was_at_bottom = self.last_scroll_max.height <= px(1.)
-            || scroll_offset.y <= -self.last_scroll_max.height + px(48.);
-        if scroll_max.height > self.last_scroll_max.height + px(1.) && was_at_bottom {
-            self.schedule_scroll_bottom(cx);
-        } else if let Some(preview_message) = self.preview_scroll_message.take()
-            && scroll_max.height > self.last_scroll_max.height + px(1.)
-            && !was_at_bottom
-            && self
-                .state
-                .active_channel()
-                .and_then(|(_, channel)| channel.chan.messages.last())
-                .map(|message| message.id)
-                != Some(preview_message)
-        {
-            let delta = scroll_max.height - self.last_scroll_max.height;
-            let offset = self.messages_scroll.offset();
-            let y = (offset.y - delta).min(px(0.)).max(-scroll_max.height);
-            self.messages_scroll.set_offset(Point { x: offset.x, y });
-        }
-        self.preview_scroll_message = None;
-        self.last_scroll_max = scroll_max;
-        let Some((network, channel)) = self.state.find_channel(active) else {
-            return div().flex_1().into_any_element();
-        };
-        if let Some(special) = channel.chan.special.clone() {
-            return self.render_special(network, channel, &special, cx);
-        }
-
-        let rows = build_rows(channel, &self.config);
-        for row in &rows {
-            match row {
-                Row::Message(message) => {
-                    self.message_anchors.entry(message.id).or_insert_with(|| {
-                        gpui::ScrollAnchor::for_handle(self.messages_scroll.clone())
-                    });
-                }
-                Row::Condensed { messages, .. } => {
-                    for message in messages {
-                        self.message_anchors.entry(message.id).or_insert_with(|| {
-                            gpui::ScrollAnchor::for_handle(self.messages_scroll.clone())
-                        });
-                    }
-                }
-                _ => {}
-            }
-        }
-        let nick_width = if self.config.nick_column && !self.narrow {
-            nick_column_width(channel, self.config.font_size)
-        } else {
-            0.
-        };
-        let status_column = if nick_width > 0. { nick_width } else { 22. };
-        let summary_indent =
-            px(16. + if self.config.show_timestamps { 62. } else { 0. } + status_column + 8.);
-        let mut content = div().flex().flex_col().w_full().py_2();
-
-        if channel.more_history_available() {
-            let label = if channel.history_loading {
-                "Loading older messages...".to_string()
-            } else {
-                "Show older messages".to_string()
+        let (rows, nick_width, summary_indent) = {
+            let Some((network, channel)) = self.state.find_channel(active) else {
+                return div().flex_1().into_any_element();
             };
-            content = content.child(
-                div().w_full().flex().justify_center().py_2().child(
-                    div()
-                        .id("load-more")
-                        .px_3()
-                        .py_1()
-                        .rounded(px(5.))
-                        .bg(theme.panel)
-                        .border_1()
-                        .border_color(theme.border)
-                        .text_size(px(12.))
-                        .text_color(theme.muted)
-                        .flex_shrink_0()
-                        .cursor_pointer()
-                        .hover(|style| style.bg(theme.hover))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(id) = this.state.active
-                                && let Some(last_id) = this.state.mark_history_requested(id)
-                                && let Some(conn) = &this.conn
-                            {
-                                conn.more(
-                                    id,
-                                    last_id,
-                                    this.config.status_messages != StatusMessages::Shown,
-                                );
-                            }
-                            cx.notify();
-                        }))
-                        .child(label),
-                ),
-            );
-        }
-
-        for row in rows {
-            match row {
-                Row::Date(label) => {
-                    content = content.child(
-                        div()
-                            .px_4()
-                            .pt_3()
-                            .pb_1()
-                            .flex()
-                            .items_center()
-                            .gap_3()
-                            .child(div().flex_1().h(px(1.)).bg(theme.success))
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(theme.success)
-                                    .child(label),
-                            )
-                            .child(div().flex_1().h(px(1.)).bg(theme.success)),
-                    );
-                }
-                Row::Unread => {
-                    content = content.child(
-                        div()
-                            .px_4()
-                            .py_1()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(div().flex_1().h(px(1.)).bg(theme.accent))
-                            .child(
-                                div()
-                                    .text_size(px(10.))
-                                    .text_color(theme.accent)
-                                    .child("NEW"),
-                            )
-                            .child(div().flex_1().h(px(1.)).bg(theme.accent)),
-                    );
-                }
-                Row::Message(message) => {
-                    content = content
-                        .child(self.render_message_row(network, channel, message, nick_width, cx));
-                }
-                Row::Condensed { id, messages } => {
-                    let summary = condensed_summary(&messages);
-                    let expanded = self.expanded_condensed.contains(&id);
-                    content = content.child(
-                        div()
-                            .id(ElementId::Name(format!("cond-{id}").into()))
-                            .pl(summary_indent)
-                            .pr_4()
-                            .py(px(1.))
-                            .cursor_pointer()
-                            .text_size(px(12.))
-                            .text_color(theme.muted)
-                            .hover(|style| style.bg(theme.hover))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if !this.expanded_condensed.remove(&id) {
-                                    this.expanded_condensed.insert(id);
-                                }
-                                cx.notify();
-                            }))
-                            .child(format!("{summary} {}", if expanded { "v" } else { "»" })),
-                    );
-                    if expanded {
-                        for message in messages {
-                            content = content.child(
-                                self.render_message_row(network, channel, message, nick_width, cx),
-                            );
-                        }
-                    }
-                }
+            if let Some(special) = channel.chan.special.clone() {
+                return self.render_special(network, channel, &special, cx);
             }
+            let mut rows = build_rows(channel, &self.config);
+            if channel.more_history_available() {
+                rows.insert(
+                    0,
+                    Row::LoadMore {
+                        loading: channel.history_loading,
+                    },
+                );
+            }
+            let nick_width = if self.config.nick_column && !self.narrow {
+                nick_column_width(channel, self.config.font_size)
+            } else {
+                0.
+            };
+            let status_column = if nick_width > 0. { nick_width } else { 22. };
+            let summary_indent =
+                px(16. + if self.config.show_timestamps { 62. } else { 0. } + status_column + 8.);
+            (rows, nick_width, summary_indent)
+        };
+        let keys = rows.iter().map(|row| self.list_row_key(row)).collect();
+        self.sync_message_list(keys);
+        if self.scroll_to_bottom_pending {
+            self.messages_list.scroll_to(ListOffset {
+                item_ix: self.messages_list.item_count(),
+                offset_in_item: px(0.),
+            });
+            self.scroll_to_bottom_pending = false;
+            self.messages_at_bottom = true;
         }
 
+        self.trim_image_cache(window, cx);
         if let Some(message_id) = self.pending_focus_message.take() {
-            if let Some(anchor) = self.message_anchors.get(&message_id) {
-                anchor.scroll_to(window, cx);
+            if let Some(index) = self.message_row_index(&rows, message_id) {
+                self.messages_list.scroll_to_reveal_item(index);
+                self.messages_at_bottom = false;
                 self.pending_context = None;
             } else if let Some(context) = self.pending_context.take() {
                 self.message_context = Some(context);
@@ -203,31 +72,67 @@ impl LoungeApp {
                 self.toast("Message is not loaded.");
             }
         }
+
+        let chrome = if self.narrow { 110. } else { 80. };
+        let max_list_height = (window.viewport_size().height - px(chrome)).max(px(120.));
+        let list_height = if self.messages_available > px(0.) {
+            self.messages_available.min(max_list_height)
+        } else {
+            (window.viewport_size().height - px(150.)).max(px(120.))
+        };
+        let rows = Rc::new(rows);
+        let entity = cx.entity();
+        let item_rows = rows.clone();
+        let item_entity = entity.clone();
+        let bounds_weak = entity.downgrade();
+        let selection_weak = entity.downgrade();
         div()
-            .id("messages")
-            .flex_1()
-            .w_full()
-            .min_h(px(0.))
-            .overflow_y_scroll()
-            .track_scroll(&self.messages_scroll)
-            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
-                if !this.selecting_text {
+            .on_children_prepainted(move |bounds, _, cx| {
+                if let Some(bounds) = bounds.first()
+                    && let Some(this) = bounds_weak.upgrade()
+                {
+                    this.update(cx, |this, _| this.messages_bounds = Some(*bounds));
+                }
+            })
+            .on_mouse_move(move |event: &gpui::MouseMoveEvent, _, cx| {
+                let Some(this) = selection_weak.upgrade() else {
                     return;
-                }
-                let bounds = this.messages_scroll.bounds();
-                let edge = px(32.);
-                let delta = if event.position.y < bounds.top() + edge {
-                    px(18.)
-                } else if event.position.y > bounds.bottom() - edge {
-                    px(-18.)
-                } else {
-                    px(0.)
                 };
-                if delta != px(0.) {
-                    this.scroll_messages_by(delta, cx);
-                }
-            }))
-            .child(content)
+                this.update(cx, |this, cx| {
+                    if !this.selecting_text {
+                        return;
+                    }
+                    let Some(bounds) = this.messages_bounds else {
+                        return;
+                    };
+                    let edge = px(32.);
+                    let delta = if event.position.y < bounds.top() + edge {
+                        px(18.)
+                    } else if event.position.y > bounds.bottom() - edge {
+                        px(-18.)
+                    } else {
+                        px(0.)
+                    };
+                    if delta != px(0.) {
+                        this.scroll_messages_by(delta, cx);
+                    }
+                });
+            })
+            .child(
+                list(self.messages_list.clone(), move |index, _, cx| {
+                    let rows = item_rows.clone();
+                    let entity = item_entity.clone();
+                    entity.update(cx, |this, cx| {
+                        this.render_list_row(index, &rows, nick_width, summary_indent, cx)
+                    })
+                })
+                .w_full()
+                .h(list_height)
+                .min_h(px(0.))
+                .line_height(relative(self.config.line_height.max(1.3)))
+                .text_size(px(self.config.font_size))
+                .font_family(self.config.font_family.clone()),
+            )
             .into_any_element()
     }
 
@@ -517,6 +422,7 @@ impl LoungeApp {
                             .child(if video { "Play video" } else { "Play audio" }),
                     );
                 if let Some(thumb) = thumb {
+                    self.touch_image(&thumb);
                     card = card.child(
                         div()
                             .w(px(220.))
@@ -536,6 +442,7 @@ impl LoungeApp {
                     );
                 }
             } else if let Some(thumb) = thumb {
+                self.touch_image(&thumb);
                 let lightbox_url = thumb.clone();
                 card = card
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -570,6 +477,7 @@ impl LoungeApp {
         let image_height = if self.narrow { px(170.) } else { px(240.) };
         for (index, url) in inline_images.iter().enumerate() {
             let lightbox_url = url.clone();
+            self.touch_image(url);
             inline = inline.child(
                 div()
                     .id(ElementId::Name(
@@ -612,6 +520,7 @@ impl LoungeApp {
                     .flex()
                     .flex_col()
                     .gap_1()
+                    .line_height(relative(self.config.line_height.max(1.3)))
                     .child(text_element)
                     .child(inline)
                     .child(previews),
@@ -623,7 +532,6 @@ impl LoungeApp {
 
         let context_message = message.clone();
         let focused = self.focused_message == Some(message.id);
-        let anchor = self.message_anchors.get(&message.id).cloned();
         let mut row = div()
             .id(ElementId::Name(format!("row-{}", message.id).into()))
             .flex()
@@ -640,7 +548,6 @@ impl LoungeApp {
                 })
             })
             .when(is_self, |this| this.opacity(0.85))
-            .anchor_scroll(anchor)
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
@@ -720,96 +627,6 @@ impl LoungeApp {
         }
         row.child(content).into_any_element()
     }
-}
-
-fn build_rows<'a>(channel: &'a ChannelState, config: &AppConfig) -> Vec<Row<'a>> {
-    let mut rows = Vec::new();
-    let mut last_date: Option<chrono::NaiveDate> = None;
-    let mut unread_shown = false;
-    let show_unread = channel.chan.unread > 0 || channel.chan.highlight > 0;
-    let message_count = channel.chan.messages.len();
-    let mut index = 0;
-
-    while index < message_count {
-        let message = &channel.chan.messages[index];
-        let mut condensed_end = index + 1;
-        let condensable = channel.is_channel() || channel.is_query();
-        if condensable
-            && config.status_messages != StatusMessages::Hidden
-            && config.status_messages == StatusMessages::Condensed
-            && message.kind.is_condensable()
-            && !message.is_self
-            && !message.highlight
-        {
-            while condensed_end < message_count {
-                let next = &channel.chan.messages[condensed_end];
-                if !next.kind.is_condensable() || next.is_self || next.highlight {
-                    break;
-                }
-                condensed_end += 1;
-            }
-        }
-
-        let first_id = message.id;
-        let group = &channel.chan.messages[index..condensed_end];
-        if show_unread
-            && !unread_shown
-            && channel.chan.first_unread > 0
-            && first_id >= channel.chan.first_unread
-        {
-            rows.push(Row::Unread);
-            unread_shown = true;
-        }
-
-        let time = message.time;
-        if let Some(date) = time.map(|time| time.with_timezone(&Local).date_naive())
-            && last_date != Some(date)
-        {
-            rows.push(Row::Date(date_label(date)));
-            last_date = Some(date);
-        }
-
-        if group.len() > 1 {
-            rows.push(Row::Condensed {
-                id: first_id,
-                messages: group.iter().collect(),
-            });
-        } else if group.len() == 1
-            && !(config.status_messages == StatusMessages::Hidden && group[0].kind.is_condensable())
-        {
-            rows.push(Row::Message(&group[0]));
-        }
-
-        index = condensed_end;
-    }
-
-    if config.status_messages == StatusMessages::Hidden {
-        rows.retain(|row| !matches!(row, Row::Message(message) if message.kind.is_condensable()));
-    }
-
-    rows
-}
-
-enum Row<'a> {
-    Date(String),
-    Unread,
-    Message(&'a Message),
-    Condensed { id: i64, messages: Vec<&'a Message> },
-}
-
-fn nick_column_width(channel: &ChannelState, font_size: f32) -> f32 {
-    let mut chars = 0;
-    for user in &channel.users {
-        let width = user.nick.chars().count() + usize::from(!user.mode.is_empty());
-        chars = chars.max(width);
-    }
-    for message in &channel.chan.messages {
-        if let Some(from) = &message.from {
-            let width = from.nick.chars().count() + usize::from(!from.mode.is_empty());
-            chars = chars.max(width);
-        }
-    }
-    (chars as f32 * font_size * 0.58 + 18.).clamp(70., 180.)
 }
 
 fn word_range(text: &str, index: usize) -> Range<usize> {
@@ -892,7 +709,7 @@ fn status_icon(kind: MessageType, theme: &Theme) -> (&'static str, Hsla) {
     }
 }
 
-fn date_label(date: chrono::NaiveDate) -> String {
+pub(super) fn date_label(date: chrono::NaiveDate) -> String {
     let today = Local::now().date_naive();
     if date == today {
         "Today".into()
@@ -903,94 +720,22 @@ fn date_label(date: chrono::NaiveDate) -> String {
     }
 }
 
-fn condensed_summary(messages: &[&Message]) -> String {
-    let mut joins = 0;
-    let mut parts = 0;
-    let mut nicks = 0;
-    let mut kicks = 0;
-    let mut modes = 0;
-    let mut away = 0;
-    let mut back = 0;
-    let mut chghost = 0;
-    for message in messages {
-        match message.kind {
-            MessageType::Join => joins += 1,
-            MessageType::Part | MessageType::Quit => parts += 1,
-            MessageType::Nick => nicks += 1,
-            MessageType::Kick => kicks += 1,
-            MessageType::Mode => {
-                modes += message
-                    .text
-                    .split(' ')
-                    .next()
-                    .unwrap_or("")
-                    .chars()
-                    .filter(|c| *c != '+' && *c != '-')
-                    .count()
-                    .max(1)
-            }
-            MessageType::Away => away += 1,
-            MessageType::Back => back += 1,
-            MessageType::Chghost => chghost += 1,
-            _ => {}
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn word_range_handles_unicode_and_boundaries() {
+        let text = "hello wörld_test!";
+        assert_eq!(word_range(text, 2), 0..5);
+        assert_eq!(word_range(text, 7), 6..17);
+        assert_eq!(word_range(text, 17), 6..17);
+        assert_eq!(word_range(text, 18), 18..18);
     }
-    let mut strings = Vec::new();
-    let plural = |count: usize, one: &str, many: &str| {
-        if count == 1 {
-            format!("1 user {one}")
-        } else if count > 1 {
-            format!("{count} users {many}")
-        } else {
-            String::new()
-        }
-    };
-    for value in [
-        if away == 1 {
-            "marked away once".into()
-        } else if away > 1 {
-            format!("marked away {away} times")
-        } else {
-            String::new()
-        },
-        if back == 1 {
-            "marked back once".into()
-        } else if back > 1 {
-            format!("marked back {back} times")
-        } else {
-            String::new()
-        },
-        if chghost == 1 {
-            "1 user has changed hostname".into()
-        } else if chghost > 1 {
-            format!("{chghost} users have changed hostname")
-        } else {
-            String::new()
-        },
-        plural(joins, "has joined", "have joined"),
-        plural(kicks, "was kicked", "were kicked"),
-        if modes == 1 {
-            "1 mode was set".into()
-        } else if modes > 1 {
-            format!("{modes} modes were set")
-        } else {
-            String::new()
-        },
-        plural(nicks, "has changed nick", "have changed nicks"),
-        plural(parts, "has left", "have left"),
-    ] {
-        if !value.is_empty() {
-            strings.push(value);
-        }
-    }
-    if strings.is_empty() {
-        format!("{} status messages", messages.len())
-    } else if strings.len() == 1 {
-        strings[0].clone()
-    } else if strings.len() == 2 {
-        format!("{} and {}", strings[0], strings[1])
-    } else {
-        let last = strings.last().cloned().unwrap_or_default();
-        format!("{}, and {last}", strings[..strings.len() - 1].join(", "))
+
+    #[test]
+    fn word_range_includes_irc_nick_characters() {
+        let text = "prefix [nick-name] suffix";
+        assert_eq!(word_range(text, 9), 8..17);
     }
 }

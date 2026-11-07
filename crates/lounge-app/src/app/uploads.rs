@@ -115,14 +115,23 @@ impl LoungeApp {
             .file_name()
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_else(|| path.to_string_lossy().to_string());
-        self.toast(format!("Uploading {}...", display_name));
-        let task = cx
-            .background_executor()
-            .spawn(async move { lounge_core::upload::upload_file(&server, &token, &path) });
+        let total = std::fs::metadata(&path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        let progress = lounge_core::upload::UploadProgress::new(total);
+        self.active_upload = Some(ActiveUpload {
+            name: display_name,
+            progress: progress.clone(),
+        });
+        let task_progress = progress.clone();
+        let task = cx.background_executor().spawn(async move {
+            lounge_core::upload::upload_file(&server, &token, &path, task_progress)
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.uploads_in_flight = this.uploads_in_flight.saturating_sub(1);
+                this.active_upload = None;
                 match result {
                     Ok(url) => {
                         let content = this.inputs.composer.read(cx).content().to_string();
@@ -135,6 +144,9 @@ impl LoungeApp {
                             input.set_content(format!("{content}{separator}{url} "), cx)
                         });
                     }
+                    Err(_error) if progress.is_cancelled() => {
+                        this.toast("Upload cancelled.");
+                    }
                     Err(error) => this.toast(error),
                 }
                 if !this.pending_uploads.is_empty()
@@ -145,6 +157,25 @@ impl LoungeApp {
                 }
                 cx.notify();
             });
+        })
+        .detach();
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(100))
+                    .await;
+                let active = this.update(cx, |this, cx| {
+                    if this.active_upload.is_some() {
+                        cx.notify();
+                        true
+                    } else {
+                        false
+                    }
+                });
+                if !matches!(active, Ok(true)) {
+                    break;
+                }
+            }
         })
         .detach();
     }

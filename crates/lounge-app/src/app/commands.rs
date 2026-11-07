@@ -166,8 +166,7 @@ impl LoungeApp {
         if len == 0 {
             return;
         }
-        let current = self.palette_selection.min(len - 1) as i32;
-        self.palette_selection = (current + delta).rem_euclid(len as i32) as usize;
+        self.palette_selection = wrapped_selection(self.palette_selection, len, delta);
         self.palette_scroll.scroll_to_item(self.palette_selection);
         cx.notify();
     }
@@ -796,4 +795,29 @@ fn command_defs() -> &'static [(&'static str, PaletteCommand)] {
         ("Copy selected text", PaletteCommand::CopySelection),
         ("Sign out", PaletteCommand::SignOut),
     ]
+}
+
+fn wrapped_selection(current: usize, len: usize, delta: i32) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    (current.min(len - 1) as i32 + delta).rem_euclid(len as i32) as usize
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrapped_selection;
+
+    #[test]
+    fn palette_selection_wraps_in_both_directions() {
+        assert_eq!(wrapped_selection(0, 4, -1), 3);
+        assert_eq!(wrapped_selection(3, 4, 1), 0);
+        assert_eq!(wrapped_selection(1, 4, 2), 3);
+    }
+
+    #[test]
+    fn palette_selection_clamps_stale_index() {
+        assert_eq!(wrapped_selection(99, 4, 0), 3);
+        assert_eq!(wrapped_selection(99, 4, 1), 0);
+    }
 }

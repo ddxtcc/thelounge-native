@@ -405,13 +405,14 @@ impl LoungeApp {
         if self.state.active == Some(id) {
             return;
         }
-        self.message_anchors.clear();
+        self.messages_list.reset(0);
+        self.messages_list_keys.clear();
+        self.messages_at_bottom = true;
+        self.scroll_to_bottom_pending = false;
+        self.image_cache_current.borrow_mut().clear();
+        self.image_cache_touched.borrow_mut().clear();
         self.image_cache
             .update(cx, |cache, cx| cache.clear(window, cx));
-        self.last_scroll_max = gpui::Size {
-            width: px(0.),
-            height: px(0.),
-        };
         self.save_draft(cx);
         self.scroll_after_more = false;
         self.state.set_active(id);
@@ -654,6 +655,33 @@ impl LoungeApp {
         urls
     }
 
+    pub(super) fn touch_image(&self, url: &str) {
+        let url = url.to_string();
+        self.image_cache_current.borrow_mut().insert(url.clone());
+        let mut touched = self.image_cache_touched.borrow_mut();
+        if let Some(position) = touched.iter().position(|candidate| candidate == &url) {
+            touched.remove(position);
+        }
+        touched.push_back(url);
+    }
+
+    pub(super) fn trim_image_cache(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let limit = self.config.image_cache_limit.max(64);
+        let current = self.image_cache_current.borrow().clone();
+        let mut touched = self.image_cache_touched.borrow_mut();
+        while touched.len() > limit {
+            let Some(position) = image_eviction_position(&touched, &current) else {
+                break;
+            };
+            let Some(url) = touched.remove(position) else {
+                break;
+            };
+            let resource = gpui::Resource::Uri(url.into());
+            self.image_cache
+                .update(cx, |cache, cx| cache.remove(&resource, window, cx));
+        }
+    }
+
     pub(super) fn absolute_media_url(&self, url: &str) -> String {
         if url.starts_with("http://")
             || url.starts_with("https://")
@@ -670,7 +698,8 @@ impl LoungeApp {
     }
 
     pub(super) fn schedule_scroll_bottom(&mut self, _cx: &mut Context<Self>) {
-        self.messages_scroll.scroll_to_bottom();
+        self.scroll_to_bottom_pending = true;
+        self.messages_at_bottom = true;
     }
 
     pub(super) fn copy_text_selection(&mut self, cx: &mut Context<Self>) -> bool {
@@ -714,34 +743,28 @@ impl LoungeApp {
     }
 
     pub(super) fn scroll_messages_by(&mut self, delta: Pixels, cx: &mut Context<Self>) {
-        let offset = self.messages_scroll.offset();
-        let max = self.messages_scroll.max_offset();
-        let y = (offset.y + delta).min(px(0.)).max(-max.height);
-        if y != offset.y {
-            self.messages_scroll.set_offset(Point { x: offset.x, y });
-            cx.notify();
-        }
-    }
-
-    pub(super) fn scroll_messages_page(&mut self, direction: f32, cx: &mut Context<Self>) {
-        let offset = self.messages_scroll.offset();
-        let max = self.messages_scroll.max_offset();
-        let height = self.messages_scroll.bounds().size.height;
-        let mut y = offset.y + height * direction;
-        if y > px(0.) {
-            y = px(0.);
-        }
-        if y < -max.height {
-            y = -max.height;
-        }
-        self.messages_scroll.set_offset(Point { x: offset.x, y });
+        self.messages_list.scroll_by(-delta);
+        self.refresh_at_bottom();
         cx.notify();
     }
 
+    pub(super) fn scroll_messages_page(&mut self, direction: f32, cx: &mut Context<Self>) {
+        let height = self
+            .messages_bounds
+            .map(|bounds| bounds.size.height)
+            .unwrap_or(px(600.));
+        self.messages_list.scroll_by(-height * direction);
+        self.refresh_at_bottom();
+        cx.notify();
+    }
+
+    fn refresh_at_bottom(&mut self) {
+        let top = self.messages_list.logical_scroll_top();
+        self.messages_at_bottom = top.item_ix + 3 >= self.messages_list.item_count();
+    }
+
     pub(super) fn at_bottom(&self) -> bool {
-        let offset = self.messages_scroll.offset();
-        let max = self.messages_scroll.max_offset();
-        max.height <= px(1.) || offset.y <= -max.height + px(48.)
+        self.messages_at_bottom
     }
 
     pub(super) fn toast(&mut self, text: impl Into<String>) {
@@ -1141,5 +1164,32 @@ impl LoungeApp {
                 "offset": 0,
             })),
         );
+    }
+}
+
+fn image_eviction_position(touched: &VecDeque<String>, current: &HashSet<String>) -> Option<usize> {
+    touched.iter().position(|url| !current.contains(url))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_eviction_skips_currently_rendered_images() {
+        let touched = VecDeque::from([
+            "old".to_string(),
+            "visible".to_string(),
+            "older".to_string(),
+        ]);
+        let current = HashSet::from(["visible".to_string()]);
+        assert_eq!(image_eviction_position(&touched, &current), Some(0));
+    }
+
+    #[test]
+    fn image_eviction_returns_none_when_all_images_are_visible() {
+        let touched = VecDeque::from(["one".to_string(), "two".to_string()]);
+        let current = HashSet::from(["one".to_string(), "two".to_string()]);
+        assert_eq!(image_eviction_position(&touched, &current), None);
     }
 }

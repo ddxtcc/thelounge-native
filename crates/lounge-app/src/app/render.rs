@@ -171,9 +171,11 @@ impl LoungeApp {
         if !self.narrow && show_sidebar {
             root = root.child(self.render_sidebar(window, cx));
         }
+        let layout_weak = cx.entity().downgrade();
         root = root.child(
             div()
                 .flex_1()
+                .h(window.viewport_size().height)
                 .min_w(px(0.))
                 .flex()
                 .flex_col()
@@ -181,6 +183,21 @@ impl LoungeApp {
                 .child(self.render_messages(window, cx))
                 .when(!special_channel, |this| {
                     this.child(self.render_composer(window, cx))
+                })
+                .on_children_prepainted(move |bounds, window, cx| {
+                    if bounds.len() < 3 {
+                        return;
+                    }
+                    let available = (window.viewport_size().height
+                        - bounds[0].size.height
+                        - bounds[bounds.len() - 1].size.height)
+                        .max(px(0.));
+                    let _ = layout_weak.update(cx, |this, cx| {
+                        if this.messages_available != available {
+                            this.messages_available = available;
+                            cx.notify();
+                        }
+                    });
                 }),
         );
         if !self.narrow && show_users {
@@ -230,7 +247,7 @@ impl LoungeApp {
 
     pub(super) fn render_header(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
@@ -258,7 +275,14 @@ impl LoungeApp {
         } else {
             channel.chan.name.clone()
         };
-        let icon_buttons = self.config.icon_buttons;
+        let compact_header = compact_header(
+            window.viewport_size().width,
+            self.narrow,
+            self.config.show_sidebar,
+            self.config.show_user_list,
+            channel.is_channel(),
+        );
+        let icon_buttons = self.config.icon_buttons || compact_header;
         let topic = format::clean(&channel.chan.topic);
         let topic_label = if topic.is_empty() {
             "Set a topic...".to_string()
@@ -275,10 +299,12 @@ impl LoungeApp {
 
         div()
             .h(px(52.))
+            .flex_shrink_0()
             .px_4()
             .flex()
             .items_center()
             .gap_3()
+            .when(compact_header, |this| this.gap_2())
             .border_b_1()
             .border_color(theme.border)
             .child(self.sidebar_toggle(cx))
@@ -293,9 +319,16 @@ impl LoungeApp {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
+                            .min_w(px(0.))
                             .child(
                                 div()
+                                    .truncate()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(name),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
                                     .text_size(px(11.))
                                     .text_color(theme.muted)
                                     .child(network_name),
@@ -319,7 +352,7 @@ impl LoungeApp {
                             .child(gpui::StyledText::new(topic_label).into_any_element()),
                     ),
             )
-            .when(channel.is_channel(), |this| {
+            .when(channel.is_channel() && !compact_header, |this| {
                 this.child(
                     div()
                         .text_size(px(12.))
@@ -330,56 +363,64 @@ impl LoungeApp {
                         )),
                 )
             })
-            .when(channel.is_channel() || channel.is_query(), |this| {
-                let muted = channel.chan.muted;
-                this.child(self.header_button(
-                    if icon_buttons {
-                        if muted { "🔊" } else { "🔇" }
-                    } else if muted {
-                        "Unmute"
+            .when(
+                (channel.is_channel() || channel.is_query()) && !self.narrow,
+                |this| {
+                    let muted = channel.chan.muted;
+                    this.child(self.header_button(
+                        if icon_buttons {
+                            if muted { "🔇" } else { "🔊" }
+                        } else if muted {
+                            "Unmute"
+                        } else {
+                            "Mute"
+                        },
+                        if muted { "Unmute" } else { "Mute" },
+                        muted,
+                        cx,
+                        move |this, _, cx| {
+                            if let (Some(conn), Some(target)) = (&this.conn, this.state.active) {
+                                conn.emit(
+                                    "mute:change",
+                                    Some(
+                                        serde_json::json!({"target": target, "setMutedTo": !muted}),
+                                    ),
+                                );
+                            }
+                            cx.notify();
+                        },
+                    ))
+                },
+            )
+            .when(
+                (channel.is_channel() || channel.is_query()) && !self.narrow,
+                |this| {
+                    let is_query = channel.is_query();
+                    let label = if icon_buttons {
+                        "⏏"
+                    } else if is_query {
+                        "Close"
                     } else {
-                        "Mute"
-                    },
-                    if muted { "Unmute" } else { "Mute" },
-                    muted,
-                    cx,
-                    move |this, _, cx| {
-                        if let (Some(conn), Some(target)) = (&this.conn, this.state.active) {
-                            conn.emit(
-                                "mute:change",
-                                Some(serde_json::json!({"target": target, "setMutedTo": !muted})),
-                            );
-                        }
-                        cx.notify();
-                    },
-                ))
-            })
-            .when(channel.is_channel() || channel.is_query(), |this| {
-                let is_query = channel.is_query();
-                let label = if icon_buttons {
-                    "⏏"
-                } else if is_query {
-                    "Close"
-                } else {
-                    "Leave"
-                };
-                this.child(self.header_button(
-                    label,
-                    if is_query {
-                        "Close query"
-                    } else {
-                        "Leave channel"
-                    },
-                    false,
-                    cx,
-                    move |this, _, cx| {
-                        if let (Some(conn), Some(target)) = (&this.conn, this.state.active) {
-                            conn.input(target, if is_query { "/close" } else { "/part" }, None);
-                        }
-                        cx.notify();
-                    },
-                ))
-            })
+                        "Leave"
+                    };
+                    this.child(self.header_button(
+                        label,
+                        if is_query {
+                            "Close query"
+                        } else {
+                            "Leave channel"
+                        },
+                        false,
+                        cx,
+                        move |this, _, cx| {
+                            if let (Some(conn), Some(target)) = (&this.conn, this.state.active) {
+                                conn.input(target, if is_query { "/close" } else { "/part" }, None);
+                            }
+                            cx.notify();
+                        },
+                    ))
+                },
+            )
             .child({
                 let unread = self.unread_mentions();
                 let label = if icon_buttons {
@@ -470,6 +511,35 @@ impl LoungeApp {
     ) -> AnyElement {
         let theme = self.theme;
         let tooltip = tooltip.to_string();
+        let icon = match label {
+            "🔇" => Some("volume-x"),
+            "🔊" => Some("volume-2"),
+            "⏏" => Some("log-out"),
+            "👥" => Some("users"),
+            "🔍" => Some("search"),
+            "☰" => Some("menu"),
+            "←" => Some("chevron-left"),
+            value if value.starts_with('@') => Some("at-sign"),
+            _ => None,
+        };
+        let content = if let Some(icon) = icon {
+            let color = if active { theme.accent } else { theme.muted };
+            let mut row = div().flex().items_center().gap_1();
+            row = row.child(
+                gpui::svg()
+                    .path(format!("icons/{icon}.svg"))
+                    .w(px(16.))
+                    .h(px(16.))
+                    .text_color(color),
+            );
+            let badge = label.strip_prefix('@').unwrap_or("").trim();
+            if !badge.is_empty() {
+                row = row.child(div().text_size(px(10.)).child(badge.to_string()));
+            }
+            row.into_any_element()
+        } else {
+            div().child(label.to_string()).into_any_element()
+        };
         div()
             .id(ElementId::Name(format!("head-{label}").into()))
             .px_2()
@@ -486,7 +556,7 @@ impl LoungeApp {
             })
             .on_click(cx.listener(move |this, _, window, cx| on_click(this, window, cx)))
             .tooltip(move |_, cx| cx.new(|_| Tooltip::new(tooltip.clone(), theme)).into())
-            .child(label.to_string())
+            .child(content)
             .into_any_element()
     }
 
@@ -510,11 +580,10 @@ impl LoungeApp {
             .unwrap_or_default();
 
         let mut footer = div()
+            .flex_shrink_0()
             .border_t_1()
             .border_color(theme.border)
-            .px_3()
-            .pt_2()
-            .pb_3()
+            .p_2()
             .flex()
             .flex_col()
             .gap_2();
@@ -530,6 +599,42 @@ impl LoungeApp {
                     .text_size(px(11.))
                     .text_color(theme.muted)
                     .child(label),
+            );
+        }
+
+        if let Some(upload) = &self.active_upload {
+            let sent = upload.progress.sent();
+            let total = upload.progress.total();
+            let percent = if total == 0 {
+                0
+            } else {
+                (sent.min(total) * 100 / total) as u32
+            };
+            let progress = upload.progress.clone();
+            footer = footer.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .py_1()
+                    .rounded(px(4.))
+                    .bg(theme.panel)
+                    .text_size(px(11.))
+                    .text_color(theme.muted)
+                    .child(format!("Uploading {} ({percent}%)", upload.name))
+                    .child(
+                        div()
+                            .id("cancel-upload")
+                            .px_1()
+                            .cursor_pointer()
+                            .hover(|style| style.text_color(theme.error))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                progress.cancel();
+                                cx.notify();
+                            }))
+                            .child("Cancel"),
+                    ),
             );
         }
 
@@ -632,5 +737,45 @@ impl LoungeApp {
                     .children(upload_button),
             )
             .into_any_element()
+    }
+}
+
+fn compact_header(
+    viewport_width: Pixels,
+    narrow: bool,
+    show_sidebar: bool,
+    show_user_list: bool,
+    is_channel: bool,
+) -> bool {
+    let reserved = if narrow {
+        px(0.)
+    } else {
+        (if show_sidebar { px(238.) } else { px(0.) })
+            + (if show_user_list && is_channel {
+                px(210.)
+            } else {
+                px(0.)
+            })
+    };
+    viewport_width - reserved < px(900.)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compact_header;
+    use gpui::px;
+
+    #[test]
+    fn compact_header_uses_chat_width() {
+        assert!(compact_header(px(1347.), false, true, true, true));
+        assert!(!compact_header(px(1348.), false, true, true, true));
+    }
+
+    #[test]
+    fn compact_header_ignores_hidden_side_panels() {
+        assert!(!compact_header(px(900.), false, false, false, true));
+        assert!(compact_header(px(899.), false, false, false, true));
+        assert!(compact_header(px(899.), true, true, true, true));
+        assert!(!compact_header(px(900.), true, true, true, true));
     }
 }

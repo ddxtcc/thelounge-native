@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -6,9 +7,10 @@ use std::time::{Duration, Instant};
 
 use chrono::Local;
 use gpui::{
-    AnyElement, App, ClipboardItem, Context, ElementId, Entity, ExternalPaths, Focusable,
-    FontWeight, Hsla, InteractiveText, MouseButton, PathPromptOptions, Pixels, Point, SharedString,
-    StyledText, TextRun, UnderlineStyle, Window, div, prelude::*, px, relative, rgb,
+    AnyElement, App, Bounds, ClipboardItem, Context, ElementId, Entity, ExternalPaths, Focusable,
+    FontWeight, Hsla, InteractiveText, ListAlignment, ListOffset, ListState, MouseButton,
+    PathPromptOptions, Pixels, Point, SharedString, StyledText, TextRun, UnderlineStyle, Window,
+    div, list, prelude::*, px, relative, rgb,
 };
 use lounge_core::format::{self, IrcColor};
 use lounge_core::proto::{Message, MessageType, ServerEvent, User};
@@ -89,6 +91,11 @@ pub struct Inputs {
 struct SelectionPoint {
     message_id: i64,
     index: usize,
+}
+
+struct ActiveUpload {
+    name: String,
+    progress: lounge_core::upload::UploadProgress,
 }
 
 #[derive(Clone)]
@@ -480,11 +487,15 @@ pub struct LoungeApp {
     login_error: Option<String>,
     inputs: Inputs,
     input_revisions: HashMap<InputRole, u64>,
-    messages_scroll: gpui::ScrollHandle,
-    last_scroll_max: gpui::Size<gpui::Pixels>,
-    preview_scroll_message: Option<i64>,
+    messages_list: ListState,
+    messages_list_keys: Vec<String>,
+    messages_at_bottom: bool,
+    messages_bounds: Option<Bounds<Pixels>>,
+    messages_available: Pixels,
+    scroll_to_bottom_pending: bool,
     image_cache: Entity<gpui::RetainAllImageCache>,
-    message_anchors: HashMap<i64, gpui::ScrollAnchor>,
+    image_cache_current: RefCell<HashSet<String>>,
+    image_cache_touched: RefCell<VecDeque<String>>,
     pending_focus_message: Option<i64>,
     focused_message: Option<i64>,
     collapsed_networks: HashSet<String>,
@@ -543,6 +554,7 @@ pub struct LoungeApp {
     last_known_revision: u64,
     pending_uploads: Vec<PathBuf>,
     uploads_in_flight: usize,
+    active_upload: Option<ActiveUpload>,
     window_active: bool,
     focus_request: Option<InputRole>,
     focus_root_request: bool,
@@ -579,6 +591,7 @@ mod badge;
 mod commands;
 mod connection;
 mod menus;
+mod message_list;
 mod message_text;
 mod messages;
 mod overlays;
@@ -762,14 +775,15 @@ impl LoungeApp {
             login_error: None,
             inputs,
             input_revisions: HashMap::new(),
-            messages_scroll: gpui::ScrollHandle::new(),
-            last_scroll_max: gpui::Size {
-                width: px(0.),
-                height: px(0.),
-            },
-            preview_scroll_message: None,
+            messages_list: ListState::new(0, ListAlignment::Bottom, px(600.)),
+            messages_list_keys: Vec::new(),
+            messages_at_bottom: true,
+            messages_bounds: None,
+            messages_available: px(0.),
+            scroll_to_bottom_pending: false,
             image_cache: gpui::RetainAllImageCache::new(cx),
-            message_anchors: HashMap::new(),
+            image_cache_current: RefCell::new(HashSet::new()),
+            image_cache_touched: RefCell::new(VecDeque::new()),
             pending_focus_message: None,
             focused_message: None,
             collapsed_networks: HashSet::new(),
@@ -828,6 +842,7 @@ impl LoungeApp {
             last_known_revision: 0,
             pending_uploads: Vec::new(),
             uploads_in_flight: 0,
+            active_upload: None,
             window_active: true,
             focus_request: None,
             focus_root_request: false,
@@ -857,6 +872,12 @@ impl LoungeApp {
             pending_channel_switch: None,
             scroll_after_more: false,
         };
+        let list = app.messages_list.clone();
+        let weak = cx.entity().downgrade();
+        list.set_scroll_handler(move |event, _, cx| {
+            let at_bottom = event.visible_range.end >= event.count;
+            let _ = weak.update(cx, |this, _| this.messages_at_bottom = at_bottom);
+        });
         app.prefill_login(cx);
 
         if !app.config.server.is_empty() && !app.config.token.is_empty() {
@@ -868,5 +889,79 @@ impl LoungeApp {
         }
 
         app
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn channel_with_ids(ids: &[i64]) -> ChannelState {
+        ChannelState {
+            chan: lounge_core::proto::Channel {
+                messages: ids
+                    .iter()
+                    .map(|id| Message {
+                        id: *id,
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn text_selection_ranges_forward_across_messages() {
+        let channel = channel_with_ids(&[10, 20, 30]);
+        let selection = TextSelection {
+            start: SelectionPoint {
+                message_id: 10,
+                index: 2,
+            },
+            end: SelectionPoint {
+                message_id: 30,
+                index: 4,
+            },
+        };
+        assert_eq!(selection.range_for(&channel, 10, 12), Some(2..12));
+        assert_eq!(selection.range_for(&channel, 20, 12), Some(0..12));
+        assert_eq!(selection.range_for(&channel, 30, 12), Some(0..4));
+        assert_eq!(selection.range_for(&channel, 99, 12), None);
+    }
+
+    #[test]
+    fn text_selection_normalizes_backward_drag() {
+        let channel = channel_with_ids(&[10, 20, 30]);
+        let selection = TextSelection {
+            start: SelectionPoint {
+                message_id: 30,
+                index: 4,
+            },
+            end: SelectionPoint {
+                message_id: 10,
+                index: 2,
+            },
+        };
+        assert_eq!(selection.range_for(&channel, 10, 12), Some(2..12));
+        assert_eq!(selection.range_for(&channel, 20, 12), Some(0..12));
+        assert_eq!(selection.range_for(&channel, 30, 12), Some(0..4));
+    }
+
+    #[test]
+    fn text_selection_clamps_indexes_to_message_length() {
+        let channel = channel_with_ids(&[10]);
+        let selection = TextSelection {
+            start: SelectionPoint {
+                message_id: 10,
+                index: 50,
+            },
+            end: SelectionPoint {
+                message_id: 10,
+                index: 80,
+            },
+        };
+        assert_eq!(selection.range_for(&channel, 10, 12), Some(12..12));
     }
 }
