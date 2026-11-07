@@ -620,8 +620,70 @@ impl LoungeApp {
                             mute.set_property("mute", !audio_muted(&mute));
                             cx.notify();
                         },
-                    ))
-                    .child(self.media_fullscreen_button(cx)),
+                    )),
+            )
+            .into_any_element()
+    }
+
+    pub(super) fn render_audio_preview(
+        &self,
+        message_id: i64,
+        url: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let play_url = url.to_string();
+        let expand_url = url.to_string();
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .h(px(5.))
+                    .w_full()
+                    .rounded_full()
+                    .bg(self.theme.border),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .text_size(px(10.))
+                    .text_color(self.theme.muted)
+                    .child("0:00 / --:--")
+                    .child(
+                        div()
+                            .w(px(54.))
+                            .h(px(3.))
+                            .rounded_full()
+                            .bg(self.theme.border),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap_1()
+                    .child(
+                        self.media_icon_button("play", "Play", false, cx, move |this, _, cx| {
+                            this.play_inline_media(
+                                message_id,
+                                play_url.clone(),
+                                MediaKind::Audio,
+                                cx,
+                            );
+                        }),
+                    )
+                    .child(self.media_icon_button(
+                        "expand",
+                        "Expand",
+                        false,
+                        cx,
+                        move |this, _, cx| this.open_lightbox(expand_url.clone(), cx),
+                    )),
             )
             .into_any_element()
     }

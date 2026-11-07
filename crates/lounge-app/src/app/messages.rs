@@ -706,59 +706,49 @@ impl LoungeApp {
                             ),
                         );
                     } else if kind == super::media::MediaKind::Audio {
+                        card = card.child(self.render_audio_preview(row_id, &url, cx));
+                    }
+                    if kind == super::media::MediaKind::Video {
+                        let play_url = url.clone();
+                        let expand_url = url.clone();
+                        let full_url = url.clone();
                         card = card.child(
                             div()
-                                .h(px(44.))
                                 .w_full()
-                                .rounded(px(5.))
-                                .bg(theme.sidebar)
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .text_size(px(18.))
-                                .text_color(theme.accent)
-                                .child("♪"),
+                                .gap_1()
+                                .child(self.media_icon_button(
+                                    "play",
+                                    "Play",
+                                    false,
+                                    cx,
+                                    move |this, _, cx| {
+                                        this.play_inline_media(row_id, play_url.clone(), kind, cx);
+                                    },
+                                ))
+                                .child(self.media_icon_button(
+                                    "expand",
+                                    "Expand",
+                                    false,
+                                    cx,
+                                    move |this, _, cx| {
+                                        this.open_lightbox(expand_url.clone(), cx);
+                                    },
+                                ))
+                                .child(self.media_icon_button(
+                                    "maximize",
+                                    "Full screen",
+                                    false,
+                                    cx,
+                                    move |this, window, cx| {
+                                        this.open_lightbox(full_url.clone(), cx);
+                                        window.toggle_fullscreen();
+                                    },
+                                )),
                         );
                     }
-                    let play_url = url.clone();
-                    let expand_url = url.clone();
-                    let full_url = url.clone();
-                    card = card.child(
-                        div()
-                            .w_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .gap_1()
-                            .child(self.media_icon_button(
-                                "play",
-                                "Play",
-                                false,
-                                cx,
-                                move |this, _, cx| {
-                                    this.play_inline_media(row_id, play_url.clone(), kind, cx);
-                                },
-                            ))
-                            .child(self.media_icon_button(
-                                "expand",
-                                "Expand",
-                                false,
-                                cx,
-                                move |this, _, cx| {
-                                    this.open_lightbox(expand_url.clone(), cx);
-                                },
-                            ))
-                            .child(self.media_icon_button(
-                                "maximize",
-                                "Full screen",
-                                false,
-                                cx,
-                                move |this, window, cx| {
-                                    this.open_lightbox(full_url.clone(), cx);
-                                    window.toggle_fullscreen();
-                                },
-                            )),
-                    );
                 }
                 media_cards = media_cards.child(card);
             }
