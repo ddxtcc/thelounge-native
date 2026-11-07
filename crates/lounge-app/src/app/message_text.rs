@@ -584,6 +584,19 @@ impl RunBuilder {
     }
 }
 
+pub(super) fn image_fallback(theme: Theme, label: &'static str) -> AnyElement {
+    div()
+        .w_full()
+        .h_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(11.))
+        .text_color(theme.muted)
+        .child(label)
+        .into_any_element()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

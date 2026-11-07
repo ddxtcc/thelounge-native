@@ -115,6 +115,8 @@ pub enum InputAction {
     PrevHistory,
     NextHistory,
     PasteImage,
+    MoveLeft,
+    MoveRight,
     Escape,
 }
 
@@ -359,6 +361,7 @@ impl TextInput {
         } else {
             self.move_to(self.selected_range.start, cx);
         }
+        self.emit_action(InputAction::MoveLeft, cx);
     }
 
     fn right(&mut self, _: &Right, _: &mut Window, cx: &mut Context<Self>) {
@@ -367,6 +370,7 @@ impl TextInput {
         } else {
             self.move_to(self.selected_range.end, cx);
         }
+        self.emit_action(InputAction::MoveRight, cx);
     }
 
     fn select_left(&mut self, _: &SelectLeft, _: &mut Window, cx: &mut Context<Self>) {

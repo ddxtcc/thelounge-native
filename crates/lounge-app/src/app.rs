@@ -82,6 +82,14 @@ struct SelectionPoint {
 }
 
 #[derive(Clone)]
+struct MessageContext {
+    channel: String,
+    nick: String,
+    time: Option<chrono::DateTime<chrono::Utc>>,
+    text: String,
+}
+
+#[derive(Clone)]
 struct TextSelection {
     start: SelectionPoint,
     end: SelectionPoint,
@@ -159,6 +167,7 @@ enum PaletteMode {
     Commands,
     Channels,
     Themes,
+    Alias,
     Users(PaletteUserAction),
 }
 
@@ -169,7 +178,8 @@ impl PaletteCommand {
             | Self::Security
             | Self::SettingsHighlights
             | Self::SettingsHighlightExceptions
-            | Self::SettingsAwayMessage => "Settings",
+            | Self::SettingsAwayMessage
+            | Self::AddAlias => "Settings",
             Self::SwitchChannel
             | Self::NextChannel
             | Self::PreviousChannel
@@ -228,6 +238,7 @@ impl PaletteCommand {
 enum PaletteEntry {
     Command(PaletteCommand),
     Recent(PaletteCommand),
+    Favorite(PaletteCommand),
     Channel(i64),
     Theme(String, String),
     User {
@@ -294,6 +305,7 @@ enum PaletteCommand {
     CancelReply,
     CopySelection,
     SignOut,
+    AddAlias,
     UserAction(PaletteUserAction),
 }
 
@@ -474,6 +486,13 @@ pub struct LoungeApp {
     search_selection: usize,
     search_scroll: gpui::ScrollHandle,
     mentions_open: bool,
+    mentions_selection: usize,
+    mentions_scroll: gpui::ScrollHandle,
+    seen_mentions: HashSet<i64>,
+    message_context: Option<MessageContext>,
+    pending_context: Option<MessageContext>,
+    emoji_selection: usize,
+    emoji_scroll: gpui::ScrollHandle,
     network_tls: bool,
     network_defaults_applied: bool,
     pending_focus: bool,
@@ -484,6 +503,7 @@ pub struct LoungeApp {
     uploads_in_flight: usize,
     window_active: bool,
     focus_request: Option<InputRole>,
+    focus_root_request: bool,
     emoji_picker_open: bool,
     security_open: bool,
     network_menu: Option<String>,
@@ -669,6 +689,13 @@ impl LoungeApp {
             search_selection: 0,
             search_scroll: gpui::ScrollHandle::new(),
             mentions_open: false,
+            mentions_selection: 0,
+            mentions_scroll: gpui::ScrollHandle::new(),
+            seen_mentions: HashSet::new(),
+            message_context: None,
+            pending_context: None,
+            emoji_selection: 0,
+            emoji_scroll: gpui::ScrollHandle::new(),
             network_tls: true,
             network_defaults_applied: false,
             pending_focus: true,
@@ -679,6 +706,7 @@ impl LoungeApp {
             uploads_in_flight: 0,
             window_active: true,
             focus_request: None,
+            focus_root_request: false,
             emoji_picker_open: false,
             security_open: false,
             network_menu: None,

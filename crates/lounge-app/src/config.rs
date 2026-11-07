@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -41,6 +42,8 @@ pub struct AppConfig {
     pub notifications: bool,
     pub icon_buttons: bool,
     pub custom_theme: Option<CustomTheme>,
+    pub favorite_commands: Vec<String>,
+    pub command_aliases: HashMap<String, String>,
 }
 
 impl Default for AppConfig {
@@ -69,6 +72,8 @@ impl Default for AppConfig {
             notifications: true,
             icon_buttons: true,
             custom_theme: None,
+            favorite_commands: Vec::new(),
+            command_aliases: HashMap::new(),
         }
     }
 }

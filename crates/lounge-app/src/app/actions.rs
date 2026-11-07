@@ -97,6 +97,10 @@ impl LoungeApp {
                 self.search_selection = 0;
                 self.search_scroll.scroll_to_item(0);
             }
+            if role == InputRole::EmojiSearch {
+                self.emoji_selection = 0;
+                self.emoji_scroll.scroll_to_item(0);
+            }
             cx.notify();
         }
         if role == InputRole::Composer {
@@ -139,6 +143,7 @@ impl LoungeApp {
                 InputAction::PrevHistory => self.history_prev(cx),
                 InputAction::NextHistory => self.history_next(cx),
                 InputAction::PasteImage => self.paste_image_from_clipboard(cx),
+                InputAction::MoveLeft | InputAction::MoveRight => {}
                 InputAction::Escape => {
                     if self.reply_to.take().is_some() {
                         cx.notify();
@@ -187,9 +192,23 @@ impl LoungeApp {
                     self.save_server_setting(role, cx);
                 }
             }
-            InputRole::EmojiSearch | InputRole::FontSearch => {}
+            InputRole::EmojiSearch => match action {
+                InputAction::Submit => self.insert_selected_emoji(cx),
+                InputAction::PrevHistory => self.move_emoji(-7, cx),
+                InputAction::NextHistory => self.move_emoji(7, cx),
+                InputAction::MoveLeft => self.move_emoji(-1, cx),
+                InputAction::MoveRight => self.move_emoji(1, cx),
+                _ => {}
+            },
+            InputRole::FontSearch => {}
             InputRole::Palette => match action {
-                InputAction::Submit => self.run_palette_selection(cx),
+                InputAction::Submit => {
+                    if self.palette == Some(PaletteMode::Alias) {
+                        self.save_command_alias(cx);
+                    } else {
+                        self.run_palette_selection(cx);
+                    }
+                }
                 InputAction::PrevHistory => self.move_palette(-1, cx),
                 InputAction::NextHistory => self.move_palette(1, cx),
                 _ => {}
@@ -736,6 +755,95 @@ impl LoungeApp {
         cx.notify();
     }
 
+    pub(super) fn unread_mentions(&self) -> usize {
+        self.state
+            .mentions
+            .iter()
+            .filter(|mention| !self.seen_mentions.contains(&mention.msg_id))
+            .count()
+    }
+
+    pub(super) fn mark_mentions_seen(&mut self) {
+        for mention in &self.state.mentions {
+            self.seen_mentions.insert(mention.msg_id);
+        }
+    }
+
+    pub(super) fn move_mentions(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let len = self.state.mentions.len();
+        if len == 0 {
+            return;
+        }
+        let current = self.mentions_selection.min(len - 1) as isize;
+        self.mentions_selection = (current + delta).rem_euclid(len as isize) as usize;
+        self.mentions_scroll.scroll_to_item(self.mentions_selection);
+        cx.notify();
+    }
+
+    pub(super) fn activate_mentions_selection(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.activate_mention(self.mentions_selection, window, cx);
+    }
+
+    pub(super) fn activate_mention(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mention) = self.state.mentions.get(index).cloned() else {
+            return;
+        };
+        if self.state.find_channel(mention.chan_id).is_none() {
+            return;
+        }
+        let channel = self
+            .state
+            .find_channel(mention.chan_id)
+            .map(|(_, channel)| channel.chan.name.clone())
+            .unwrap_or_default();
+        self.pending_focus_message = Some(mention.msg_id);
+        self.pending_context = Some(MessageContext {
+            channel,
+            nick: mention.from.nick.clone(),
+            time: mention.time,
+            text: format::clean(&mention.text),
+        });
+        self.flash_message(mention.msg_id, cx);
+        self.switch_channel(mention.chan_id, window, cx);
+        self.mentions_open = false;
+        cx.notify();
+    }
+
+    fn emoji_entries(&self, cx: &mut Context<Self>) -> Vec<&'static crate::emoji::Emoji> {
+        let term = self.inputs.emoji_search.read(cx).content().to_string();
+        crate::emoji::filter(&term, 240)
+    }
+
+    fn move_emoji(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let len = self.emoji_entries(cx).len();
+        if len == 0 {
+            return;
+        }
+        let current = self.emoji_selection.min(len - 1) as isize;
+        self.emoji_selection = (current + delta).clamp(0, len as isize - 1) as usize;
+        self.emoji_scroll.scroll_to_item(self.emoji_selection);
+        cx.notify();
+    }
+
+    fn insert_selected_emoji(&mut self, cx: &mut Context<Self>) {
+        let glyph = self
+            .emoji_entries(cx)
+            .get(self.emoji_selection)
+            .map(|emoji| emoji.glyph);
+        if let Some(glyph) = glyph {
+            self.insert_emoji(glyph, cx);
+        }
+    }
+
     fn move_search(&mut self, delta: isize, cx: &mut Context<Self>) {
         let len = self
             .state
@@ -753,12 +861,22 @@ impl LoungeApp {
     }
 
     pub(super) fn activate_search_result(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some((target, message_id)) = ({
+        let Some((target, message_id, context)) = ({
             let Some(results) = &self.state.search_results else {
                 return;
             };
             let Some(result) = results.results.get(index) else {
                 return;
+            };
+            let context = MessageContext {
+                channel: results.query.channel_name.clone(),
+                nick: result
+                    .from
+                    .as_ref()
+                    .map(|from| from.nick.clone())
+                    .unwrap_or_default(),
+                time: result.time,
+                text: format::clean(&result.text),
             };
             let target = self.state.networks.iter().find_map(|network| {
                 if network.uuid != results.query.network_uuid {
@@ -770,11 +888,12 @@ impl LoungeApp {
                     .find(|channel| channel.chan.name == results.query.channel_name)
                     .map(|channel| channel.chan.id)
             });
-            target.map(|target| (target, result.id))
+            target.map(|target| (target, result.id, context))
         }) else {
             return;
         };
         self.pending_focus_message = Some(message_id);
+        self.pending_context = Some(context);
         self.flash_message(message_id, cx);
         self.search_open = false;
         self.pending_channel_switch = Some(target);

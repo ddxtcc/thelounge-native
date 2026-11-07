@@ -364,38 +364,46 @@ impl LoungeApp {
                 ("Sign out", "Sign out", SidebarAction::SignOut),
             ]
         };
+        let unread_mentions = self.unread_mentions();
         for (label, tooltip, action) in entries {
-            footer =
-                footer.child(
-                    self.sidebar_button(label, tooltip, cx, move |this, window, cx| match action {
-                        SidebarAction::Network => {
-                            let uuid = this
-                                .state
-                                .active_network()
-                                .map(|network| network.uuid.clone())
-                                .or_else(|| {
-                                    this.state
-                                        .networks
-                                        .first()
-                                        .map(|network| network.uuid.clone())
-                                });
-                            match uuid {
-                                Some(uuid) => this.open_network_menu(&uuid, cx),
-                                None => this.open_network_modal(cx),
-                            }
+            let label = if matches!(action, SidebarAction::Mentions) && unread_mentions > 0 {
+                format!("{label} ({unread_mentions})")
+            } else {
+                label.to_string()
+            };
+            footer = footer.child(self.sidebar_button(
+                &label,
+                tooltip,
+                cx,
+                move |this, window, cx| match action {
+                    SidebarAction::Network => {
+                        let uuid = this
+                            .state
+                            .active_network()
+                            .map(|network| network.uuid.clone())
+                            .or_else(|| {
+                                this.state
+                                    .networks
+                                    .first()
+                                    .map(|network| network.uuid.clone())
+                            });
+                        match uuid {
+                            Some(uuid) => this.open_network_menu(&uuid, cx),
+                            None => this.open_network_modal(cx),
                         }
-                        SidebarAction::Join => {
-                            this.inputs
-                                .composer
-                                .update(cx, |input, cx| input.set_content("/join ", cx));
-                            this.focus_composer(window, cx);
-                            cx.notify();
-                        }
-                        SidebarAction::Mentions => this.open_mentions(cx),
-                        SidebarAction::Settings => this.open_settings(cx),
-                        SidebarAction::SignOut => this.sign_out(cx),
-                    }),
-                );
+                    }
+                    SidebarAction::Join => {
+                        this.inputs
+                            .composer
+                            .update(cx, |input, cx| input.set_content("/join ", cx));
+                        this.focus_composer(window, cx);
+                        cx.notify();
+                    }
+                    SidebarAction::Mentions => this.open_mentions(cx),
+                    SidebarAction::Settings => this.open_settings(cx),
+                    SidebarAction::SignOut => this.sign_out(cx),
+                },
+            ));
         }
         footer.into_any_element()
     }

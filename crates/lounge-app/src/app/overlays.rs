@@ -43,6 +43,8 @@ impl LoungeApp {
             overlay = overlay.child(self.render_lightbox(&url, window, cx));
         } else if let Some(target) = self.font_picker {
             overlay = overlay.child(self.render_font_picker(target, window, cx));
+        } else if self.message_context.is_some() {
+            overlay = overlay.child(self.render_message_context(cx));
         } else if self.settings_open {
             overlay = overlay.child(self.render_settings(window, cx));
         } else if self.network_modal_open {
@@ -313,6 +315,37 @@ impl LoungeApp {
         card.into_any_element()
     }
 
+    pub(super) fn render_message_context(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let Some(context) = self.message_context.clone() else {
+            return div().into_any_element();
+        };
+        let time = format::format_time(
+            context.time,
+            self.config.show_seconds,
+            self.config.use_12h_clock,
+        );
+        self.menu_card("Message context", cx)
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme.muted)
+                    .child(format!("{} - {time}", context.channel)),
+            )
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme.accent)
+                    .child(context.nick),
+            )
+            .child(div().text_size(px(13.)).child(context.text))
+            .child(self.menu_button("Close", cx, |this, _, cx| {
+                this.message_context = None;
+                cx.notify();
+            }))
+            .into_any_element()
+    }
+
     pub(super) fn render_search(
         &mut self,
         _window: &mut Window,
@@ -569,8 +602,17 @@ impl LoungeApp {
         let theme = self.theme;
         let term = self.inputs.emoji_search.read(cx).content().to_string();
         let emoji = crate::emoji::filter(&term, 240);
-        let mut grid = div().id("emoji-grid").w_full().grid().grid_cols(7).gap_2();
-        for item in emoji {
+        let selection = self.emoji_selection.min(emoji.len().saturating_sub(1));
+        let mut grid = div()
+            .id("emoji-grid")
+            .w_full()
+            .grid()
+            .grid_cols(7)
+            .gap_2()
+            .max_h(px(420.))
+            .overflow_y_scroll()
+            .track_scroll(&self.emoji_scroll);
+        for (index, item) in emoji.into_iter().enumerate() {
             let glyph = item.glyph;
             let shortcode = item.shortcode;
             grid = grid.child(
@@ -584,6 +626,7 @@ impl LoungeApp {
                     .items_center()
                     .justify_center()
                     .rounded(px(5.))
+                    .when(index == selection, |this| this.bg(theme.accent_dim))
                     .cursor_pointer()
                     .hover(|style| style.bg(theme.hover))
                     .on_click(cx.listener(move |this, _, _, cx| this.insert_emoji(glyph, cx)))
@@ -606,15 +649,9 @@ impl LoungeApp {
                 div()
                     .text_size(px(11.))
                     .text_color(theme.muted)
-                    .child("Type to filter; click an emoji to insert it."),
+                    .child("Type to filter; arrows navigate, Enter inserts."),
             )
-            .child(
-                div()
-                    .id("emoji-scroll")
-                    .max_h(px(420.))
-                    .overflow_y_scroll()
-                    .child(grid),
-            )
+            .child(grid)
             .into_any_element()
     }
 
@@ -632,10 +669,19 @@ impl LoungeApp {
                     .child("You have no recent mentions."),
             );
         } else {
-            let mut list = div().flex().flex_col().gap_2();
-            for mention in &self.state.mentions {
+            let selection = self
+                .mentions_selection
+                .min(self.state.mentions.len().saturating_sub(1));
+            let mut list = div()
+                .id("mention-list")
+                .flex()
+                .flex_col()
+                .gap_2()
+                .max_h(px(420.))
+                .overflow_y_scroll()
+                .track_scroll(&self.mentions_scroll);
+            for (index, mention) in self.state.mentions.iter().enumerate() {
                 let msg_id = mention.msg_id;
-                let chan_id = mention.chan_id;
                 let nick = mention.from.nick.clone();
                 let text = format::clean(&mention.text);
                 let time = format::format_time(
@@ -650,15 +696,10 @@ impl LoungeApp {
                         .py_2()
                         .rounded(px(5.))
                         .bg(theme.highlight_bg)
+                        .when(index == selection, |this| this.bg(theme.accent_dim))
                         .cursor_pointer()
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            if this.state.find_channel(chan_id).is_some() {
-                                this.pending_focus_message = Some(msg_id);
-                                this.flash_message(msg_id, cx);
-                                this.switch_channel(chan_id, window, cx);
-                                this.mentions_open = false;
-                            }
-                            cx.notify();
+                            this.activate_mention(index, window, cx);
                         }))
                         .child(
                             div()
@@ -674,6 +715,7 @@ impl LoungeApp {
                                         .cursor_pointer()
                                         .hover(|style| style.text_color(theme.error))
                                         .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
                                             if let Some(conn) = &this.conn {
                                                 conn.emit(
                                                     "mentions:dismiss",

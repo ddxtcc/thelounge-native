@@ -9,6 +9,7 @@ impl LoungeApp {
             Some(PaletteMode::Commands) => "Command palette",
             Some(PaletteMode::Channels) => "Switch channel",
             Some(PaletteMode::Themes) => "Choose theme",
+            Some(PaletteMode::Alias) => "Add command alias",
             Some(PaletteMode::Users(action)) => action.title(),
             None => "Command palette",
         };
@@ -65,7 +66,34 @@ impl LoungeApp {
                         .child(section.unwrap_or_default()),
                 );
             }
-            item = item.child(label);
+            let command = match &entry {
+                PaletteEntry::Command(command)
+                | PaletteEntry::Recent(command)
+                | PaletteEntry::Favorite(command) => Some(*command),
+                _ => None,
+            };
+            let mut text = div()
+                .w_full()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(label);
+            if let Some(command) = command {
+                let favorite = self.command_is_favorite(command);
+                text = text.child(
+                    div()
+                        .id(ElementId::Name(format!("palette-favorite-{index}").into()))
+                        .px_1()
+                        .text_color(if favorite { theme.accent } else { theme.muted })
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.toggle_command_favorite(command, cx);
+                        }))
+                        .child(if favorite { "★" } else { "☆" }),
+                );
+            }
+            item = item.child(text);
             list = list.child(item);
         }
         self.modal_card(title, cx)

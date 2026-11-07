@@ -1,4 +1,6 @@
-use super::message_text::{build_message_text, is_status_message, user_mode_prefix_in_message};
+use super::message_text::{
+    build_message_text, image_fallback, is_status_message, user_mode_prefix_in_message,
+};
 use super::*;
 
 impl LoungeApp {
@@ -193,6 +195,10 @@ impl LoungeApp {
         if let Some(message_id) = self.pending_focus_message.take() {
             if let Some(anchor) = self.message_anchors.get(&message_id) {
                 anchor.scroll_to(window, cx);
+                self.pending_context = None;
+            } else if let Some(context) = self.pending_context.take() {
+                self.message_context = Some(context);
+                window.focus(&self.root_focus);
             } else {
                 self.toast("Message is not loaded.");
             }
@@ -824,19 +830,6 @@ fn word_range(text: &str, index: usize) -> Range<usize> {
         end += ch.len_utf8();
     }
     start..end
-}
-
-fn image_fallback(theme: Theme, label: &'static str) -> AnyElement {
-    div()
-        .w_full()
-        .h_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(11.))
-        .text_color(theme.muted)
-        .child(label)
-        .into_any_element()
 }
 
 fn select_runs(runs: Vec<TextRun>, range: Range<usize>, color: Hsla) -> Vec<TextRun> {

@@ -14,6 +14,7 @@ impl LoungeApp {
                 PaletteMode::Commands => "Type a command...",
                 PaletteMode::Channels => "Switch to channel...",
                 PaletteMode::Themes => "Choose a theme...",
+                PaletteMode::Alias => "alias = command label",
                 PaletteMode::Users(action) => action.prompt(),
             });
             input.set_content("", cx);
@@ -28,9 +29,31 @@ impl LoungeApp {
             Some(PaletteMode::Commands) => {
                 let mut definitions = command_defs().to_vec();
                 definitions.sort_by_key(|(_, command)| command.section());
+                let favorite_commands: Vec<PaletteCommand> = self
+                    .config
+                    .favorite_commands
+                    .iter()
+                    .filter_map(|favorite| {
+                        definitions
+                            .iter()
+                            .find(|(label, _)| label.eq_ignore_ascii_case(favorite))
+                            .map(|(_, command)| *command)
+                    })
+                    .collect();
                 let mut entries = Vec::new();
                 if query.is_empty() {
+                    for command in &favorite_commands {
+                        if let Some((label, _)) = definitions
+                            .iter()
+                            .find(|(_, candidate)| candidate == command)
+                        {
+                            entries.push((label.to_string(), PaletteEntry::Favorite(*command)));
+                        }
+                    }
                     for command in &self.recent_commands {
+                        if favorite_commands.contains(command) {
+                            continue;
+                        }
                         if let Some((label, _)) = definitions
                             .iter()
                             .find(|(_, candidate)| candidate == command)
@@ -40,11 +63,30 @@ impl LoungeApp {
                     }
                 }
                 for (label, command) in definitions {
-                    if query.is_empty() && self.recent_commands.contains(&command) {
+                    if query.is_empty()
+                        && (self.recent_commands.contains(&command)
+                            || favorite_commands.contains(&command))
+                    {
                         continue;
                     }
                     if label.to_lowercase().contains(&query) {
                         entries.push((label.to_string(), PaletteEntry::Command(command)));
+                    }
+                }
+                if !query.is_empty() {
+                    for (alias, target) in &self.config.command_aliases {
+                        if !alias.to_lowercase().contains(&query) {
+                            continue;
+                        }
+                        if let Some((label, command)) = command_defs()
+                            .iter()
+                            .find(|(label, _)| label.eq_ignore_ascii_case(target))
+                        {
+                            entries.push((
+                                format!("{alias} → {label}"),
+                                PaletteEntry::Command(*command),
+                            ));
+                        }
                     }
                 }
                 entries
@@ -84,6 +126,7 @@ impl LoungeApp {
                 }
                 entries
             }
+            Some(PaletteMode::Alias) => Vec::new(),
             Some(PaletteMode::Users(action)) => {
                 let Some((network, channel)) = self.state.active_channel() else {
                     return Vec::new();
@@ -136,7 +179,9 @@ impl LoungeApp {
 
     pub(super) fn run_palette_entry(&mut self, entry: PaletteEntry, cx: &mut Context<Self>) {
         if let Some(command) = match &entry {
-            PaletteEntry::Command(command) | PaletteEntry::Recent(command) => Some(*command),
+            PaletteEntry::Command(command)
+            | PaletteEntry::Recent(command)
+            | PaletteEntry::Favorite(command) => Some(*command),
             _ => None,
         } {
             self.remember_palette_command(command);
@@ -148,7 +193,8 @@ impl LoungeApp {
                 self.run_palette_user_action(action, &nick, cx);
             }
             PaletteEntry::Command(PaletteCommand::UserAction(action))
-            | PaletteEntry::Recent(PaletteCommand::UserAction(action)) => {
+            | PaletteEntry::Recent(PaletteCommand::UserAction(action))
+            | PaletteEntry::Favorite(PaletteCommand::UserAction(action)) => {
                 self.open_palette(PaletteMode::Users(action), cx);
             }
             PaletteEntry::Theme(id, label) => {
@@ -162,7 +208,9 @@ impl LoungeApp {
                 self.pending_channel_switch = Some(id);
                 cx.notify();
             }
-            PaletteEntry::Command(command) | PaletteEntry::Recent(command) => match command {
+            PaletteEntry::Command(command)
+            | PaletteEntry::Recent(command)
+            | PaletteEntry::Favorite(command) => match command {
                 PaletteCommand::Settings => self.open_settings(cx),
                 PaletteCommand::Security => {
                     self.settings_open = false;
@@ -187,6 +235,7 @@ impl LoungeApp {
                 PaletteCommand::Mentions => self.open_mentions(cx),
                 PaletteCommand::Emoji => self.open_emoji_picker(cx),
                 PaletteCommand::Theme => self.open_palette(PaletteMode::Themes, cx),
+                PaletteCommand::AddAlias => self.open_palette(PaletteMode::Alias, cx),
                 PaletteCommand::ChooseUiFont => self.open_font_picker(FontTarget::Ui, cx),
                 PaletteCommand::ChooseMonoFont => self.open_font_picker(FontTarget::Mono, cx),
                 PaletteCommand::ImportTheme => self.import_theme(cx),
@@ -466,6 +515,73 @@ impl LoungeApp {
         cx.notify();
     }
 
+    pub(super) fn command_is_favorite(&self, command: PaletteCommand) -> bool {
+        self.command_label(command).is_some_and(|label| {
+            self.config
+                .favorite_commands
+                .iter()
+                .any(|favorite| favorite.eq_ignore_ascii_case(label))
+        })
+    }
+
+    pub(super) fn toggle_command_favorite(
+        &mut self,
+        command: PaletteCommand,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(label) = self.command_label(command) else {
+            return;
+        };
+        if let Some(position) = self
+            .config
+            .favorite_commands
+            .iter()
+            .position(|favorite| favorite.eq_ignore_ascii_case(label))
+        {
+            self.config.favorite_commands.remove(position);
+        } else {
+            self.config.favorite_commands.push(label.to_string());
+        }
+        self.config.save();
+        cx.notify();
+    }
+
+    fn command_label(&self, command: PaletteCommand) -> Option<&'static str> {
+        command_defs()
+            .iter()
+            .find(|(_, candidate)| *candidate == command)
+            .map(|(label, _)| *label)
+    }
+
+    pub(super) fn save_command_alias(&mut self, cx: &mut Context<Self>) {
+        let input = self.inputs.palette.read(cx).content().trim().to_string();
+        let Some((alias, target)) = input.split_once('=') else {
+            self.toast("Use format: alias = command label");
+            return;
+        };
+        let alias = alias.trim().to_lowercase();
+        let target = target.trim();
+        if alias.is_empty() || target.is_empty() {
+            self.toast("Use format: alias = command label");
+            return;
+        }
+        let Some((label, _)) = command_defs()
+            .iter()
+            .find(|(label, _)| label.eq_ignore_ascii_case(target))
+        else {
+            self.toast("No command with that label.");
+            return;
+        };
+        self.config
+            .command_aliases
+            .insert(alias.clone(), label.to_string());
+        self.config.save();
+        self.palette = None;
+        self.toast(format!("Alias {alias} saved."));
+        self.pending_focus = true;
+        cx.notify();
+    }
+
     fn remember_palette_command(&mut self, command: PaletteCommand) {
         self.recent_commands.retain(|recent| *recent != command);
         self.recent_commands.insert(0, command);
@@ -501,6 +617,7 @@ impl LoungeApp {
 fn command_defs() -> &'static [(&'static str, PaletteCommand)] {
     &[
         ("Open settings", PaletteCommand::Settings),
+        ("Add command alias", PaletteCommand::AddAlias),
         ("Security & sessions", PaletteCommand::Security),
         ("Switch channel", PaletteCommand::SwitchChannel),
         ("Next channel", PaletteCommand::NextChannel),
