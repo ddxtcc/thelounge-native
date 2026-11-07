@@ -303,6 +303,7 @@ impl LoungeApp {
 
         div()
             .h(px(52.))
+            .flex_shrink_0()
             .px_4()
             .flex()
             .items_center()
@@ -583,6 +584,7 @@ impl LoungeApp {
             .unwrap_or_default();
 
         let mut footer = div()
+            .flex_shrink_0()
             .border_t_1()
             .border_color(theme.border)
             .p_2()
