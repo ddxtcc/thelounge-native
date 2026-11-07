@@ -470,15 +470,24 @@ impl LoungeApp {
                 .child(div().truncate().child(label));
             if playable {
                 #[cfg(feature = "media-video")]
+                let mut inline_active = false;
+                #[cfg(not(feature = "media-video"))]
+                let inline_active = false;
+                #[cfg(feature = "media-video")]
                 {
                     let kind = if video {
                         super::media::MediaKind::Video
                     } else {
                         super::media::MediaKind::Audio
                     };
-                    card = card.on_click(cx.listener(move |this, _, _, cx| {
-                        this.play_inline_media(row_id, play_url.clone(), kind, cx);
-                    }));
+                    if let Some(inline) = self.render_inline_media(row_id, &play_url, cx) {
+                        card = card.child(inline);
+                        inline_active = true;
+                    } else {
+                        card = card.on_click(cx.listener(move |this, _, _, cx| {
+                            this.play_inline_media(row_id, play_url.clone(), kind, cx);
+                        }));
+                    }
                 }
                 #[cfg(not(feature = "media-video"))]
                 {
@@ -486,13 +495,15 @@ impl LoungeApp {
                         this.play_media_or_open(play_url.clone(), cx);
                     }));
                 }
-                card = card.child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(theme.accent)
-                        .child(if video { "Play video" } else { "Play audio" }),
-                );
-                if let Some(thumb) = thumb {
+                if !inline_active {
+                    card = card.child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.accent)
+                            .child(if video { "Play video" } else { "Play audio" }),
+                    );
+                }
+                if !inline_active && let Some(thumb) = thumb {
                     self.touch_image(&thumb);
                     card = card.child(
                         div()
@@ -577,6 +588,63 @@ impl LoungeApp {
             );
         }
 
+        #[cfg(feature = "media-video")]
+        let mut media_cards = div().flex().flex_col().gap_2();
+        #[cfg(not(feature = "media-video"))]
+        let media_cards = div().flex().flex_col().gap_2();
+        #[cfg(feature = "media-video")]
+        {
+            for (index, link) in format::find_links(&message.text).into_iter().enumerate() {
+                let url = self.absolute_media_url(&link.url);
+                let Some(kind) = super::media::media_kind(&url) else {
+                    continue;
+                };
+                if message.previews.iter().any(|preview| {
+                    preview.link == url
+                        || preview.media.as_deref() == Some(url.as_str())
+                        || preview.thumb_actual_url.as_deref() == Some(url.as_str())
+                }) {
+                    continue;
+                }
+                let file = url.rsplit('/').next().unwrap_or(url.as_str()).to_string();
+                let label = match kind {
+                    super::media::MediaKind::Video => "Play video",
+                    super::media::MediaKind::Audio => "Play audio",
+                };
+                let mut card = div()
+                    .id(ElementId::Name(
+                        format!("media-link-{row_id}-{index}").into(),
+                    ))
+                    .w_full()
+                    .max_w(px(460.))
+                    .rounded(px(5.))
+                    .bg(theme.panel)
+                    .border_1()
+                    .border_color(theme.border)
+                    .p_2()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(div().text_size(px(11.)).text_color(theme.muted).child(file));
+                if let Some(inline) = self.render_inline_media(row_id, &url, cx) {
+                    card = card.child(inline);
+                } else {
+                    let play_url = url.clone();
+                    card = card
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.play_inline_media(row_id, play_url.clone(), kind, cx);
+                        }))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(theme.accent)
+                                .child(label),
+                        );
+                }
+                media_cards = media_cards.child(card);
+            }
+        }
+
         let mut content = div()
             .flex_1()
             .min_w(px(0.))
@@ -594,13 +662,9 @@ impl LoungeApp {
                     .line_height(relative(self.config.line_height.max(1.3)))
                     .child(text_element)
                     .child(inline)
-                    .child(previews),
+                    .child(previews)
+                    .child(media_cards),
             );
-
-        #[cfg(feature = "media-video")]
-        if let Some(inline) = self.render_inline_media(row_id, cx) {
-            content = content.child(inline);
-        }
 
         if let Some(reply_button) = reply_button {
             content = content.child(reply_button);

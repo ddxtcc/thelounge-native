@@ -101,12 +101,13 @@ impl LoungeApp {
     pub(super) fn render_inline_media(
         &self,
         message_id: i64,
+        url: &str,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let inline = self
             .inline_video
             .as_ref()
-            .filter(|inline| inline.message_id == message_id)?;
+            .filter(|inline| inline.message_id == message_id && inline.url == url)?;
         let url = inline.url.clone();
         let kind = inline.kind;
         let video = inline.video.clone();
