@@ -59,7 +59,7 @@ impl LoungeApp {
         self.messages_list.reset(0);
         self.messages_list_keys.clear();
         self.message_rows_cache = None;
-        #[cfg(feature = "media-video")]
+        #[cfg(feature = "media")]
         {
             self.clear_inline_media();
             self.clear_media_posters();

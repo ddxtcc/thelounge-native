@@ -508,21 +508,21 @@ pub struct LoungeApp {
     lightbox: Option<String>,
     lightbox_index: Option<usize>,
     lightbox_zoom: f32,
-    #[cfg(feature = "media-video")]
+    #[cfg(feature = "media")]
     media_video: Option<(String, gpui_video_player::Video)>,
-    #[cfg(feature = "media-video")]
+    #[cfg(feature = "media")]
     media_error: Option<String>,
-    #[cfg(feature = "media-video")]
+    #[cfg(feature = "media")]
     media_fullscreen: bool,
-    #[cfg(feature = "media-video")]
+    #[cfg(feature = "media")]
     audio_ticker_generation: u64,
-    #[cfg(feature = "media-video")]
+    #[cfg(feature = "media")]
     inline_video: Option<media::InlineMedia>,
-    #[cfg(feature = "media-video")]
+    #[cfg(feature = "media")]
     media_audio: Option<gstreamer::Pipeline>,
-    #[cfg(feature = "media-video")]
+    #[cfg(feature = "media")]
     inline_audio: Option<media::InlineAudio>,
-    #[cfg(feature = "media-video")]
+    #[cfg(feature = "media")]
     media_posters: RefCell<HashMap<String, Option<media::Poster>>>,
     lightbox_pan: Point<Pixels>,
     lightbox_drag_last: Option<Point<Pixels>>,
@@ -608,7 +608,7 @@ mod badge;
 mod commands;
 mod connection;
 mod desktop;
-#[cfg(feature = "media-video")]
+#[cfg(feature = "media")]
 mod media;
 mod menus;
 mod message_list;
@@ -810,21 +810,21 @@ impl LoungeApp {
             lightbox: None,
             lightbox_index: None,
             lightbox_zoom: 1.0,
-            #[cfg(feature = "media-video")]
+            #[cfg(feature = "media")]
             media_video: None,
-            #[cfg(feature = "media-video")]
+            #[cfg(feature = "media")]
             media_error: None,
-            #[cfg(feature = "media-video")]
+            #[cfg(feature = "media")]
             media_fullscreen: false,
-            #[cfg(feature = "media-video")]
+            #[cfg(feature = "media")]
             audio_ticker_generation: 0,
-            #[cfg(feature = "media-video")]
+            #[cfg(feature = "media")]
             inline_video: None,
-            #[cfg(feature = "media-video")]
+            #[cfg(feature = "media")]
             media_audio: None,
-            #[cfg(feature = "media-video")]
+            #[cfg(feature = "media")]
             inline_audio: None,
-            #[cfg(feature = "media-video")]
+            #[cfg(feature = "media")]
             media_posters: RefCell::new(HashMap::new()),
             lightbox_pan: Point::default(),
             lightbox_drag_last: None,

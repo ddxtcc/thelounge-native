@@ -25,25 +25,35 @@ sh packaging/install.sh
 
 The installer writes to `$HOME/.local` by default. Set `PREFIX` or `XDG_DATA_HOME` to change the target. Release archives include the binary, `lounge-native.desktop`, `install.sh`, and hicolor icons; run `./install.sh` from the unpacked archive.
 
-## Optional media playback
+## Media playback
 
-Build with the `media-video` feature to enable inline video and audio cards:
+Media playback is enabled by default. Video cards show a still poster and play in
+place. Audio cards show progress, time, seek, and volume controls before and during
+playback. Both support expanding to the media overlay and saving the original file
+to `$XDG_DOWNLOAD_DIR` or `~/Downloads`.
+
+The build requires Rust 1.96 or newer and GStreamer with its base, good, and bad
+plugins. On Arch Linux:
 
 ```sh
-cargo run --release -p lounge-native --features media-video
+sudo pacman -S gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
 ```
 
-Video cards show a still poster and play in place. Audio cards show progress, time,
-seek, and volume controls before and during playback. Both support expanding to the
-media overlay and saving the original file to `$XDG_DOWNLOAD_DIR` or `~/Downloads`.
+On Debian and Ubuntu:
 
-This build requires Rust 1.96 or newer and GStreamer with its base, good, and bad
-plugins. The default build does not link GStreamer.
+```sh
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+```
+
+macOS builds require GStreamer from Homebrew. Windows builds require the GStreamer SDK
+and a working `pkg-config` setup. Use `--no-default-features` to build without media
+support.
 
 ## Development
 
 ```sh
-cargo test -p lounge-core
+cargo test --workspace --locked
 cargo build -p lounge-native
 ```
 

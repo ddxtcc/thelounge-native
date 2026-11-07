@@ -192,7 +192,7 @@ impl LoungeApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
-        #[cfg(feature = "media-video")]
+        #[cfg(feature = "media")]
         let row_id = message.id;
         let highlight = message.highlight;
         let is_self = message.is_self;
@@ -222,7 +222,7 @@ impl LoungeApp {
         let selection_text = text.clone();
 
         let weak = cx.entity().downgrade();
-        #[cfg(feature = "media-video")]
+        #[cfg(feature = "media")]
         let inline_message_id = message.id;
         let targets = Rc::new(targets);
         let click = {
@@ -234,7 +234,7 @@ impl LoungeApp {
                 match target {
                     ClickTarget::Url(url) => {
                         let _ = weak.update(cx, |this, cx| {
-                            #[cfg(feature = "media-video")]
+                            #[cfg(feature = "media")]
                             if let Some(kind) = super::media::media_kind(&url) {
                                 this.play_inline_media(inline_message_id, url.clone(), kind, cx);
                                 return;
@@ -469,11 +469,11 @@ impl LoungeApp {
                 .gap_1()
                 .child(div().truncate().child(label));
             if playable {
-                #[cfg(feature = "media-video")]
+                #[cfg(feature = "media")]
                 let mut inline_active = false;
-                #[cfg(not(feature = "media-video"))]
+                #[cfg(not(feature = "media"))]
                 let inline_active = false;
-                #[cfg(feature = "media-video")]
+                #[cfg(feature = "media")]
                 {
                     let kind = if video {
                         super::media::MediaKind::Video
@@ -489,7 +489,7 @@ impl LoungeApp {
                         }));
                     }
                 }
-                #[cfg(not(feature = "media-video"))]
+                #[cfg(not(feature = "media"))]
                 {
                     card = card.on_click(cx.listener(move |this, _, _, cx| {
                         this.play_media_or_open(play_url.clone(), cx);
@@ -588,11 +588,11 @@ impl LoungeApp {
             );
         }
 
-        #[cfg(feature = "media-video")]
+        #[cfg(feature = "media")]
         let mut media_cards = div().flex().flex_col().gap_2();
-        #[cfg(not(feature = "media-video"))]
+        #[cfg(not(feature = "media"))]
         let media_cards = div().flex().flex_col().gap_2();
-        #[cfg(feature = "media-video")]
+        #[cfg(feature = "media")]
         {
             for (index, link) in format::find_links(&message.text).into_iter().enumerate() {
                 let url = self.absolute_media_url(&link.url);

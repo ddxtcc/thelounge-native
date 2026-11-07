@@ -419,7 +419,7 @@ impl LoungeApp {
         self.messages_list.reset(0);
         self.messages_list_keys.clear();
         self.message_rows_cache = None;
-        #[cfg(feature = "media-video")]
+        #[cfg(feature = "media")]
         {
             self.clear_inline_media();
             self.clear_media_posters();
@@ -789,14 +789,14 @@ impl LoungeApp {
     }
 
     pub(super) fn play_media_or_open(&mut self, url: String, cx: &mut Context<Self>) {
-        #[cfg(feature = "media-video")]
+        #[cfg(feature = "media")]
         {
             if super::media::media_kind(&url).is_some() {
                 self.open_media_lightbox(url, cx);
                 return;
             }
         }
-        #[cfg(not(feature = "media-video"))]
+        #[cfg(not(feature = "media"))]
         let _ = cx;
         let _ = open::that(url);
     }

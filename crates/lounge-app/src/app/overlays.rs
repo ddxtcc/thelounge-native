@@ -104,7 +104,7 @@ impl LoungeApp {
     }
 
     pub(super) fn open_lightbox(&mut self, url: String, cx: &mut Context<Self>) {
-        #[cfg(feature = "media-video")]
+        #[cfg(feature = "media")]
         {
             if super::media::media_kind(&url).is_some() {
                 self.open_media_lightbox(url, cx);
@@ -144,7 +144,7 @@ impl LoungeApp {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        #[cfg(feature = "media-video")]
+        #[cfg(feature = "media")]
         if let Some(kind) = super::media::media_kind(url) {
             return self.render_media_lightbox(url, kind, window, cx);
         }

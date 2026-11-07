@@ -22,8 +22,8 @@ tauri-winrt-notification = "0.8"
 windows = { version = "0.62", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
 
 [features]
-default = []
-media-video = ["dep:gpui-video-player", "dep:gstreamer", "dep:image", "dep:yuv"]
+default = ["media"]
+media = ["dep:gpui-video-player", "dep:gstreamer", "dep:image", "dep:yuv"]
 
 [dependencies]
 anyhow.workspace = true
