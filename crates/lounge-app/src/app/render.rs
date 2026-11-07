@@ -247,7 +247,7 @@ impl LoungeApp {
 
     pub(super) fn render_header(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
@@ -275,7 +275,18 @@ impl LoungeApp {
         } else {
             channel.chan.name.clone()
         };
-        let icon_buttons = self.config.icon_buttons;
+        let reserved = if self.narrow {
+            0.
+        } else {
+            (if self.config.show_sidebar { 238. } else { 0. })
+                + (if self.config.show_user_list && channel.is_channel() {
+                    210.
+                } else {
+                    0.
+                })
+        };
+        let compact_header = window.viewport_size().width - px(reserved) < px(900.);
+        let icon_buttons = self.config.icon_buttons || compact_header;
         let topic = format::clean(&channel.chan.topic);
         let topic_label = if topic.is_empty() {
             "Set a topic...".to_string()
@@ -296,7 +307,7 @@ impl LoungeApp {
             .flex()
             .items_center()
             .gap_3()
-            .when(self.narrow, |this| this.gap_2())
+            .when(compact_header, |this| this.gap_2())
             .border_b_1()
             .border_color(theme.border)
             .child(self.sidebar_toggle(cx))
@@ -344,7 +355,7 @@ impl LoungeApp {
                             .child(gpui::StyledText::new(topic_label).into_any_element()),
                     ),
             )
-            .when(channel.is_channel() && !self.narrow, |this| {
+            .when(channel.is_channel() && !compact_header, |this| {
                 this.child(
                     div()
                         .text_size(px(12.))
@@ -574,7 +585,7 @@ impl LoungeApp {
         let mut footer = div()
             .border_t_1()
             .border_color(theme.border)
-            .p_3()
+            .p_2()
             .flex()
             .flex_col()
             .gap_2();
