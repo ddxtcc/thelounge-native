@@ -599,13 +599,6 @@ impl LoungeApp {
                 let Some(kind) = super::media::media_kind(&url) else {
                     continue;
                 };
-                if message.previews.iter().any(|preview| {
-                    preview.link == url
-                        || preview.media.as_deref() == Some(url.as_str())
-                        || preview.thumb_actual_url.as_deref() == Some(url.as_str())
-                }) {
-                    continue;
-                }
                 let file = url.rsplit('/').next().unwrap_or(url.as_str()).to_string();
                 let label = match kind {
                     super::media::MediaKind::Video => "Play video",
