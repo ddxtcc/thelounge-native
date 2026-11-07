@@ -1,6 +1,9 @@
 use gstreamer as gst;
 use gstreamer::glib::object::Cast;
 use gstreamer::prelude::*;
+use image::{ImageBuffer, Rgba};
+use std::hash::{Hash, Hasher};
+use yuv::{YuvBiPlanarImage, YuvConversionMode, YuvRange, YuvStandardMatrix, yuv_nv12_to_bgra};
 
 use super::*;
 
@@ -57,6 +60,82 @@ fn audio_muted(pipeline: &gst::Pipeline) -> bool {
     pipeline.property::<bool>("mute")
 }
 
+fn generate_poster(url: &str) -> Option<PathBuf> {
+    let parsed = url::Url::parse(url).ok()?;
+    let video = gpui_video_player::Video::new(&parsed).ok()?;
+    video.set_muted(true);
+    let started = std::time::Instant::now();
+    let (yuv, width, height) = loop {
+        if let Some(frame) = video.current_frame_data()
+            && frame.1 > 0
+            && frame.2 > 0
+        {
+            break frame;
+        }
+        if started.elapsed() > std::time::Duration::from_secs(3) {
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let width_usize = width as usize;
+    let height_usize = height as usize;
+    let y_size = width_usize * height_usize;
+    let uv_size = y_size / 2;
+    if yuv.len() < y_size + uv_size {
+        return None;
+    }
+    let image = YuvBiPlanarImage {
+        y_plane: &yuv[..y_size],
+        y_stride: width,
+        uv_plane: &yuv[y_size..y_size + uv_size],
+        uv_stride: width,
+        width,
+        height,
+    };
+    let mut bgra = vec![0u8; width_usize * height_usize * 4];
+    let mut converted = false;
+    for (range, matrix) in [
+        (YuvRange::Full, YuvStandardMatrix::Bt709),
+        (YuvRange::Limited, YuvStandardMatrix::Bt709),
+        (YuvRange::Limited, YuvStandardMatrix::Bt601),
+    ] {
+        if yuv_nv12_to_bgra(
+            &image,
+            &mut bgra,
+            width * 4,
+            range,
+            matrix,
+            YuvConversionMode::Balanced,
+        )
+        .is_ok()
+        {
+            converted = true;
+            break;
+        }
+    }
+    if !converted {
+        return None;
+    }
+    let mut rgba = vec![0u8; bgra.len()];
+    for (source, target) in bgra
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(rgba.as_chunks_mut::<4>().0)
+    {
+        target[0] = source[2];
+        target[1] = source[1];
+        target[2] = source[0];
+        target[3] = source[3];
+    }
+    let buffer: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_raw(width, height, rgba)?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    url.hash(&mut hasher);
+    let path = std::env::temp_dir().join(format!("lounge-native-poster-{:x}.png", hasher.finish()));
+    buffer.save(&path).ok()?;
+    Some(path)
+}
+
 impl LoungeApp {
     pub(super) fn open_media_lightbox(&mut self, url: String, cx: &mut Context<Self>) {
         self.lightbox_index = None;
@@ -111,38 +190,35 @@ impl LoungeApp {
         }
     }
 
-    pub(super) fn clear_media_previews(&mut self) {
-        self.media_previews.borrow_mut().clear();
+    pub(super) fn clear_media_posters(&mut self) {
+        for (_, path) in self.media_posters.borrow_mut().drain() {
+            if let Some(path) = path {
+                let _ = std::fs::remove_file(path);
+            }
+        }
     }
 
-    pub(super) fn media_preview(
-        &self,
-        url: &str,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui_video_player::Video> {
-        if let Some(video) = self.media_previews.borrow().get(url) {
-            return Some(video.clone());
+    pub(super) fn media_poster(&self, url: &str, cx: &mut Context<Self>) -> Option<PathBuf> {
+        if let Some(path) = self.media_posters.borrow().get(url) {
+            return path.clone();
         }
-        if self.media_previews.borrow().len() >= 4 {
-            return None;
-        }
-        let parsed = url::Url::parse(url).ok()?;
-        let video = gpui_video_player::Video::new(&parsed).ok()?;
-        video.set_muted(true);
-        video.set_looping(true);
-        self.media_previews
+        self.media_posters
             .borrow_mut()
-            .insert(url.to_string(), video.clone());
-        let preview = video.clone();
+            .insert(url.to_string(), None);
+        let target = url.to_string();
+        let key = target.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { generate_poster(&target) });
         cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(350))
-                .await;
-            preview.set_paused(true);
-            let _ = this.update(cx, |_, cx| cx.notify());
+            let path = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.media_posters.borrow_mut().insert(key.clone(), path);
+                cx.notify();
+            });
         })
         .detach();
-        Some(video)
+        None
     }
 
     pub(super) fn play_inline_media(

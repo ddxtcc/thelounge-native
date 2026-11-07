@@ -23,7 +23,7 @@ windows = { version = "0.62", features = ["Win32_UI_WindowsAndMessaging", "Win32
 
 [features]
 default = []
-media-video = ["dep:gpui-video-player", "dep:gstreamer"]
+media-video = ["dep:gpui-video-player", "dep:gstreamer", "dep:image", "dep:yuv"]
 
 [dependencies]
 anyhow.workspace = true
@@ -32,6 +32,8 @@ futures = "0.3"
 gpui.workspace = true
 gpui-video-player = { version = "=0.1.2", optional = true }
 gstreamer = { version = "0.24", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+yuv = { version = "0.8", optional = true }
 libc.workspace = true
 lounge-core.workspace = true
 open = "5"

@@ -519,7 +519,7 @@ pub struct LoungeApp {
     #[cfg(feature = "media-video")]
     inline_audio: Option<media::InlineAudio>,
     #[cfg(feature = "media-video")]
-    media_previews: RefCell<HashMap<String, gpui_video_player::Video>>,
+    media_posters: RefCell<HashMap<String, Option<PathBuf>>>,
     lightbox_pan: Point<Pixels>,
     lightbox_drag_last: Option<Point<Pixels>>,
     drafts: HashMap<i64, String>,
@@ -817,7 +817,7 @@ impl LoungeApp {
             #[cfg(feature = "media-video")]
             inline_audio: None,
             #[cfg(feature = "media-video")]
-            media_previews: RefCell::new(HashMap::new()),
+            media_posters: RefCell::new(HashMap::new()),
             lightbox_pan: Point::default(),
             lightbox_drag_last: None,
             drafts,

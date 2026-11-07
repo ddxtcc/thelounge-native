@@ -657,24 +657,20 @@ impl LoungeApp {
                         }))
                         .cursor_pointer();
                     if kind == super::media::MediaKind::Video
-                        && let Some(preview) = self.media_preview(&url, cx)
+                        && let Some(poster) = self.media_poster(&url, cx)
                     {
-                        let width = if self.narrow { px(300.) } else { px(440.) };
-                        let height = width * 0.5625;
                         card = card.child(
                             div()
                                 .relative()
                                 .w_full()
-                                .h(height)
+                                .h(px(220.))
                                 .rounded(px(5.))
                                 .overflow_hidden()
                                 .child(
-                                    gpui_video_player::video(preview)
-                                        .id(ElementId::Name(
-                                            format!("media-preview-{row_id}-{index}").into(),
-                                        ))
-                                        .buffer_capacity(0)
-                                        .size(width, height),
+                                    gpui::img(poster)
+                                        .w_full()
+                                        .h(px(220.))
+                                        .object_fit(gpui::ObjectFit::Cover),
                                 )
                                 .child(
                                     div()
