@@ -160,6 +160,8 @@ impl PaletteCommand {
             | Self::CancelReply
             | Self::CopySelection => "Composer",
             Self::Theme
+            | Self::EditTheme
+            | Self::ThemeEditor
             | Self::ChooseUiFont
             | Self::ChooseMonoFont
             | Self::ImportTheme
@@ -227,6 +229,8 @@ pub(crate) enum PaletteCommand {
     Mentions,
     Emoji,
     Theme,
+    EditTheme,
+    ThemeEditor,
     ChooseUiFont,
     ChooseMonoFont,
     ImportTheme,

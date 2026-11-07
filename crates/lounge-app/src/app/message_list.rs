@@ -1,4 +1,4 @@
-use super::messages::date_label;
+use super::message_text::date_label;
 use super::*;
 
 pub(super) fn build_rows(channel: &ChannelState, config: &AppConfig) -> Vec<Row> {
@@ -220,19 +220,18 @@ impl LoungeApp {
             }
             Row::Date(label) => div()
                 .px_4()
-                .pt_3()
-                .pb_1()
+                .py_2()
                 .flex()
                 .items_center()
                 .gap_3()
-                .child(div().flex_1().h(px(1.)).bg(theme.success))
+                .child(div().flex_1().h(px(1.)).bg(theme.border))
                 .child(
                     div()
                         .text_size(px(11.))
-                        .text_color(theme.success)
+                        .text_color(theme.muted)
                         .child(label.clone()),
                 )
-                .child(div().flex_1().h(px(1.)).bg(theme.success))
+                .child(div().flex_1().h(px(1.)).bg(theme.border))
                 .into_any_element(),
             Row::Unread => div()
                 .px_4()

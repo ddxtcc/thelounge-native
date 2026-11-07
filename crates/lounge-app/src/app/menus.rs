@@ -483,6 +483,9 @@ impl LoungeApp {
     }
 
     pub(super) fn close_overlays(&mut self, cx: &mut Context<Self>) {
+        if self.theme_editor.is_some() {
+            self.cancel_theme_editor(cx);
+        }
         let return_hotkey_settings =
             self.palette == Some(PaletteMode::Hotkey) && self.hotkey_settings_return;
         self.last_overlay_open = false;
@@ -645,7 +648,6 @@ impl LoungeApp {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let theme = self.theme;
         let position = menu.position;
         let message = menu.message.clone();
         let text = format::clean(&message.text);
@@ -702,12 +704,6 @@ impl LoungeApp {
                 this.message_menu = None;
             }));
         }
-        card = card.child(
-            div()
-                .text_size(px(11.))
-                .text_color(theme.muted)
-                .child("Right-click a message to copy it."),
-        );
         let card = card.into_any_element();
         let (x, y) = menu_origin(window, position, 420., 300.);
         div()

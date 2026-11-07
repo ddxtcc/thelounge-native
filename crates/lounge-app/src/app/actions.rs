@@ -16,8 +16,60 @@ impl LoungeApp {
         self.theme.input_colors()
     }
 
+    pub(super) fn toggle_message_previews(
+        &mut self,
+        channel_id: i64,
+        message_id: i64,
+        shown: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview_overrides.insert(message_id, shown);
+        self.message_rows_cache = None;
+        let mut links = Vec::new();
+        if let Some(channel) = self.state.find_channel_mut(channel_id)
+            && let Some(message) = channel
+                .chan
+                .messages
+                .iter_mut()
+                .find(|message| message.id == message_id)
+        {
+            for preview in &mut message.previews {
+                if preview.shown != Some(shown) {
+                    preview.shown = Some(shown);
+                    links.push(preview.link.clone());
+                }
+            }
+        }
+        if let Some(conn) = &self.conn {
+            for link in links {
+                conn.emit(
+                    "msg:preview:toggle",
+                    Some(serde_json::json!({
+                        "target": channel_id,
+                        "msgId": message_id,
+                        "link": link,
+                        "shown": shown,
+                    })),
+                );
+            }
+        }
+        cx.notify();
+    }
+
     pub(super) fn apply_theme(&mut self, cx: &mut Context<Self>) {
-        self.theme = Theme::from_config(&self.config.theme, self.config.custom_theme.as_ref());
+        let theme = Theme::from_config(&self.config.theme, &self.config.saved_themes);
+        self.apply_theme_preview_with(theme, cx);
+    }
+
+    pub(super) fn apply_theme_preview(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.theme_editor.as_ref() else {
+            return;
+        };
+        self.apply_theme_preview_with(editor.theme.to_theme(), cx);
+    }
+
+    pub(super) fn apply_theme_preview_with(&mut self, theme: Theme, cx: &mut Context<Self>) {
+        self.theme = theme;
         let colors = self.input_colors();
         let (size, line) = (
             self.config.font_size,
@@ -46,6 +98,8 @@ impl LoungeApp {
             self.inputs.password_old.clone(),
             self.inputs.password_new.clone(),
             self.inputs.password_verify.clone(),
+            self.inputs.theme_name.clone(),
+            self.inputs.theme_hex.clone(),
         ];
         for input in all {
             input.update(cx, |input, cx| {
@@ -86,6 +140,23 @@ impl LoungeApp {
         content: &str,
         cx: &mut Context<Self>,
     ) {
+        if role == InputRole::ThemeName {
+            if let Some(editor) = self.theme_editor.as_mut() {
+                editor.name = content.to_string();
+            }
+            return;
+        }
+        if role == InputRole::ThemeHex {
+            if let Some(editor) = self.theme_editor.as_mut()
+                && let Some(value) = crate::theme::parse_hex(content)
+            {
+                editor
+                    .selected
+                    .set(&mut editor.theme, crate::theme::hex_rgb(value));
+                self.apply_theme_preview(cx);
+            }
+            return;
+        }
         if matches!(
             role,
             InputRole::Search
@@ -225,6 +296,7 @@ impl LoungeApp {
                     self.change_password(cx);
                 }
             }
+            InputRole::ThemeName | InputRole::ThemeHex => {}
         }
     }
 
@@ -419,6 +491,7 @@ impl LoungeApp {
         self.messages_list.reset(0);
         self.messages_list_keys.clear();
         self.message_rows_cache = None;
+        self.preview_overrides.clear();
         #[cfg(feature = "media")]
         {
             self.clear_inline_media();

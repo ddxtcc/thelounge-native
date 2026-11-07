@@ -107,6 +107,8 @@ pub enum InputRole {
     PasswordOld,
     PasswordNew,
     PasswordVerify,
+    ThemeName,
+    ThemeHex,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

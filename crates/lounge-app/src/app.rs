@@ -85,6 +85,8 @@ pub struct Inputs {
     password_old: Entity<TextInput>,
     password_new: Entity<TextInput>,
     password_verify: Entity<TextInput>,
+    theme_name: Entity<TextInput>,
+    theme_hex: Entity<TextInput>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -384,6 +386,8 @@ pub struct LoungeApp {
     palette: Option<PaletteMode>,
     palette_selection: usize,
     palette_scroll: gpui::ScrollHandle,
+    theme_editor: Option<theme_editor::ThemeEditor>,
+    preview_overrides: HashMap<i64, bool>,
     recent_commands: Vec<PaletteCommand>,
     pending_channel_switch: Option<i64>,
     pending_show_window: bool,
@@ -422,6 +426,7 @@ mod render_impl;
 mod settings;
 mod sidebar;
 mod special;
+mod theme_editor;
 mod tooltip;
 #[cfg(target_os = "linux")]
 mod tray;
@@ -431,8 +436,10 @@ mod uploads;
 
 impl LoungeApp {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        #[cfg(all(feature = "media", any(target_os = "windows", target_os = "macos")))]
+        media::configure_gstreamer();
         let config = AppConfig::load();
-        let theme = Theme::from_config(&config.theme, config.custom_theme.as_ref());
+        let theme = Theme::from_config(&config.theme, &config.saved_themes);
         let root_focus = cx.focus_handle();
         let colors = theme.input_colors();
         let font = config.font_size;
@@ -472,6 +479,8 @@ impl LoungeApp {
         let password_old = make("Current password", false, true, cx);
         let password_new = make("New password", false, true, cx);
         let password_verify = make("Verify new password", false, true, cx);
+        let theme_name = make("Theme name", false, false, cx);
+        let theme_hex = make("#7aa2f7", false, false, cx);
 
         let inputs = Inputs {
             composer: composer.clone(),
@@ -496,6 +505,8 @@ impl LoungeApp {
             password_old: password_old.clone(),
             password_new: password_new.clone(),
             password_verify: password_verify.clone(),
+            theme_name: theme_name.clone(),
+            theme_hex: theme_hex.clone(),
         };
 
         let pairs = [
@@ -524,6 +535,8 @@ impl LoungeApp {
             (InputRole::PasswordOld, password_old),
             (InputRole::PasswordNew, password_new),
             (InputRole::PasswordVerify, password_verify),
+            (InputRole::ThemeName, theme_name),
+            (InputRole::ThemeHex, theme_hex),
         ];
         for (role, input) in pairs {
             cx.observe(&input, move |this, input, cx| {
@@ -705,6 +718,8 @@ impl LoungeApp {
             palette: None,
             palette_selection: 0,
             palette_scroll: gpui::ScrollHandle::new(),
+            theme_editor: None,
+            preview_overrides: HashMap::new(),
             recent_commands: Vec::new(),
             pending_channel_switch: None,
             pending_show_window: false,
@@ -744,6 +759,15 @@ impl LoungeApp {
             app.start_connection(auth, app.config.server.clone(), cx);
         }
 
+        let weak = cx.entity().downgrade();
+        cx.on_window_closed(move |cx| {
+            let _ = weak.update(cx, |this, cx| {
+                if this.theme_editor.is_some() {
+                    this.save_theme_editor(cx);
+                }
+            });
+        })
+        .detach();
         app
     }
 }

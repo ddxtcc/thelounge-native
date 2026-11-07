@@ -37,7 +37,7 @@ pub struct Theme {
     pub overlay: Hsla,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct CustomTheme {
     pub dark: bool,
@@ -59,7 +59,29 @@ pub struct CustomTheme {
     pub input_bg: String,
 }
 
-fn parse_hex(value: &str) -> Option<u32> {
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct SavedTheme {
+    pub id: String,
+    pub name: String,
+    pub theme: CustomTheme,
+}
+
+impl SavedTheme {
+    pub fn new(name: impl Into<String>, theme: CustomTheme) -> Self {
+        let name = name.into();
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        Self {
+            id: format!("custom-{stamp}"),
+            name,
+            theme,
+        }
+    }
+}
+
+pub(crate) fn parse_hex(value: &str) -> Option<u32> {
     let value = value.trim().trim_start_matches('#');
     if value.len() != 6 || !value.chars().all(|ch| ch.is_ascii_hexdigit()) {
         return None;
@@ -72,6 +94,15 @@ fn color_u32(color: Hsla) -> u32 {
     ((color.r * 255.).round() as u32) << 16
         | ((color.g * 255.).round() as u32) << 8
         | (color.b * 255.).round() as u32
+}
+
+pub(crate) fn hex_rgb(value: u32) -> String {
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        (value >> 16) & 0xff,
+        (value >> 8) & 0xff,
+        value & 0xff
+    )
 }
 
 fn hex(color: Hsla) -> String {
@@ -151,11 +182,9 @@ pub const THEMES: &[(&str, &str)] = &[
 ];
 
 impl Theme {
-    pub fn from_config(mode: &str, custom: Option<&CustomTheme>) -> Self {
-        if mode == "custom"
-            && let Some(custom) = custom
-        {
-            return custom.to_theme();
+    pub fn from_config(mode: &str, saved: &[SavedTheme]) -> Self {
+        if let Some(theme) = saved.iter().find(|theme| theme.id == mode) {
+            return theme.theme.to_theme();
         }
         Self::from_mode(mode)
     }
@@ -307,6 +336,20 @@ mod tests {
         };
         let theme = custom.to_theme();
         assert_eq!(color_u32(theme.accent), color_u32(Theme::dark().accent));
+    }
+
+    #[test]
+    fn saved_theme_resolves_by_id() {
+        let saved = SavedTheme {
+            id: "custom-test".into(),
+            name: "Test".into(),
+            theme: CustomTheme {
+                accent: "#112233".into(),
+                ..Default::default()
+            },
+        };
+        let theme = Theme::from_config("custom-test", &[saved]);
+        assert_eq!(color_u32(theme.accent), 0x112233);
     }
 
     #[test]

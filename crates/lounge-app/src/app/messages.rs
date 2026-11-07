@@ -1,6 +1,7 @@
 use super::message_list::{MessageRowsCache, Row, build_rows, nick_column_width};
 use super::message_text::{
-    build_message_text, image_fallback, is_status_message, user_mode_prefix_in_message,
+    build_message_text, image_fallback, is_status_message, select_runs, status_icon,
+    user_mode_prefix_in_message, word_range,
 };
 use super::*;
 
@@ -192,6 +193,35 @@ impl LoungeApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
+        let preview_mode = self.config.preview_mode;
+        let stored_previews_visible = message.previews.is_empty()
+            || !message
+                .previews
+                .iter()
+                .all(|preview| preview.shown == Some(false));
+        let preview_visible = match preview_mode {
+            crate::config::PreviewMode::Hidden => false,
+            crate::config::PreviewMode::Shown => self
+                .preview_overrides
+                .get(&message.id)
+                .copied()
+                .unwrap_or(stored_previews_visible),
+            crate::config::PreviewMode::Collapsed => self
+                .preview_overrides
+                .get(&message.id)
+                .copied()
+                .unwrap_or(false),
+        };
+        let show_attachments = preview_visible;
+        let link_preview_count = if self.config.show_previews {
+            message
+                .previews
+                .iter()
+                .filter(|preview| !preview.head.is_empty() && preview.kind != "image")
+                .count()
+        } else {
+            0
+        };
         #[cfg(feature = "media")]
         let row_id = message.id;
         let highlight = message.highlight;
@@ -358,7 +388,7 @@ impl LoungeApp {
         let mut previews = div().flex().flex_col().gap_1();
         let mut inline_images: Vec<String> = Vec::new();
         for preview in &message.previews {
-            if !self.config.show_inline_images {
+            if preview_mode == crate::config::PreviewMode::Hidden {
                 break;
             }
             if preview.kind == "image"
@@ -394,7 +424,7 @@ impl LoungeApp {
             }
         }
         for link in format::find_links(&message.text) {
-            if !self.config.show_inline_images {
+            if preview_mode == crate::config::PreviewMode::Hidden {
                 break;
             }
             let path = link
@@ -412,10 +442,14 @@ impl LoungeApp {
         }
         inline_images.sort();
         inline_images.dedup();
+        let image_count = inline_images.len();
 
         #[cfg(feature = "media")]
         let mut preview_media_urls = HashSet::new();
         for preview in &message.previews {
+            if !show_attachments {
+                break;
+            }
             if !self.config.show_previews
                 || preview.head.is_empty()
                 || preview.shown == Some(false)
@@ -456,6 +490,32 @@ impl LoungeApp {
             if playable {
                 preview_media_urls.insert(play_url.clone());
                 preview_media_urls.insert(self.absolute_media_url(&preview.link));
+            }
+            if !playable && let Some(thumb) = thumb.clone() {
+                self.touch_image(&thumb);
+                let lightbox_url = thumb.clone();
+                previews = previews.child(
+                    div()
+                        .id(ElementId::Name(
+                            format!("preview-image-{}-{}", message.id, preview.link).into(),
+                        ))
+                        .w(px(220.))
+                        .rounded(px(4.))
+                        .overflow_hidden()
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open_lightbox(lightbox_url.clone(), cx);
+                        }))
+                        .child(
+                            gpui::img(thumb)
+                                .image_cache(&self.image_cache)
+                                .w_full()
+                                .max_h(px(320.))
+                                .object_fit(gpui::ObjectFit::Contain)
+                                .with_fallback(move || image_fallback(theme, "Image failed")),
+                        ),
+                );
+                continue;
             }
             let mut card = div()
                 .id(ElementId::Name(
@@ -563,38 +623,42 @@ impl LoungeApp {
         }
 
         let mut inline = div().flex().flex_col().gap_2();
-        let image_height = if self.narrow { px(170.) } else { px(240.) };
-        for (index, url) in inline_images.iter().enumerate() {
-            let lightbox_url = url.clone();
-            self.touch_image(url);
-            inline = inline.child(
-                div()
-                    .id(ElementId::Name(
-                        format!("inline-image-{}-{index}", message.id).into(),
-                    ))
-                    .w_full()
-                    .max_w(px(460.))
-                    .h(image_height)
-                    .rounded(px(6.))
-                    .bg(theme.panel)
-                    .overflow_hidden()
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_lightbox(lightbox_url.clone(), cx);
-                    }))
-                    .child(
-                        gpui::img(url.clone())
-                            .image_cache(&self.image_cache)
-                            .w_full()
-                            .h(image_height)
-                            .max_h(image_height)
-                            .object_fit(gpui::ObjectFit::Contain)
-                            .with_fallback(move || image_fallback(theme, "Image failed to load"))
-                            .rounded(px(6.)),
-                    ),
-            );
+        if show_attachments {
+            for (index, url) in inline_images.iter().enumerate() {
+                let lightbox_url = url.clone();
+                self.touch_image(url);
+                inline = inline.child(
+                    div()
+                        .id(ElementId::Name(
+                            format!("inline-image-{}-{index}", message.id).into(),
+                        ))
+                        .w_full()
+                        .max_w(px(460.))
+                        .rounded(px(6.))
+                        .overflow_hidden()
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open_lightbox(lightbox_url.clone(), cx);
+                        }))
+                        .child(
+                            gpui::img(url.clone())
+                                .image_cache(&self.image_cache)
+                                .w_full()
+                                .max_h(px(320.))
+                                .object_fit(gpui::ObjectFit::Contain)
+                                .with_fallback(move || {
+                                    image_fallback(theme, "Image failed to load")
+                                })
+                                .rounded(px(6.)),
+                        ),
+                );
+            }
         }
 
+        #[cfg(feature = "media")]
+        let mut media_count = 0;
+        #[cfg(not(feature = "media"))]
+        let media_count = 0;
         #[cfg(feature = "media")]
         let mut media_cards = div().flex().flex_col().gap_2();
         #[cfg(not(feature = "media"))]
@@ -608,6 +672,10 @@ impl LoungeApp {
                     continue;
                 };
                 if !seen_media_urls.insert(url.clone()) || preview_media_urls.contains(&url) {
+                    continue;
+                }
+                media_count += 1;
+                if !show_attachments {
                     continue;
                 }
                 let file = url.rsplit('/').next().unwrap_or(url.as_str()).to_string();
@@ -764,6 +832,39 @@ impl LoungeApp {
             }
         }
 
+        let preview_count = image_count + media_count + link_preview_count;
+        let preview_toggle =
+            if preview_mode != crate::config::PreviewMode::Hidden && preview_count > 0 {
+                let visible = preview_visible;
+                let noun = if preview_count == 1 {
+                    "preview"
+                } else {
+                    "previews"
+                };
+                Some(
+                    div()
+                        .id(ElementId::Name(
+                            format!("preview-toggle-{}", message.id).into(),
+                        ))
+                        .w(px(110.))
+                        .px_1()
+                        .py(px(1.))
+                        .text_size(px(11.))
+                        .text_color(theme.faint)
+                        .cursor_pointer()
+                        .hover(|style| style.text_color(theme.accent))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.toggle_message_previews(channel_id, message_id, !visible, cx);
+                        }))
+                        .child(if visible {
+                            format!("▾ Hide {noun}")
+                        } else {
+                            format!("▸ Show {noun}")
+                        }),
+                )
+            } else {
+                None
+            };
         let mut content = div()
             .flex_1()
             .min_w(px(0.))
@@ -780,6 +881,7 @@ impl LoungeApp {
                     .gap_1()
                     .line_height(relative(self.config.line_height.max(1.3)))
                     .child(text_element)
+                    .when_some(preview_toggle, |this, toggle| this.child(toggle))
                     .child(inline)
                     .child(previews)
                     .child(media_cards),
@@ -885,116 +987,5 @@ impl LoungeApp {
             row = row.child(column);
         }
         row.child(content).into_any_element()
-    }
-}
-
-fn word_range(text: &str, index: usize) -> Range<usize> {
-    let index = index.min(text.len());
-    let is_word = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '-';
-    let mut start = index;
-    while let Some(ch) = text[..start].chars().next_back() {
-        if !is_word(ch) {
-            break;
-        }
-        start -= ch.len_utf8();
-    }
-    let mut end = index;
-    while let Some(ch) = text[end..].chars().next() {
-        if !is_word(ch) {
-            break;
-        }
-        end += ch.len_utf8();
-    }
-    start..end
-}
-
-fn select_runs(runs: Vec<TextRun>, range: Range<usize>, color: Hsla) -> Vec<TextRun> {
-    if range.is_empty() {
-        return runs;
-    }
-    let mut result = Vec::with_capacity(runs.len());
-    let mut offset = 0;
-    for run in runs {
-        let start = offset;
-        let end = offset + run.len;
-        offset = end;
-        if end <= range.start || start >= range.end {
-            result.push(run);
-            continue;
-        }
-        let selected_start = range.start.max(start);
-        let selected_end = range.end.min(end);
-        let before = selected_start - start;
-        if before > 0 {
-            let mut part = run.clone();
-            part.len = before;
-            result.push(part);
-        }
-        let inside = selected_end - selected_start;
-        if inside > 0 {
-            let mut part = run.clone();
-            part.len = inside;
-            part.background_color = Some(color);
-            result.push(part);
-        }
-        let after = end - selected_end;
-        if after > 0 {
-            let mut part = run;
-            part.len = after;
-            result.push(part);
-        }
-    }
-    result
-}
-
-fn status_icon(kind: MessageType, theme: &Theme) -> (&'static str, Hsla) {
-    match kind {
-        MessageType::Join
-        | MessageType::Login
-        | MessageType::Logout
-        | MessageType::Nick
-        | MessageType::Chghost
-        | MessageType::Invite => ("→", theme.success),
-        MessageType::Part | MessageType::Quit | MessageType::Kick => ("←", theme.error),
-        MessageType::Topic | MessageType::TopicSetBy => ("!", theme.success),
-        MessageType::Mode | MessageType::ModeChannel | MessageType::ModeUser => {
-            ("*", theme.success)
-        }
-        MessageType::Away | MessageType::Back => ("o", theme.muted),
-        MessageType::Error | MessageType::Warn => ("!", theme.error),
-        MessageType::Notice => ("-", theme.muted),
-        MessageType::Ctcp | MessageType::CtcpRequest | MessageType::Raw => (">", theme.muted),
-        _ => ("*", theme.muted),
-    }
-}
-
-pub(super) fn date_label(date: chrono::NaiveDate) -> String {
-    let today = Local::now().date_naive();
-    if date == today {
-        "Today".into()
-    } else if today.pred_opt() == Some(date) {
-        "Yesterday".into()
-    } else {
-        date.format("%e %B %Y").to_string().trim().to_string()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn word_range_handles_unicode_and_boundaries() {
-        let text = "hello wörld_test!";
-        assert_eq!(word_range(text, 2), 0..5);
-        assert_eq!(word_range(text, 7), 6..17);
-        assert_eq!(word_range(text, 17), 6..17);
-        assert_eq!(word_range(text, 18), 18..18);
-    }
-
-    #[test]
-    fn word_range_includes_irc_nick_characters() {
-        let text = "prefix [nick-name] suffix";
-        assert_eq!(word_range(text, 9), 8..17);
     }
 }

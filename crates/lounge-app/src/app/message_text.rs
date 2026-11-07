@@ -597,6 +597,117 @@ pub(super) fn image_fallback(theme: Theme, label: &'static str) -> AnyElement {
         .into_any_element()
 }
 
+pub(super) fn word_range(text: &str, index: usize) -> Range<usize> {
+    let index = index.min(text.len());
+    let is_word = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '-';
+    let mut start = index;
+    while let Some(ch) = text[..start].chars().next_back() {
+        if !is_word(ch) {
+            break;
+        }
+        start -= ch.len_utf8();
+    }
+    let mut end = index;
+    while let Some(ch) = text[end..].chars().next() {
+        if !is_word(ch) {
+            break;
+        }
+        end += ch.len_utf8();
+    }
+    start..end
+}
+
+pub(super) fn select_runs(runs: Vec<TextRun>, range: Range<usize>, color: Hsla) -> Vec<TextRun> {
+    if range.is_empty() {
+        return runs;
+    }
+    let mut result = Vec::with_capacity(runs.len());
+    let mut offset = 0;
+    for run in runs {
+        let start = offset;
+        let end = offset + run.len;
+        offset = end;
+        if end <= range.start || start >= range.end {
+            result.push(run);
+            continue;
+        }
+        let selected_start = range.start.max(start);
+        let selected_end = range.end.min(end);
+        let before = selected_start - start;
+        if before > 0 {
+            let mut part = run.clone();
+            part.len = before;
+            result.push(part);
+        }
+        let inside = selected_end - selected_start;
+        if inside > 0 {
+            let mut part = run.clone();
+            part.len = inside;
+            part.background_color = Some(color);
+            result.push(part);
+        }
+        let after = end - selected_end;
+        if after > 0 {
+            let mut part = run;
+            part.len = after;
+            result.push(part);
+        }
+    }
+    result
+}
+
+pub(super) fn status_icon(kind: MessageType, theme: &Theme) -> (&'static str, Hsla) {
+    match kind {
+        MessageType::Join
+        | MessageType::Login
+        | MessageType::Logout
+        | MessageType::Nick
+        | MessageType::Chghost
+        | MessageType::Invite => ("→", theme.success),
+        MessageType::Part | MessageType::Quit | MessageType::Kick => ("←", theme.error),
+        MessageType::Topic | MessageType::TopicSetBy => ("!", theme.success),
+        MessageType::Mode | MessageType::ModeChannel | MessageType::ModeUser => {
+            ("*", theme.success)
+        }
+        MessageType::Away | MessageType::Back => ("o", theme.muted),
+        MessageType::Error | MessageType::Warn => ("!", theme.error),
+        MessageType::Notice => ("-", theme.muted),
+        MessageType::Ctcp | MessageType::CtcpRequest | MessageType::Raw => (">", theme.muted),
+        _ => ("*", theme.muted),
+    }
+}
+
+pub(super) fn date_label(date: chrono::NaiveDate) -> String {
+    let today = Local::now().date_naive();
+    if date == today {
+        "Today".into()
+    } else if today.pred_opt() == Some(date) {
+        "Yesterday".into()
+    } else {
+        date.format("%e %B %Y").to_string().trim().to_string()
+    }
+}
+
+#[cfg(test)]
+mod message_tests {
+    use super::*;
+
+    #[test]
+    fn word_range_handles_unicode_and_boundaries() {
+        let text = "hello wörld_test!";
+        assert_eq!(word_range(text, 2), 0..5);
+        assert_eq!(word_range(text, 7), 6..17);
+        assert_eq!(word_range(text, 17), 6..17);
+        assert_eq!(word_range(text, 18), 18..18);
+    }
+
+    #[test]
+    fn word_range_includes_irc_nick_characters() {
+        let text = "prefix [nick-name] suffix";
+        assert_eq!(word_range(text, 9), 8..17);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -23,6 +23,79 @@ pub(super) struct InlineMedia {
     pub video: gpui_video_player::Video,
 }
 
+#[cfg(target_os = "macos")]
+pub(super) fn configure_gstreamer() {
+    use std::path::PathBuf;
+
+    let Some(exe) = std::env::current_exe().ok() else {
+        return;
+    };
+    let Some(root) = exe.parent().map(PathBuf::from) else {
+        return;
+    };
+    let framework = root
+        .join("..")
+        .join("Frameworks")
+        .join("GStreamer.framework")
+        .join("Versions")
+        .join("1.0");
+    let plugins = framework.join("lib").join("gstreamer-1.0");
+    if plugins.is_dir() {
+        unsafe {
+            std::env::set_var("GST_PLUGIN_SYSTEM_PATH_1_0", &plugins);
+            std::env::set_var("GST_PLUGIN_PATH_1_0", &plugins);
+        }
+    }
+    let scanner = root.join("gst-plugin-scanner");
+    if scanner.is_file() {
+        unsafe {
+            std::env::set_var("GST_PLUGIN_SCANNER", &scanner);
+            std::env::set_var("GST_PLUGIN_SCANNER_1_0", &scanner);
+        }
+    }
+    let gio = framework.join("lib").join("gio").join("modules");
+    if gio.is_dir() {
+        unsafe {
+            std::env::set_var("GIO_EXTRA_MODULES", &gio);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub(super) fn configure_gstreamer() {
+    use std::path::PathBuf;
+
+    let Some(root) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(PathBuf::from))
+    else {
+        return;
+    };
+    let plugins = root.join("lib").join("gstreamer-1.0");
+    if plugins.is_dir() {
+        unsafe {
+            std::env::set_var("GST_PLUGIN_SYSTEM_PATH_1_0", &plugins);
+            std::env::set_var("GST_PLUGIN_PATH_1_0", &plugins);
+        }
+    }
+    let scanner = root.join("gst-plugin-scanner.exe");
+    if scanner.is_file() {
+        unsafe {
+            std::env::set_var("GST_PLUGIN_SCANNER", &scanner);
+            std::env::set_var("GST_PLUGIN_SCANNER_1_0", &scanner);
+        }
+    }
+    let mut paths = vec![root];
+    if let Some(path) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&path));
+    }
+    if let Ok(path) = std::env::join_paths(paths) {
+        unsafe {
+            std::env::set_var("PATH", path);
+        }
+    }
+}
+
 impl LoungeApp {
     fn start_audio_ticker(&mut self, cx: &mut Context<Self>) {
         self.audio_ticker_generation = self.audio_ticker_generation.wrapping_add(1);
