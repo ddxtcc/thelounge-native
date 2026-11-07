@@ -1,5 +1,12 @@
 use super::*;
 
+pub(super) struct InlineMedia {
+    pub message_id: i64,
+    pub url: String,
+    pub kind: MediaKind,
+    pub video: gpui_video_player::Video,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MediaKind {
     Video,
@@ -57,11 +64,17 @@ impl LoungeApp {
         self.inline_video = None;
     }
 
-    pub(super) fn play_inline_media(&mut self, url: String, cx: &mut Context<Self>) {
+    pub(super) fn play_inline_media(
+        &mut self,
+        message_id: i64,
+        url: String,
+        kind: MediaKind,
+        cx: &mut Context<Self>,
+    ) {
         if self
             .inline_video
             .as_ref()
-            .is_some_and(|(current, _)| current == &url)
+            .is_some_and(|inline| inline.url == url)
         {
             return;
         }
@@ -73,7 +86,12 @@ impl LoungeApp {
         match gpui_video_player::Video::new(&parsed) {
             Ok(video) => {
                 video.set_looping(true);
-                self.inline_video = Some((url, video));
+                self.inline_video = Some(InlineMedia {
+                    message_id,
+                    url,
+                    kind,
+                    video,
+                });
             }
             Err(error) => self.toast(format!("Could not play media: {error}")),
         }
@@ -82,18 +100,19 @@ impl LoungeApp {
 
     pub(super) fn render_inline_media(
         &self,
-        url: &str,
-        kind: MediaKind,
+        message_id: i64,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let (_, video) = self
+        let inline = self
             .inline_video
             .as_ref()
-            .filter(|(current, _)| current == url)?;
-        let video = video.clone();
+            .filter(|inline| inline.message_id == message_id)?;
+        let url = inline.url.clone();
+        let kind = inline.kind;
+        let video = inline.video.clone();
         let toggle = video.clone();
         let mute = video.clone();
-        let open_url = url.to_string();
+        let open_url = url.clone();
         let paused = video.paused();
         let muted = video.muted();
         let mut card = div()
@@ -120,7 +139,7 @@ impl LoungeApp {
                 div()
                     .text_size(px(12.))
                     .text_color(self.theme.text)
-                    .child(url.rsplit('/').next().unwrap_or(url).to_string()),
+                    .child(url.rsplit('/').next().unwrap_or(url.as_str()).to_string()),
             );
         }
         card = card.child(

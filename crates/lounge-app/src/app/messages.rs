@@ -192,6 +192,8 @@ impl LoungeApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
+        #[cfg(feature = "media-video")]
+        let row_id = message.id;
         let highlight = message.highlight;
         let is_self = message.is_self;
         let time = format::format_time(
@@ -220,6 +222,8 @@ impl LoungeApp {
         let selection_text = text.clone();
 
         let weak = cx.entity().downgrade();
+        #[cfg(feature = "media-video")]
+        let inline_message_id = message.id;
         let targets = Rc::new(targets);
         let click = {
             let weak = weak.clone();
@@ -229,7 +233,14 @@ impl LoungeApp {
                 };
                 match target {
                     ClickTarget::Url(url) => {
-                        let _ = weak.update(cx, |this, cx| this.play_media_or_open(url, cx));
+                        let _ = weak.update(cx, |this, cx| {
+                            #[cfg(feature = "media-video")]
+                            if let Some(kind) = super::media::media_kind(&url) {
+                                this.play_inline_media(inline_message_id, url.clone(), kind, cx);
+                                return;
+                            }
+                            this.play_media_or_open(url, cx);
+                        });
                     }
                     ClickTarget::Nick(nick) => {
                         let _ = weak.update(cx, |this, cx| this.insert_nick(&nick, cx));
@@ -459,25 +470,15 @@ impl LoungeApp {
                 .child(div().truncate().child(label));
             if playable {
                 #[cfg(feature = "media-video")]
-                let mut inline_active = false;
-                #[cfg(not(feature = "media-video"))]
-                let inline_active = false;
-                #[cfg(feature = "media-video")]
                 {
                     let kind = if video {
                         super::media::MediaKind::Video
                     } else {
                         super::media::MediaKind::Audio
                     };
-                    if let Some(inline) = self.render_inline_media(&play_url, kind, cx) {
-                        card = card.child(inline);
-                        inline_active = true;
-                    } else {
-                        let inline_url = play_url.clone();
-                        card = card.on_click(cx.listener(move |this, _, _, cx| {
-                            this.play_inline_media(inline_url.clone(), cx);
-                        }));
-                    }
+                    card = card.on_click(cx.listener(move |this, _, _, cx| {
+                        this.play_inline_media(row_id, play_url.clone(), kind, cx);
+                    }));
                 }
                 #[cfg(not(feature = "media-video"))]
                 {
@@ -485,15 +486,13 @@ impl LoungeApp {
                         this.play_media_or_open(play_url.clone(), cx);
                     }));
                 }
-                if !inline_active {
-                    card = card.child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme.accent)
-                            .child(if video { "Play video" } else { "Play audio" }),
-                    );
-                }
-                if !inline_active && let Some(thumb) = thumb {
+                card = card.child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(theme.accent)
+                        .child(if video { "Play video" } else { "Play audio" }),
+                );
+                if let Some(thumb) = thumb {
                     self.touch_image(&thumb);
                     card = card.child(
                         div()
@@ -597,6 +596,11 @@ impl LoungeApp {
                     .child(inline)
                     .child(previews),
             );
+
+        #[cfg(feature = "media-video")]
+        if let Some(inline) = self.render_inline_media(row_id, cx) {
+            content = content.child(inline);
+        }
 
         if let Some(reply_button) = reply_button {
             content = content.child(reply_button);
