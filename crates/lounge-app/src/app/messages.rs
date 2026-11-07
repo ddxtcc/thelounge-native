@@ -129,7 +129,7 @@ impl LoungeApp {
                 .w_full()
                 .h(list_height)
                 .min_h(px(0.))
-                .line_height(relative(self.config.line_height))
+                .line_height(relative(self.config.line_height.max(1.3)))
                 .text_size(px(self.config.font_size))
                 .font_family(self.config.font_family.clone()),
             )

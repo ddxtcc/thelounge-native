@@ -529,8 +529,7 @@ impl LoungeApp {
         let mut footer = div()
             .border_t_1()
             .border_color(theme.border)
-            .px_3()
-            .py_2()
+            .p_3()
             .flex()
             .flex_col()
             .gap_2();
