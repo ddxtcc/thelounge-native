@@ -562,6 +562,14 @@ impl LoungeApp {
             )
             .child(
                 div()
+                    .px_2()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .child(self.inputs.users_filter.clone()),
+            )
+            .child(
+                div()
                     .id("users-scroll")
                     .flex_1()
                     .overflow_y_scroll()

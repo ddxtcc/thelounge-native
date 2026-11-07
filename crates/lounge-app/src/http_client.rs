@@ -53,10 +53,11 @@ impl HttpClient for BlockingHttpClient {
                 {
                     return Err(anyhow::anyhow!("image exceeds 25 MiB limit"));
                 }
-                let body = response.body_mut().read_to_vec()?;
-                if body.len() > 25 * 1024 * 1024 {
-                    return Err(anyhow::anyhow!("image exceeds 25 MiB limit"));
-                }
+                let body = response
+                    .body_mut()
+                    .with_config()
+                    .limit(25 * 1024 * 1024)
+                    .read_to_vec()?;
                 let mut builder = http::Response::builder().status(status);
                 for (name, value) in &response_headers {
                     builder = builder.header(name, value);

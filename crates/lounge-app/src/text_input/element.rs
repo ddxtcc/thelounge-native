@@ -96,8 +96,10 @@ impl EntityInputHandler for TextInput {
         }
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|range| self.range_from_utf16(range))
-            .map(|range| range.start + range.start..range.start + range.end)
+            .map(|range| {
+                let selected = utf16_range_to_bytes(new_text, range.clone());
+                range.start + selected.start..range.start + selected.end
+            })
             .unwrap_or_else(|| {
                 let cursor = range.start + new_text.len();
                 cursor..cursor
@@ -110,19 +112,25 @@ impl EntityInputHandler for TextInput {
     fn bounds_for_range(
         &mut self,
         range_utf16: Range<usize>,
-        bounds: Bounds<Pixels>,
-        window: &mut Window,
+        _bounds: Bounds<Pixels>,
+        _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let range = self.range_from_utf16(&range_utf16);
         let line_ix = self.content[..range.start.min(self.content.len())]
             .matches('\n')
             .count();
-        let line_height = window.line_height();
-        let x = bounds.left();
+        let layout = self.last_layout.as_ref()?;
+        let line = layout.lines.get(line_ix)?;
+        let line_start = layout.starts.get(line_ix).copied().unwrap_or(0);
+        let line_end = layout.ends.get(line_ix).copied().unwrap_or(line_start);
+        let display_index = range.start.clamp(line_start, line_end) - line_start;
+        let visible_line = line_ix.saturating_sub(layout.visible_start);
+        let x = layout.bounds.left() + line.x_for_index(display_index);
+        let top = layout.bounds.top() + layout.line_height * visible_line as f32;
         Some(Bounds::from_corners(
-            point(x, bounds.top() + line_height * line_ix as f32),
-            point(x, bounds.top() + line_height * (line_ix + 1) as f32),
+            point(x, top),
+            point(x, top + layout.line_height),
         ))
     }
 
@@ -135,19 +143,6 @@ impl EntityInputHandler for TextInput {
         let offset = self.index_for_mouse_position(point);
         Some(self.offset_to_utf16(offset))
     }
-}
-
-fn clamp_range(text: &str, range: Range<usize>) -> Range<usize> {
-    let start = floor_char_boundary(text, range.start.min(text.len()));
-    let end = floor_char_boundary(text, range.end.min(text.len()));
-    start..end.max(start)
-}
-
-fn floor_char_boundary(text: &str, mut index: usize) -> usize {
-    while index > 0 && !text.is_char_boundary(index) {
-        index -= 1;
-    }
-    index
 }
 
 struct TextElement {

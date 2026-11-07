@@ -49,12 +49,15 @@ struct ProgressReader {
 impl Read for ProgressReader {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.progress.is_cancelled() {
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "upload cancelled",
-            ));
+            return Err(io::Error::other("upload cancelled"));
         }
-        let read = self.file.read(buffer)?;
+        let read = loop {
+            match self.file.read(buffer) {
+                Ok(read) => break read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            }
+        };
         self.progress.sent.fetch_add(read as u64, Ordering::Relaxed);
         Ok(read)
     }
@@ -148,6 +151,23 @@ mod tests {
             body.extend_from_slice(&buffer[..size]);
             buffer.drain(..size + 2);
         }
+    }
+
+    #[test]
+    fn cancellation_uses_a_non_retryable_error_kind() {
+        let path =
+            std::env::temp_dir().join(format!("lounge-cancel-test-{}.bin", std::process::id()));
+        std::fs::write(&path, b"payload").expect("temp file");
+        let progress = UploadProgress::new(7);
+        progress.cancel();
+        let mut reader = ProgressReader {
+            file: File::open(&path).expect("open"),
+            progress,
+        };
+        let mut buffer = [0u8; 7];
+        let error = reader.read(&mut buffer).expect_err("cancelled");
+        assert_ne!(error.kind(), io::ErrorKind::Interrupted);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

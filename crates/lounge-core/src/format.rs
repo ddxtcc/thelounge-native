@@ -330,13 +330,17 @@ pub fn find_nicks(text: &str, nicks: &[String]) -> Vec<(Range<usize>, String)> {
         if nick.is_empty() {
             continue;
         }
-        let lower_text = text.to_lowercase();
-        let lower_nick = nick.to_lowercase();
-        let mut from = 0;
-        while let Some(pos) = lower_text[from..].find(&lower_nick) {
-            let start = from + pos;
-            let end = start + lower_nick.len();
-            let before_ok = text[..start]
+        let mut index = 0;
+        while index < text.len() {
+            let Some(end) = match_nick_at(text, index, nick) else {
+                index += text[index..]
+                    .chars()
+                    .next()
+                    .map(char::len_utf8)
+                    .unwrap_or(1);
+                continue;
+            };
+            let before_ok = text[..index]
                 .chars()
                 .next_back()
                 .map(|c| !c.is_alphanumeric() && c != '_' && c != '-')
@@ -348,18 +352,27 @@ pub fn find_nicks(text: &str, nicks: &[String]) -> Vec<(Range<usize>, String)> {
                 .unwrap_or(true);
             let in_link = links
                 .iter()
-                .any(|l| l.range.start < end && start < l.range.end);
+                .any(|link| link.range.start < end && index < link.range.end);
             if before_ok && after_ok && !in_link {
-                found.push((start..end, nick.clone()));
+                found.push((index..end, nick.clone()));
             }
-            from = end;
-            if from >= lower_text.len() {
-                break;
-            }
+            index = end;
         }
     }
     found.sort_by_key(|(range, _)| range.start);
     found
+}
+
+fn match_nick_at(text: &str, start: usize, nick: &str) -> Option<usize> {
+    let mut index = start;
+    for nick_char in nick.chars() {
+        let text_char = text[index..].chars().next()?;
+        if !text_char.to_lowercase().eq(nick_char.to_lowercase()) {
+            return None;
+        }
+        index += text_char.len_utf8();
+    }
+    Some(index)
 }
 
 pub fn find_channels(text: &str) -> Vec<(Range<usize>, String)> {
@@ -377,15 +390,14 @@ pub fn find_channels(text: &str) -> Vec<(Range<usize>, String)> {
                     .unwrap_or(false))
         {
             let mut end = i + 1;
-            while end < bytes.len() {
-                let c = bytes[end] as char;
-                if c.is_alphanumeric()
+            for (offset, ch) in text[i + 1..].char_indices() {
+                if ch.is_alphanumeric()
                     || matches!(
-                        c,
+                        ch,
                         '_' | '-' | '[' | ']' | '\\' | '`' | '^' | '{' | '}' | '|'
                     )
                 {
-                    end += 1;
+                    end = i + 1 + offset + ch.len_utf8();
                 } else {
                     break;
                 }
@@ -511,6 +523,22 @@ mod tests {
         let found = find_nicks("alice: alice2 and Alice", &["alice".into()]);
         assert_eq!(found.len(), 2);
         assert_eq!(found[1].0, 18..23);
+    }
+
+    #[test]
+    fn channels_handle_unicode_without_panicking() {
+        let found = find_channels("join #é and #rust");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].1, "#é");
+        assert!(find_channels("#€").is_empty());
+    }
+
+    #[test]
+    fn nick_mentions_handle_unicode_case_folding() {
+        let found = find_nicks("İ İ hello", &["İ".into()]);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].0.start, 0);
+        assert_eq!(found[0].0.end, 2);
     }
 
     #[test]

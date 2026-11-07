@@ -41,6 +41,8 @@ impl LoungeApp {
             self.inputs.setting_away_message.clone(),
             self.inputs.emoji_search.clone(),
             self.inputs.font_search.clone(),
+            self.inputs.users_filter.clone(),
+            self.inputs.palette.clone(),
             self.inputs.password_old.clone(),
             self.inputs.password_new.clone(),
             self.inputs.password_verify.clone(),
@@ -278,14 +280,20 @@ impl LoungeApp {
         let Some(target) = self.state.active else {
             return;
         };
-        let reply_to = self.reply_to.as_ref().map(|reply| reply.msgid.clone());
-        if let Some(conn) = &self.conn {
-            conn.input(target, text.clone(), reply_to);
-            conn.emit(
-                "typing",
-                Some(serde_json::json!({"target": target, "status": "done"})),
-            );
+        if !self.status.is_online() {
+            self.toast("Not connected. Message left in the composer.");
+            return;
         }
+        let Some(conn) = &self.conn else {
+            self.toast("Not connected. Message left in the composer.");
+            return;
+        };
+        let reply_to = self.reply_to.as_ref().map(|reply| reply.msgid.clone());
+        conn.input(target, text.clone(), reply_to);
+        conn.emit(
+            "typing",
+            Some(serde_json::json!({"target": target, "status": "done"})),
+        );
         self.typing_active = false;
         let history = self.histories.entry(target).or_default();
         if history.last() != Some(&text) {
@@ -305,6 +313,9 @@ impl LoungeApp {
     }
 
     pub(super) fn send_typing(&mut self, active: bool, cx: &mut Context<Self>) {
+        if !self.status.is_online() {
+            return;
+        }
         let Some(target) = self.state.active else {
             return;
         };
@@ -407,6 +418,7 @@ impl LoungeApp {
         }
         self.messages_list.reset(0);
         self.messages_list_keys.clear();
+        self.message_rows_cache = None;
         self.messages_at_bottom = true;
         self.scroll_to_bottom_pending = false;
         self.image_cache_current.borrow_mut().clear();
@@ -431,7 +443,11 @@ impl LoungeApp {
     }
 
     pub(super) fn save_draft(&mut self, cx: &mut Context<Self>) {
-        if let Some(active) = self.state.active {
+        self.save_draft_for(self.state.active, cx);
+    }
+
+    pub(super) fn save_draft_for(&mut self, channel: Option<i64>, cx: &mut Context<Self>) {
+        if let Some(active) = channel {
             let text = self.inputs.composer.read(cx).content().to_string();
             if text.trim().is_empty() {
                 self.drafts.remove(&active);
@@ -442,7 +458,7 @@ impl LoungeApp {
         self.persist_chat_state();
     }
 
-    fn persist_chat_state(&mut self) {
+    pub(super) fn persist_chat_state(&mut self) {
         self.config.saved_drafts = self
             .drafts
             .iter()
@@ -520,10 +536,7 @@ impl LoungeApp {
     pub(super) fn complete(&mut self, cx: &mut Context<Self>) {
         let content = self.inputs.composer.read(cx).content().to_string();
         let trimmed_end = content.trim_end_matches(' ').len();
-        let token_start = content[..trimmed_end]
-            .rfind(char::is_whitespace)
-            .map(|index| index + 1)
-            .unwrap_or(0);
+        let token_start = completion_token_start(&content, trimmed_end);
         let token = &content[token_start..trimmed_end];
 
         if token.starts_with(':')
@@ -725,7 +738,7 @@ impl LoungeApp {
                     &self.theme,
                     self.theme.dark,
                 );
-                if let Some(range) = selection.range_for(channel, message.id, text.len())
+                if let Some(range) = selection.range_for(channel, message.id, &text)
                     && !range.is_empty()
                 {
                     parts.push(text[range].to_string());
@@ -826,345 +839,46 @@ impl LoungeApp {
             self.toast("Nickname is required.");
             return;
         }
-        let mut data = serde_json::json!({
-            "name": name,
-            "nick": nick,
-            "username": username,
-            "realname": realname,
-            "password": password,
-            "tls": self.network_tls,
-            "rejectUnauthorized": true,
-        });
+        let mut data = self.network_edit_data.take().unwrap_or_default();
+        data.insert("name".into(), serde_json::json!(name));
+        data.insert("nick".into(), serde_json::json!(nick));
+        data.insert("username".into(), serde_json::json!(username));
+        data.insert("realname".into(), serde_json::json!(realname));
+        data.insert("password".into(), serde_json::json!(password));
+        data.insert("tls".into(), serde_json::json!(self.network_tls));
+        data.entry("rejectUnauthorized")
+            .or_insert_with(|| serde_json::json!(true));
         if !host.is_empty() {
-            data["host"] = serde_json::json!(host);
+            data.insert("host".into(), serde_json::json!(host));
             if let Ok(port) = port_text.parse::<u16>() {
-                data["port"] = serde_json::json!(port);
+                data.insert("port".into(), serde_json::json!(port));
             }
         }
+        if self.network_edit_loading {
+            self.toast("Loading network settings...");
+            return;
+        }
         if let Some(uuid) = self.network_edit_uuid.clone() {
-            data["uuid"] = serde_json::json!(uuid);
-            conn.emit("network:edit", Some(data));
+            data.insert("uuid".into(), serde_json::json!(uuid));
+            conn.emit("network:edit", Some(serde_json::Value::Object(data)));
             self.network_modal_open = false;
             self.network_edit_uuid = None;
             self.toast("Network settings saved.");
         } else {
-            conn.emit("network:new", Some(data));
+            conn.emit("network:new", Some(serde_json::Value::Object(data)));
             self.network_modal_open = false;
             self.toast("Connecting network...");
         }
         cx.notify();
     }
+}
 
-    pub(super) fn set_tray_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        self.config.show_tray_icon = enabled;
-        self.config.save();
-        #[cfg(target_os = "linux")]
-        {
-            if enabled {
-                if self.tray_handle.is_none()
-                    && let Some((handle, receiver)) = crate::app::tray::spawn()
-                {
-                    let unread = self.state.total_unread();
-                    handle.update(|tray| tray.unread = unread);
-                    self.tray_handle = Some(handle);
-                    self.tray_action_rx = receiver;
-                }
-            } else if let Some(handle) = self.tray_handle.take() {
-                handle.shutdown().wait();
-                self.tray_action_rx = std::sync::mpsc::channel().1;
-            }
-        }
-        #[cfg(target_os = "windows")]
-        {
-            if enabled {
-                if self.tray_handle.is_none()
-                    && let Some((handle, receiver)) = crate::app::tray_windows::spawn()
-                {
-                    handle.set_unread(self.state.total_unread());
-                    self.tray_handle = Some(handle);
-                    self.tray_action_rx = receiver;
-                }
-            } else if let Some(handle) = self.tray_handle.take() {
-                handle.stop();
-                self.tray_action_rx = std::sync::mpsc::channel().1;
-            }
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        {
-            let _ = enabled;
-            let _ = cx;
-        }
-        cx.notify();
-    }
-
-    pub(super) fn set_global_hotkey_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        self.config.enable_global_hotkey = enabled;
-        self.config.save();
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
-        {
-            use global_hotkey::{
-                GlobalHotKeyManager,
-                hotkey::{Code, HotKey, Modifiers},
-            };
-            let hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyL);
-            if enabled {
-                if self.hotkey_manager.is_none()
-                    && let Ok(manager) = GlobalHotKeyManager::new()
-                {
-                    let _ = manager.register(hotkey);
-                    self.hotkey_manager = Some(manager);
-                }
-            } else if let Some(manager) = self.hotkey_manager.take() {
-                let _ = manager.unregister(hotkey);
-            }
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        {
-            let _ = enabled;
-            let _ = cx;
-        }
-        cx.notify();
-    }
-
-    pub(super) fn open_hotkey_palette(&mut self, return_to_settings: bool, cx: &mut Context<Self>) {
-        self.hotkey_settings_return = return_to_settings;
-        self.open_palette(PaletteMode::Hotkey, cx);
-    }
-
-    pub(super) fn set_global_hotkey(&mut self, spec: &str, cx: &mut Context<Self>) -> bool {
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        {
-            let _ = spec;
-            let _ = cx;
-            self.toast("Global shortcuts are not available on this platform.");
-            return false;
-        }
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
-        {
-            use global_hotkey::{GlobalHotKeyManager, hotkey::HotKey};
-            let Ok(hotkey) = spec.parse::<HotKey>() else {
-                self.toast("Invalid shortcut. Try control+alt+l.");
-                return false;
-            };
-            if hotkey.mods.is_empty() {
-                self.toast("Include at least one modifier.");
-                return false;
-            }
-            let old = self.config.global_hotkey.parse::<HotKey>().ok();
-            let manager = match self.hotkey_manager.take() {
-                Some(manager) => manager,
-                None => match GlobalHotKeyManager::new() {
-                    Ok(manager) => manager,
-                    Err(error) => {
-                        self.toast(format!("Could not enable global shortcut: {error}"));
-                        return false;
-                    }
-                },
-            };
-            if let Some(old) = old {
-                let _ = manager.unregister(old);
-            }
-            if let Err(error) = manager.register(hotkey) {
-                if let Some(old) = old {
-                    let _ = manager.register(old);
-                }
-                self.hotkey_manager = Some(manager);
-                self.toast(format!("Shortcut unavailable: {error}"));
-                return false;
-            }
-            self.hotkey_manager = Some(manager);
-            self.config.global_hotkey = hotkey.into_string();
-            self.config.enable_global_hotkey = true;
-            self.config.save();
-            self.toast(format!("Global shortcut: {}", self.config.global_hotkey));
-            cx.notify();
-            true
-        }
-    }
-
-    pub(super) fn unread_mentions(&self) -> usize {
-        self.state
-            .mentions
-            .iter()
-            .filter(|mention| !self.seen_mentions.contains(&mention.msg_id))
-            .count()
-    }
-
-    pub(super) fn mark_mentions_seen(&mut self) {
-        for mention in &self.state.mentions {
-            self.seen_mentions.insert(mention.msg_id);
-        }
-    }
-
-    pub(super) fn move_mentions(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let len = self.state.mentions.len();
-        if len == 0 {
-            return;
-        }
-        let current = self.mentions_selection.min(len - 1) as isize;
-        self.mentions_selection = (current + delta).rem_euclid(len as isize) as usize;
-        self.mentions_scroll.scroll_to_item(self.mentions_selection);
-        cx.notify();
-    }
-
-    pub(super) fn activate_mentions_selection(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.activate_mention(self.mentions_selection, window, cx);
-    }
-
-    pub(super) fn activate_mention(
-        &mut self,
-        index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(mention) = self.state.mentions.get(index).cloned() else {
-            return;
-        };
-        if self.state.find_channel(mention.chan_id).is_none() {
-            return;
-        }
-        let channel = self
-            .state
-            .find_channel(mention.chan_id)
-            .map(|(_, channel)| channel.chan.name.clone())
-            .unwrap_or_default();
-        self.pending_focus_message = Some(mention.msg_id);
-        self.pending_context = Some(MessageContext {
-            channel,
-            nick: mention.from.nick.clone(),
-            time: mention.time,
-            text: format::clean(&mention.text),
-        });
-        self.flash_message(mention.msg_id, cx);
-        self.switch_channel(mention.chan_id, window, cx);
-        self.mentions_open = false;
-        cx.notify();
-    }
-
-    fn emoji_entries(&self, cx: &mut Context<Self>) -> Vec<&'static crate::emoji::Emoji> {
-        let term = self.inputs.emoji_search.read(cx).content().to_string();
-        crate::emoji::filter(&term, 240)
-    }
-
-    fn move_emoji(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let len = self.emoji_entries(cx).len();
-        if len == 0 {
-            return;
-        }
-        let current = self.emoji_selection.min(len - 1) as isize;
-        self.emoji_selection = (current + delta).clamp(0, len as isize - 1) as usize;
-        self.emoji_scroll.scroll_to_item(self.emoji_selection);
-        cx.notify();
-    }
-
-    fn insert_selected_emoji(&mut self, cx: &mut Context<Self>) {
-        let glyph = self
-            .emoji_entries(cx)
-            .get(self.emoji_selection)
-            .map(|emoji| emoji.glyph);
-        if let Some(glyph) = glyph {
-            self.insert_emoji(glyph, cx);
-        }
-    }
-
-    fn move_search(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let len = self
-            .state
-            .search_results
-            .as_ref()
-            .map(|results| results.results.len())
-            .unwrap_or(0);
-        if len == 0 {
-            return;
-        }
-        let current = self.search_selection.min(len - 1) as isize;
-        self.search_selection = (current + delta).rem_euclid(len as isize) as usize;
-        self.search_scroll.scroll_to_item(self.search_selection);
-        cx.notify();
-    }
-
-    pub(super) fn activate_search_result(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some((target, message_id, context)) = ({
-            let Some(results) = &self.state.search_results else {
-                return;
-            };
-            let Some(result) = results.results.get(index) else {
-                return;
-            };
-            let context = MessageContext {
-                channel: results.query.channel_name.clone(),
-                nick: result
-                    .from
-                    .as_ref()
-                    .map(|from| from.nick.clone())
-                    .unwrap_or_default(),
-                time: result.time,
-                text: format::clean(&result.text),
-            };
-            let target = self.state.networks.iter().find_map(|network| {
-                if network.uuid != results.query.network_uuid {
-                    return None;
-                }
-                network
-                    .channels
-                    .iter()
-                    .find(|channel| channel.chan.name == results.query.channel_name)
-                    .map(|channel| channel.chan.id)
-            });
-            target.map(|target| (target, result.id, context))
-        }) else {
-            return;
-        };
-        self.pending_focus_message = Some(message_id);
-        self.pending_context = Some(context);
-        self.flash_message(message_id, cx);
-        self.search_open = false;
-        self.pending_channel_switch = Some(target);
-        cx.notify();
-    }
-
-    pub(super) fn flash_message(&mut self, message_id: i64, cx: &mut Context<Self>) {
-        self.focused_message = Some(message_id);
-        cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_secs(2)).await;
-            let _ = this.update(cx, |this, cx| {
-                if this.focused_message == Some(message_id) {
-                    this.focused_message = None;
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
-    }
-
-    pub(super) fn submit_search(&mut self, cx: &mut Context<Self>) {
-        let term = self.inputs.search.read(cx).content().trim().to_string();
-        if term.is_empty() {
-            return;
-        }
-        let Some(active) = self.state.active else {
-            return;
-        };
-        let Some((network, channel)) = self.state.find_channel(active) else {
-            return;
-        };
-        let Some(conn) = &self.conn else {
-            return;
-        };
-        conn.emit(
-            "search",
-            Some(serde_json::json!({
-                "searchTerm": term,
-                "networkUuid": network.uuid,
-                "channelName": channel.chan.name,
-                "offset": 0,
-            })),
-        );
-    }
+fn completion_token_start(content: &str, end: usize) -> usize {
+    content[..end]
+        .char_indices()
+        .rev()
+        .find_map(|(index, ch)| ch.is_whitespace().then_some(index + ch.len_utf8()))
+        .unwrap_or(0)
 }
 
 fn image_eviction_position(touched: &VecDeque<String>, current: &HashSet<String>) -> Option<usize> {
@@ -1191,5 +905,12 @@ mod tests {
         let touched = VecDeque::from(["one".to_string(), "two".to_string()]);
         let current = HashSet::from(["one".to_string(), "two".to_string()]);
         assert_eq!(image_eviction_position(&touched, &current), None);
+    }
+
+    #[test]
+    fn completion_token_start_handles_multibyte_whitespace() {
+        assert_eq!(completion_token_start("foo bar", 7), 4);
+        assert_eq!(completion_token_start("foo\u{00a0}bar", 8), 5);
+        assert_eq!(completion_token_start("foo\u{3000}bar", 8), 6);
     }
 }

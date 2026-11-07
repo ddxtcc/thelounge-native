@@ -1,4 +1,6 @@
 use std::sync::mpsc;
+
+use futures::channel::mpsc as action_mpsc;
 use std::thread;
 use std::time::Duration;
 
@@ -56,8 +58,8 @@ fn tray_icon() -> Option<Icon> {
     Icon::from_rgba(rgba, width, height).ok()
 }
 
-pub fn spawn() -> Option<(TrayHandle, mpsc::Receiver<TrayAction>)> {
-    let (actions, action_rx) = mpsc::channel();
+pub fn spawn() -> Option<(TrayHandle, action_mpsc::UnboundedReceiver<TrayAction>)> {
+    let (actions, action_rx) = action_mpsc::unbounded();
     let (commands, command_rx) = mpsc::channel();
     let (ready, ready_rx) = mpsc::channel();
 
@@ -95,14 +97,14 @@ pub fn spawn() -> Option<(TrayHandle, mpsc::Receiver<TrayAction>)> {
         loop {
             while let Ok(event) = MenuEvent::receiver().try_recv() {
                 if event.id.0 == "show" {
-                    let _ = actions.send(TrayAction::Show);
+                    let _ = actions.unbounded_send(TrayAction::Show);
                 } else if event.id.0 == "quit" {
-                    let _ = actions.send(TrayAction::Quit);
+                    let _ = actions.unbounded_send(TrayAction::Quit);
                 }
             }
             while let Ok(event) = TrayIconEvent::receiver().try_recv() {
                 if let TrayIconEvent::DoubleClick { .. } = event {
-                    let _ = actions.send(TrayAction::Show);
+                    let _ = actions.unbounded_send(TrayAction::Show);
                 }
             }
             while let Ok(command) = command_rx.try_recv() {

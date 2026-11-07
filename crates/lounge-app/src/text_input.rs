@@ -203,7 +203,7 @@ impl TextInput {
     }
 
     pub fn insert_text(&mut self, text: &str, cx: &mut Context<Self>) {
-        let range = self.selected_range.clone();
+        let range = clamp_range(&self.content, self.selected_range.clone());
         self.content = format!(
             "{}{}{}",
             &self.content[..range.start],
@@ -469,18 +469,16 @@ impl TextInput {
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
-            ));
+        let range = clamp_range(&self.content, self.selected_range.clone());
+        if !range.is_empty() {
+            cx.write_to_clipboard(ClipboardItem::new_string(self.content[range].to_string()));
         }
     }
 
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
-            ));
+        let range = clamp_range(&self.content, self.selected_range.clone());
+        if !range.is_empty() {
+            cx.write_to_clipboard(ClipboardItem::new_string(self.content[range].to_string()));
             self.replace_text_in_range(None, "", window, cx);
         }
     }
@@ -673,4 +671,55 @@ fn char_to_byte(text: &str, chars: usize) -> usize {
         .unwrap_or(text.len())
 }
 
+fn utf16_range_to_bytes(text: &str, range: Range<usize>) -> Range<usize> {
+    let mut start = None;
+    let mut end = None;
+    let mut utf16 = 0;
+    for (byte, ch) in text.char_indices() {
+        if start.is_none() && utf16 >= range.start {
+            start = Some(byte);
+        }
+        if end.is_none() && utf16 >= range.end {
+            end = Some(byte);
+        }
+        if start.is_some() && end.is_some() {
+            break;
+        }
+        utf16 += ch.len_utf16();
+    }
+    start.unwrap_or(text.len())..end.unwrap_or(text.len())
+}
+
+fn floor_char_boundary(text: &str, mut index: usize) -> usize {
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
+fn clamp_range(text: &str, range: Range<usize>) -> Range<usize> {
+    let start = floor_char_boundary(text, range.start.min(text.len()));
+    let end = floor_char_boundary(text, range.end.min(text.len()));
+    start..end.max(start)
+}
+
 mod element;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn utf16_composition_range_maps_into_bytes() {
+        assert_eq!(utf16_range_to_bytes("a日本", 0..1), 0..1);
+        assert_eq!(utf16_range_to_bytes("a日本", 1..3), 1..7);
+        assert_eq!(utf16_range_to_bytes("a日本", 3..3), 7..7);
+    }
+
+    #[test]
+    fn clamp_range_stays_on_char_boundaries() {
+        assert_eq!(clamp_range("a日本", 1..2), 1..1);
+        assert_eq!(clamp_range("a日本", 1..3), 1..1);
+        assert_eq!(clamp_range("a日本", 1..4), 1..4);
+    }
+}

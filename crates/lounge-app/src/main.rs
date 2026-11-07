@@ -47,16 +47,33 @@ fn main() {
         .run(|cx: &mut App| {
             text_input::bind_keys(cx);
             let config = config::AppConfig::load();
+            let centered = || WindowBounds::centered(size(px(1150.), px(780.)), cx);
             let bounds = match (
                 config.window_x,
                 config.window_y,
                 config.window_width,
                 config.window_height,
             ) {
-                (Some(x), Some(y), Some(width), Some(height)) => WindowBounds::Windowed(
-                    Bounds::new(point(px(x), px(y)), size(px(width), px(height))),
-                ),
-                _ => WindowBounds::centered(size(px(1150.), px(780.)), cx),
+                (Some(x), Some(y), Some(width), Some(height))
+                    if x.is_finite()
+                        && y.is_finite()
+                        && width.is_finite()
+                        && height.is_finite()
+                        && width > 0.
+                        && height > 0. =>
+                {
+                    let windowed = Bounds::new(point(px(x), px(y)), size(px(width), px(height)));
+                    if cx
+                        .displays()
+                        .iter()
+                        .any(|display| display.bounds().contains(&windowed.center()))
+                    {
+                        WindowBounds::Windowed(windowed)
+                    } else {
+                        centered()
+                    }
+                }
+                _ => centered(),
             };
             let window = cx
                 .open_window(

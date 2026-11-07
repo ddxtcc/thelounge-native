@@ -175,7 +175,7 @@ impl LoungeApp {
         root = root.child(
             div()
                 .flex_1()
-                .h(window.viewport_size().height)
+                .h(window.window_bounds().get_bounds().size.height)
                 .min_w(px(0.))
                 .flex()
                 .flex_col()
@@ -188,7 +188,7 @@ impl LoungeApp {
                     if bounds.len() < 3 {
                         return;
                     }
-                    let available = (window.viewport_size().height
+                    let available = (window.window_bounds().get_bounds().size.height
                         - bounds[0].size.height
                         - bounds[bounds.len() - 1].size.height)
                         .max(px(0.));
@@ -605,11 +605,11 @@ impl LoungeApp {
         if let Some(upload) = &self.active_upload {
             let sent = upload.progress.sent();
             let total = upload.progress.total();
-            let percent = if total == 0 {
-                0
-            } else {
-                (sent.min(total) * 100 / total) as u32
-            };
+            let percent = sent
+                .min(total)
+                .saturating_mul(100)
+                .checked_div(total)
+                .unwrap_or(0) as u32;
             let progress = upload.progress.clone();
             footer = footer.child(
                 div()

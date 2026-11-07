@@ -2,23 +2,9 @@ use super::*;
 
 impl Render for LoungeApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        while let Ok(channel) = self.notification_action_rx.try_recv() {
-            self.pending_channel_switch = Some(channel);
+        if self.pending_show_window {
+            self.pending_show_window = false;
             window.activate_window();
-        }
-        #[cfg(target_os = "linux")]
-        while let Ok(action) = self.tray_action_rx.try_recv() {
-            match action {
-                tray::TrayAction::Show => window.activate_window(),
-                tray::TrayAction::Quit => cx.quit(),
-            }
-        }
-        #[cfg(target_os = "windows")]
-        while let Ok(action) = self.tray_action_rx.try_recv() {
-            match action {
-                tray_windows::TrayAction::Show => window.activate_window(),
-                tray_windows::TrayAction::Quit => cx.quit(),
-            }
         }
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         if self.hotkey_manager.is_some() {
@@ -67,7 +53,19 @@ impl Render for LoungeApp {
             self.config.window_y = Some(y);
             self.config.window_width = Some(width);
             self.config.window_height = Some(height);
-            self.config.save();
+            self.window_save_generation = self.window_save_generation.wrapping_add(1);
+            let generation = self.window_save_generation;
+            cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+                let _ = this.update(cx, |this, _| {
+                    if this.window_save_generation == generation {
+                        this.config.save();
+                    }
+                });
+            })
+            .detach();
         }
         if let Some(toast) = &self.toast
             && Instant::now() > toast.until

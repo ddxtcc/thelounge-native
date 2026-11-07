@@ -34,14 +34,24 @@ impl LoungeApp {
         self.queue_upload(path, cx);
     }
 
-    pub(super) fn prompt_for_upload(&mut self, cx: &mut Context<Self>) {
-        if !self
-            .state
+    fn uploads_enabled(&self) -> bool {
+        self.state
             .configuration
             .as_ref()
             .map(|config| config.file_upload)
             .unwrap_or(false)
-        {
+    }
+
+    pub(super) fn reset_uploads(&mut self) {
+        if let Some(active) = self.active_upload.take() {
+            active.progress.cancel();
+        }
+        self.pending_uploads.clear();
+        self.uploads_in_flight = 0;
+    }
+
+    pub(super) fn prompt_for_upload(&mut self, cx: &mut Context<Self>) {
+        if !self.uploads_enabled() {
             self.toast("File uploads are disabled on this server.");
             return;
         }
@@ -69,6 +79,10 @@ impl LoungeApp {
     }
 
     pub(super) fn queue_upload(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if !self.uploads_enabled() {
+            self.toast("File uploads are disabled on this server.");
+            return;
+        }
         let Some(conn) = &self.conn else {
             self.toast("Not connected.");
             return;
@@ -109,6 +123,9 @@ impl LoungeApp {
             .as_ref()
             .map(|_| self.config.server.clone())
         else {
+            self.uploads_in_flight = 0;
+            self.active_upload = None;
+            self.toast("Upload settings are unavailable.");
             return;
         };
         let display_name = path
@@ -124,11 +141,19 @@ impl LoungeApp {
             progress: progress.clone(),
         });
         let task_progress = progress.clone();
+        let cleanup = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("lounge-native-clipboard-"))
+            .then(|| path.clone());
         let task = cx.background_executor().spawn(async move {
             lounge_core::upload::upload_file(&server, &token, &path, task_progress)
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
+            if let Some(path) = cleanup {
+                let _ = std::fs::remove_file(path);
+            }
             let _ = this.update(cx, |this, cx| {
                 this.uploads_in_flight = this.uploads_in_flight.saturating_sub(1);
                 this.active_upload = None;

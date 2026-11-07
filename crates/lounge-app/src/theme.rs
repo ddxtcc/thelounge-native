@@ -59,8 +59,19 @@ pub struct CustomTheme {
     pub input_bg: String,
 }
 
-fn parse_hex(value: &str) -> u32 {
-    u32::from_str_radix(value.trim().trim_start_matches('#'), 16).unwrap_or(0)
+fn parse_hex(value: &str) -> Option<u32> {
+    let value = value.trim().trim_start_matches('#');
+    if value.len() != 6 || !value.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return None;
+    }
+    u32::from_str_radix(value, 16).ok()
+}
+
+fn color_u32(color: Hsla) -> u32 {
+    let color = color.to_rgb();
+    ((color.r * 255.).round() as u32) << 16
+        | ((color.g * 255.).round() as u32) << 8
+        | (color.b * 255.).round() as u32
 }
 
 fn hex(color: Hsla) -> String {
@@ -103,24 +114,27 @@ impl CustomTheme {
     }
 
     pub fn to_theme(&self) -> Theme {
+        let fallback = Theme::dark();
+        let pick =
+            |value: &str, default: Hsla| parse_hex(value).unwrap_or_else(|| color_u32(default));
         Theme::palette(
             self.dark,
-            parse_hex(&self.bg),
-            parse_hex(&self.sidebar),
-            parse_hex(&self.panel),
-            parse_hex(&self.hover),
-            parse_hex(&self.border),
-            parse_hex(&self.text),
-            parse_hex(&self.muted),
-            parse_hex(&self.faint),
-            parse_hex(&self.accent),
-            parse_hex(&self.accent_dim),
-            parse_hex(&self.success),
-            parse_hex(&self.warning),
-            parse_hex(&self.error),
-            parse_hex(&self.highlight_bg),
-            parse_hex(&self.self_text),
-            parse_hex(&self.input_bg),
+            pick(&self.bg, fallback.bg),
+            pick(&self.sidebar, fallback.sidebar),
+            pick(&self.panel, fallback.panel),
+            pick(&self.hover, fallback.hover),
+            pick(&self.border, fallback.border),
+            pick(&self.text, fallback.text),
+            pick(&self.muted, fallback.muted),
+            pick(&self.faint, fallback.faint),
+            pick(&self.accent, fallback.accent),
+            pick(&self.accent_dim, fallback.accent_dim),
+            pick(&self.success, fallback.success),
+            pick(&self.warning, fallback.warning),
+            pick(&self.error, fallback.error),
+            pick(&self.highlight_bg, fallback.highlight_bg),
+            pick(&self.self_text, fallback.self_text),
+            pick(&self.input_bg, fallback.input_bg),
         )
     }
 }
@@ -284,6 +298,16 @@ impl Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_theme_colors_fall_back_to_dark() {
+        let custom = CustomTheme {
+            accent: "#zzzzzz".into(),
+            ..Default::default()
+        };
+        let theme = custom.to_theme();
+        assert_eq!(color_u32(theme.accent), color_u32(Theme::dark().accent));
+    }
 
     #[test]
     fn custom_theme_round_trips_through_toml() {

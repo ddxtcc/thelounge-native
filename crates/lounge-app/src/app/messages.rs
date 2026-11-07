@@ -1,4 +1,4 @@
-use super::message_list::{Row, build_rows, nick_column_width};
+use super::message_list::{MessageRowsCache, Row, build_rows, nick_column_width};
 use super::message_text::{
     build_message_text, image_fallback, is_status_message, user_mode_prefix_in_message,
 };
@@ -22,22 +22,51 @@ impl LoungeApp {
                 .child("No channel selected")
                 .into_any_element();
         };
-        let (rows, nick_width, summary_indent) = {
+        let (rows, nick_width, summary_indent, cache_update) = {
             let Some((network, channel)) = self.state.find_channel(active) else {
                 return div().flex_1().into_any_element();
             };
             if let Some(special) = channel.chan.special.clone() {
                 return self.render_special(network, channel, &special, cx);
             }
-            let mut rows = build_rows(channel, &self.config);
-            if channel.more_history_available() {
-                rows.insert(
-                    0,
-                    Row::LoadMore {
-                        loading: channel.history_loading,
-                    },
-                );
-            }
+            let more = channel.more_history_available();
+            let loading = channel.history_loading;
+            let key = (
+                channel.chan.id,
+                self.state.revision,
+                self.config.status_messages,
+                more,
+                loading,
+            );
+            let cached = self
+                .message_rows_cache
+                .as_ref()
+                .filter(|cache| {
+                    cache.channel_id == key.0
+                        && cache.revision == key.1
+                        && cache.status == key.2
+                        && cache.more == key.3
+                        && cache.loading == key.4
+                })
+                .map(|cache| cache.rows.clone());
+            let (rows, cache_update) = if let Some(rows) = cached {
+                (rows, None)
+            } else {
+                let mut rows = build_rows(channel, &self.config);
+                if more {
+                    rows.insert(0, Row::LoadMore { loading });
+                }
+                let rows = Rc::new(rows);
+                let cache = MessageRowsCache {
+                    channel_id: key.0,
+                    revision: key.1,
+                    status: key.2,
+                    more: key.3,
+                    loading: key.4,
+                    rows: rows.clone(),
+                };
+                (rows, Some(cache))
+            };
             let nick_width = if self.config.nick_column && !self.narrow {
                 nick_column_width(channel, self.config.font_size)
             } else {
@@ -46,8 +75,11 @@ impl LoungeApp {
             let status_column = if nick_width > 0. { nick_width } else { 22. };
             let summary_indent =
                 px(16. + if self.config.show_timestamps { 62. } else { 0. } + status_column + 8.);
-            (rows, nick_width, summary_indent)
+            (rows, nick_width, summary_indent, cache_update)
         };
+        if let Some(cache) = cache_update {
+            self.message_rows_cache = Some(cache);
+        }
         let keys = rows.iter().map(|row| self.list_row_key(row)).collect();
         self.sync_message_list(keys);
         if self.scroll_to_bottom_pending {
@@ -61,7 +93,7 @@ impl LoungeApp {
 
         self.trim_image_cache(window, cx);
         if let Some(message_id) = self.pending_focus_message.take() {
-            if let Some(index) = self.message_row_index(&rows, message_id) {
+            if let Some(index) = self.message_row_index(rows.as_slice(), message_id) {
                 self.messages_list.scroll_to_reveal_item(index);
                 self.messages_at_bottom = false;
                 self.pending_context = None;
@@ -74,19 +106,24 @@ impl LoungeApp {
         }
 
         let chrome = if self.narrow { 110. } else { 80. };
-        let max_list_height = (window.viewport_size().height - px(chrome)).max(px(120.));
+        let viewport_height = window.window_bounds().get_bounds().size.height;
+        let max_list_height = (viewport_height - px(chrome)).max(px(120.));
         let list_height = if self.messages_available > px(0.) {
             self.messages_available.min(max_list_height)
         } else {
-            (window.viewport_size().height - px(150.)).max(px(120.))
+            (viewport_height - px(150.)).max(px(120.))
         };
-        let rows = Rc::new(rows);
         let entity = cx.entity();
         let item_rows = rows.clone();
         let item_entity = entity.clone();
         let bounds_weak = entity.downgrade();
         let selection_weak = entity.downgrade();
         div()
+            .flex()
+            .flex_1()
+            .w_full()
+            .min_h(px(0.))
+            .relative()
             .on_children_prepainted(move |bounds, _, cx| {
                 if let Some(bounds) = bounds.first()
                     && let Some(this) = bounds_weak.upgrade()
@@ -94,12 +131,22 @@ impl LoungeApp {
                     this.update(cx, |this, _| this.messages_bounds = Some(*bounds));
                 }
             })
+            .id("messages")
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseUpEvent, _, cx| {
+                    if this.selecting_text {
+                        this.selecting_text = false;
+                        cx.notify();
+                    }
+                }),
+            )
             .on_mouse_move(move |event: &gpui::MouseMoveEvent, _, cx| {
                 let Some(this) = selection_weak.upgrade() else {
                     return;
                 };
                 this.update(cx, |this, cx| {
-                    if !this.selecting_text {
+                    if !this.selecting_text || event.pressed_button != Some(MouseButton::Left) {
                         return;
                     }
                     let Some(bounds) = this.messages_bounds else {
@@ -166,7 +213,7 @@ impl LoungeApp {
         if let Some(range) = self
             .text_selection
             .as_ref()
-            .and_then(|selection| selection.range_for(channel, message.id, text.len()))
+            .and_then(|selection| selection.range_for(channel, message.id, &text))
         {
             runs = select_runs(runs, range, theme.accent_dim);
         }

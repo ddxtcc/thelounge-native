@@ -66,6 +66,8 @@ pub struct AppConfig {
     pub window_y: Option<f32>,
     pub window_width: Option<f32>,
     pub window_height: Option<f32>,
+    #[serde(skip)]
+    pub load_failed: bool,
 }
 
 impl Default for AppConfig {
@@ -106,6 +108,7 @@ impl Default for AppConfig {
             window_y: None,
             window_width: None,
             window_height: None,
+            load_failed: false,
         }
     }
 }
@@ -123,12 +126,24 @@ impl AppConfig {
     pub fn load() -> Self {
         let path = Self::path();
         match fs::read_to_string(&path) {
-            Ok(text) => toml::from_str(&text).unwrap_or_default(),
+            Ok(text) => match toml::from_str(&text) {
+                Ok(config) => config,
+                Err(_) => {
+                    let _ = fs::copy(&path, path.with_extension("toml.bak"));
+                    Self {
+                        load_failed: true,
+                        ..Default::default()
+                    }
+                }
+            },
             Err(_) => Self::default(),
         }
     }
 
     pub fn save(&self) {
+        if self.load_failed {
+            return;
+        }
         let path = Self::path();
         let Some(parent) = path.parent() else {
             return;
@@ -157,5 +172,34 @@ impl AppConfig {
         if result.is_err() {
             let _ = fs::remove_file(&temp);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_config_keeps_original_and_suppresses_saves() {
+        let root = std::env::temp_dir().join(format!("lounge-config-test-{}", std::process::id()));
+        let config_dir = root.join("lounge-native");
+        fs::create_dir_all(&config_dir).unwrap();
+        let path = config_dir.join("config.toml");
+        fs::write(&path, "not valid toml = [").unwrap();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &root);
+        }
+
+        let config = AppConfig::load();
+        assert!(config.load_failed);
+        assert!(config_dir.join("config.toml.bak").exists());
+
+        config.save();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "not valid toml = [");
+
+        unsafe {
+            std::env::remove_var("XDG_CONFIG_HOME");
+        }
+        let _ = fs::remove_dir_all(root);
     }
 }

@@ -30,23 +30,22 @@ impl LoungeApp {
             return;
         }
 
-        if server != self.config.server {
+        let account_changed = server != self.config.server || user != self.config.user;
+        if account_changed {
             self.config.token.clear();
             self.config.last_channel = None;
-        }
-        if user != self.config.user {
-            self.config.token.clear();
+            self.drafts.clear();
+            self.histories.clear();
+            self.seen_mentions.clear();
+            self.expanded_condensed.clear();
+            self.persist_chat_state();
         }
         self.config.server = server.clone();
         self.config.user = user.clone();
         self.config.save();
 
         self.login_error = None;
-        let auth = if user.is_empty() && password.is_empty() {
-            Auth::Public
-        } else {
-            Auth::Password { user, password }
-        };
+        let auth = login_auth(user, password, &self.config.token, &self.config.user);
         self.start_connection(auth, server, cx);
     }
 
@@ -59,8 +58,10 @@ impl LoungeApp {
         self.state = ClientState::new();
         self.messages_list.reset(0);
         self.messages_list_keys.clear();
+        self.message_rows_cache = None;
         self.messages_at_bottom = true;
         self.scroll_to_bottom_pending = false;
+        self.reset_uploads();
         self.reply_to = None;
         self.history_index = 0;
         self.typing_active = false;
@@ -191,7 +192,7 @@ impl LoungeApp {
                             if let Ok(output) = output
                                 && String::from_utf8_lossy(&output.stdout).contains("default")
                             {
-                                let _ = actions.send(chan_id);
+                                let _ = actions.unbounded_send(chan_id);
                             }
                         });
                     }
@@ -205,7 +206,7 @@ impl LoungeApp {
                                 .title(&title)
                                 .text1(&body)
                                 .on_activated(move |_| {
-                                    let _ = actions.send(chan_id);
+                                    let _ = actions.unbounded_send(chan_id);
                                     Ok(())
                                 })
                                 .show();
@@ -332,7 +333,7 @@ impl LoungeApp {
             self.schedule_scroll_bottom(cx);
         }
         if old_active != self.state.active {
-            self.save_draft(cx);
+            self.save_draft_for(old_active, cx);
             self.last_active_channel = self.state.active;
             self.config.last_channel = self.state.active;
             self.config.save();
@@ -427,6 +428,7 @@ impl LoungeApp {
         }
         self.conn_generation = self.conn_generation.wrapping_add(1);
         self.conn = None;
+        self.reset_uploads();
         self.config.token.clear();
         self.config.save();
         self.route = Route::Login;
@@ -434,5 +436,50 @@ impl LoungeApp {
         self.login_error = Some("Signed out.".into());
         self.pending_focus = true;
         cx.notify();
+    }
+}
+
+fn login_auth(user: String, password: String, token: &str, configured_user: &str) -> Auth {
+    if user.is_empty() && password.is_empty() {
+        Auth::Public
+    } else if password.is_empty() && !token.is_empty() && user == configured_user {
+        Auth::Token {
+            user,
+            token: token.to_string(),
+        }
+    } else {
+        Auth::Password { user, password }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn login_prefers_stored_token_when_password_is_empty() {
+        match login_auth("alice".into(), String::new(), "secret", "alice") {
+            Auth::Token { user, token } => {
+                assert_eq!(user, "alice");
+                assert_eq!(token, "secret");
+            }
+            _ => panic!("expected token auth"),
+        }
+    }
+
+    #[test]
+    fn login_uses_password_when_provided() {
+        assert!(matches!(
+            login_auth("alice".into(), "pass".into(), "secret", "alice"),
+            Auth::Password { .. }
+        ));
+    }
+
+    #[test]
+    fn login_does_not_reuse_another_users_token() {
+        assert!(matches!(
+            login_auth("bob".into(), String::new(), "secret", "alice"),
+            Auth::Password { .. }
+        ));
     }
 }

@@ -69,6 +69,16 @@ pub(super) fn build_rows(channel: &ChannelState, config: &AppConfig) -> Vec<Row>
     rows
 }
 
+#[derive(Clone)]
+pub(super) struct MessageRowsCache {
+    pub channel_id: i64,
+    pub revision: u64,
+    pub status: StatusMessages,
+    pub more: bool,
+    pub loading: bool,
+    pub rows: Rc<Vec<Row>>,
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum Row {
     LoadMore { loading: bool },
@@ -155,7 +165,7 @@ impl LoungeApp {
         summary_indent: Pixels,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(row) = rows.get(index).cloned() else {
+        let Some(row) = rows.get(index) else {
             return div().into_any_element();
         };
         let theme = self.theme;
@@ -167,7 +177,7 @@ impl LoungeApp {
         };
         match row {
             Row::LoadMore { loading } => {
-                let label = if loading {
+                let label = if *loading {
                     "Loading older messages..."
                 } else {
                     "Show older messages"
@@ -220,7 +230,7 @@ impl LoungeApp {
                     div()
                         .text_size(px(11.))
                         .text_color(theme.success)
-                        .child(label),
+                        .child(label.clone()),
                 )
                 .child(div().flex_1().h(px(1.)).bg(theme.success))
                 .into_any_element(),
@@ -240,10 +250,11 @@ impl LoungeApp {
                 .child(div().flex_1().h(px(1.)).bg(theme.accent))
                 .into_any_element(),
             Row::Message(message) => {
-                self.render_message_row(network, channel, &message, nick_width, cx)
+                self.render_message_row(network, channel, message, nick_width, cx)
             }
             Row::Condensed { id, messages } => {
-                let summary = condensed_summary(&messages);
+                let id = *id;
+                let summary = condensed_summary(messages);
                 let expanded = self.expanded_condensed.contains(&id);
                 let mut container = div()
                     .id(ElementId::Name(format!("cond-{id}").into()))
@@ -269,7 +280,7 @@ impl LoungeApp {
                         .child(format!("{summary} {}", if expanded { "v" } else { "»" })),
                 );
                 if expanded {
-                    for message in &messages {
+                    for message in messages {
                         container = container.child(
                             self.render_message_row(network, channel, message, nick_width, cx),
                         );
