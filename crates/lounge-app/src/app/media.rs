@@ -643,57 +643,97 @@ impl LoungeApp {
     ) -> AnyElement {
         let play_url = url.to_string();
         let expand_url = url.to_string();
+        let file = url.rsplit('/').next().unwrap_or(url).to_string();
         div()
             .w_full()
             .flex()
             .flex_col()
-            .gap_1()
-            .child(
-                div()
-                    .h(px(5.))
-                    .w_full()
-                    .rounded_full()
-                    .bg(self.theme.border),
-            )
+            .gap_2()
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .justify_between()
-                    .text_size(px(10.))
-                    .text_color(self.theme.muted)
-                    .child("0:00 / --:--")
+                    .gap_2()
                     .child(
-                        div()
-                            .w(px(54.))
-                            .h(px(3.))
-                            .rounded_full()
-                            .bg(self.theme.border),
-                    ),
+                        gpui::svg()
+                            .path("icons/music.svg")
+                            .w(px(14.))
+                            .h(px(14.))
+                            .text_color(self.theme.accent),
+                    )
+                    .child(div().flex_1().truncate().child(file)),
             )
             .child(
                 div()
+                    .w_full()
                     .flex()
-                    .items_center()
-                    .justify_center()
+                    .flex_col()
                     .gap_1()
                     .child(
-                        self.media_icon_button("play", "Play", false, cx, move |this, _, cx| {
-                            this.play_inline_media(
-                                message_id,
-                                play_url.clone(),
-                                MediaKind::Audio,
-                                cx,
-                            );
-                        }),
+                        div()
+                            .h(px(5.))
+                            .w_full()
+                            .rounded_full()
+                            .bg(self.theme.border),
                     )
-                    .child(self.media_icon_button(
-                        "expand",
-                        "Expand",
-                        false,
-                        cx,
-                        move |this, _, cx| this.open_lightbox(expand_url.clone(), cx),
-                    )),
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .text_size(px(10.))
+                            .text_color(self.theme.muted)
+                            .child("0:00 / --:--")
+                            .child(
+                                div()
+                                    .w(px(54.))
+                                    .h(px(3.))
+                                    .rounded_full()
+                                    .bg(self.theme.border),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .gap_1()
+                            .child(self.media_icon_button(
+                                "play",
+                                "Play",
+                                false,
+                                cx,
+                                move |this, _, cx| {
+                                    this.play_inline_media(
+                                        message_id,
+                                        play_url.clone(),
+                                        MediaKind::Audio,
+                                        cx,
+                                    );
+                                },
+                            ))
+                            .child(
+                                div()
+                                    .size(px(26.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(
+                                        gpui::svg()
+                                            .path("icons/volume-2.svg")
+                                            .w(px(16.))
+                                            .h(px(16.))
+                                            .text_color(self.theme.muted),
+                                    ),
+                            )
+                            .child(self.media_icon_button(
+                                "expand",
+                                "Expand",
+                                false,
+                                cx,
+                                move |this, _, cx| this.open_lightbox(expand_url.clone(), cx),
+                            )),
+                    ),
             )
             .into_any_element()
     }

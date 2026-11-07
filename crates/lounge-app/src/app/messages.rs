@@ -643,6 +643,8 @@ impl LoungeApp {
                     .gap_2();
                 if let Some(inline) = self.render_inline_media(row_id, &url, cx) {
                     card = card.child(inline);
+                } else if kind == super::media::MediaKind::Audio {
+                    card = card.child(self.render_audio_preview(row_id, &url, cx));
                 } else {
                     let play_url = url.clone();
                     card = card
@@ -705,8 +707,6 @@ impl LoungeApp {
                                     ),
                             ),
                         );
-                    } else if kind == super::media::MediaKind::Audio {
-                        card = card.child(self.render_audio_preview(row_id, &url, cx));
                     }
                     if kind == super::media::MediaKind::Video {
                         let play_url = url.clone();
