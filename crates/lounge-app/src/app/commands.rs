@@ -218,8 +218,8 @@ impl LoungeApp {
             | PaletteEntry::Favorite(command) => match command {
                 PaletteCommand::Settings => self.open_settings(cx),
                 PaletteCommand::SettingsTab(tab) => {
+                    self.open_settings(cx);
                     self.settings_tab = tab;
-                    self.settings_open = true;
                     cx.notify();
                 }
                 PaletteCommand::ToggleTray => {

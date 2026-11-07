@@ -323,3 +323,81 @@ fn typing_expires() {
     }));
     assert!(state.find_channel(2).unwrap().1.typing.is_empty());
 }
+
+#[test]
+fn more_keeps_loaded_history_at_capacity() {
+    let mut state = init_state();
+    {
+        let channel = state.find_channel_mut(2).unwrap();
+        channel.chan.messages = (1..=2000)
+            .map(|id| Message {
+                id,
+                text: format!("message {id}"),
+                kind: MessageType::Message,
+                ..Default::default()
+            })
+            .collect();
+        channel.chan.total_messages = 2200;
+    }
+    state.apply(ServerEvent::More(MoreEvent {
+        chan: 2,
+        messages: (-99..=0)
+            .map(|id| Message {
+                id,
+                text: format!("older {id}"),
+                kind: MessageType::Message,
+                ..Default::default()
+            })
+            .collect(),
+        total_messages: 2200,
+    }));
+    let channel = state.find_channel(2).unwrap().1;
+    assert_eq!(channel.chan.messages.len(), 2100);
+    assert_eq!(channel.chan.messages.first().unwrap().id, -99);
+}
+
+#[test]
+fn part_removes_user_from_channel_list() {
+    let mut state = init_state();
+    state.apply(ServerEvent::Names(NamesEvent {
+        id: 2,
+        users: vec![
+            User {
+                nick: "alice".into(),
+                modes: vec!["o".into()],
+                ..Default::default()
+            },
+            User {
+                nick: "bob".into(),
+                modes: vec!["v".into()],
+                ..Default::default()
+            },
+        ],
+    }));
+    state.apply(ServerEvent::Message(Box::new(MsgEvent {
+        chan: 2,
+        msg: Message {
+            id: 12,
+            kind: MessageType::Part,
+            from: Some(UserInMessage {
+                nick: "alice".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    })));
+    let users = &state.find_channel(2).unwrap().1.users;
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].nick, "bob");
+}
+
+#[test]
+fn open_event_clears_unread_on_other_channels() {
+    let mut state = init_state();
+    state.set_active(1);
+    state.apply(ServerEvent::Open(2));
+    let channel = state.find_channel(2).unwrap().1;
+    assert_eq!(channel.chan.unread, 0);
+    assert_eq!(channel.chan.highlight, 0);
+}

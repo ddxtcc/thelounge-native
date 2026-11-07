@@ -415,7 +415,9 @@ async fn session(
                                 && let Some(id) = id.as_i64()
                                 && id > 0
                             {
-                                *open_channel = Some(id);
+                                let _ = evt_tx.send(ClientEvent::Server(Box::new(
+                                    ServerEvent::Open(id),
+                                )));
                             }
                         }
                         "msg" => {

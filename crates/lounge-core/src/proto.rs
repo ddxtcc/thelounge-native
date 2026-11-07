@@ -712,6 +712,12 @@ pub struct ChangePasswordEvent {
     pub error: Option<Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsersEvent {
+    #[serde(default)]
+    pub chan: i64,
+}
+
 #[derive(Debug, Clone)]
 pub enum ServerEvent {
     AuthSuccess,
@@ -732,7 +738,7 @@ pub enum ServerEvent {
     ChannelRename(ChannelRenameEvent),
     Topic(TopicEvent),
     Names(NamesEvent),
-    Users(i64),
+    Users(UsersEvent),
     UserAway(UserAwayEvent),
     UsersOnline(UsersStatusEvent),
     UsersOffline(UsersStatusEvent),
@@ -984,5 +990,8 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(ev, ServerEvent::ChannelState(s) if s.state == ChanState::Parted));
+
+        let ev = ServerEvent::parse("users", Some(&serde_json::json!({"chan": 4}))).unwrap();
+        assert!(matches!(ev, ServerEvent::Users(users) if users.chan == 4));
     }
 }

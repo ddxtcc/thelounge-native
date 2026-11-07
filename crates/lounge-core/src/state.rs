@@ -140,8 +140,8 @@ impl ClientState {
                 }
             }
             ServerEvent::Names(event) => self.apply_names(event),
-            ServerEvent::Users(chan) => {
-                if let Some(channel) = self.find_channel_mut(chan) {
+            ServerEvent::Users(event) => {
+                if let Some(channel) = self.find_channel_mut(event.chan) {
                     channel.users_outdated = true;
                 }
             }
@@ -191,7 +191,6 @@ impl ClientState {
                     channel.history_loading = false;
                     channel.chan.total_messages = event.total_messages;
                     merge_messages(&mut channel.chan.messages, event.messages);
-                    trim_messages(&mut channel.chan.messages);
                 }
             }
             ServerEvent::HistoryClear(event) => {
@@ -204,7 +203,26 @@ impl ClientState {
                 }
             }
             ServerEvent::MuteChanged(event) => {
-                if let Some(channel) = self.find_channel_mut(event.target) {
+                let network_uuid = self
+                    .find_channel(event.target)
+                    .map(|(network, _)| network.uuid.clone());
+                let is_lobby = self
+                    .find_channel(event.target)
+                    .is_some_and(|(_, channel)| channel.is_lobby());
+                if is_lobby {
+                    if let Some(uuid) = network_uuid
+                        && let Some(network) = self
+                            .networks
+                            .iter_mut()
+                            .find(|network| network.uuid == uuid)
+                    {
+                        for channel in &mut network.channels {
+                            if channel.chan.special.is_none() {
+                                channel.chan.muted = event.status;
+                            }
+                        }
+                    }
+                } else if let Some(channel) = self.find_channel_mut(event.target) {
                     channel.chan.muted = event.status;
                 }
             }
@@ -550,8 +568,26 @@ impl ClientState {
             if msg.id <= 0 {
                 msg.id = channel.chan.messages.last().map(|m| m.id + 1).unwrap_or(1);
             }
+            let kind = msg.kind;
+            let from_nick = msg.from.as_ref().map(|from| from.nick.clone());
+            let target_nick = msg.target.as_ref().map(|target| target.nick.clone());
             channel.chan.messages.push(msg);
             trim_messages(&mut channel.chan.messages);
+            if channel.is_channel() {
+                match kind {
+                    MessageType::Part | MessageType::Quit => {
+                        if let Some(nick) = from_nick {
+                            channel.users.retain(|user| user.nick != nick);
+                        }
+                    }
+                    MessageType::Kick => {
+                        if let Some(nick) = target_nick {
+                            channel.users.retain(|user| user.nick != nick);
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
 
         self.max_msg_id = self.max_msg_id.max(id);

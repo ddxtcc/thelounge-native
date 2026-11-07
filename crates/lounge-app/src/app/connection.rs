@@ -59,6 +59,7 @@ impl LoungeApp {
         self.state = ClientState::new();
         self.messages_list.reset(0);
         self.messages_list_keys.clear();
+        self.message_rows_cache = None;
         self.messages_at_bottom = true;
         self.scroll_to_bottom_pending = false;
         self.reset_uploads();
@@ -333,7 +334,7 @@ impl LoungeApp {
             self.schedule_scroll_bottom(cx);
         }
         if old_active != self.state.active {
-            self.save_draft(cx);
+            self.save_draft_for(old_active, cx);
             self.last_active_channel = self.state.active;
             self.config.last_channel = self.state.active;
             self.config.save();

@@ -117,8 +117,9 @@ impl TextSelection {
         &self,
         channel: &ChannelState,
         message_id: i64,
-        len: usize,
+        text: &str,
     ) -> Option<Range<usize>> {
+        let len = text.len();
         let position = |id: i64| {
             channel
                 .chan
@@ -149,8 +150,8 @@ impl TextSelection {
         } else {
             len
         };
-        let start = start.min(len);
-        let end = end.min(len);
+        let start = floor_char_boundary(text, start.min(len));
+        let end = floor_char_boundary(text, end.min(len));
         Some(start.min(end)..start.max(end))
     }
 
@@ -492,6 +493,7 @@ pub struct LoungeApp {
     messages_at_bottom: bool,
     messages_bounds: Option<Bounds<Pixels>>,
     messages_available: Pixels,
+    message_rows_cache: Option<message_list::MessageRowsCache>,
     scroll_to_bottom_pending: bool,
     image_cache: Entity<gpui::RetainAllImageCache>,
     image_cache_current: RefCell<HashSet<String>>,
@@ -583,6 +585,8 @@ pub struct LoungeApp {
     palette_scroll: gpui::ScrollHandle,
     recent_commands: Vec<PaletteCommand>,
     pending_channel_switch: Option<i64>,
+    pending_show_window: bool,
+    window_save_generation: u64,
     scroll_after_more: bool,
 }
 
@@ -591,10 +595,12 @@ mod actions;
 mod badge;
 mod commands;
 mod connection;
+mod desktop;
 mod menus;
 mod message_list;
 mod message_text;
 mod messages;
+mod navigation;
 mod overlays;
 mod palette;
 mod render;
@@ -781,6 +787,7 @@ impl LoungeApp {
             messages_at_bottom: true,
             messages_bounds: None,
             messages_available: px(0.),
+            message_rows_cache: None,
             scroll_to_bottom_pending: false,
             image_cache: gpui::RetainAllImageCache::new(cx),
             image_cache_current: RefCell::new(HashSet::new()),
@@ -872,14 +879,54 @@ impl LoungeApp {
             palette_scroll: gpui::ScrollHandle::new(),
             recent_commands: Vec::new(),
             pending_channel_switch: None,
+            pending_show_window: false,
+            window_save_generation: 0,
             scroll_after_more: false,
         };
         let list = app.messages_list.clone();
         let weak = cx.entity().downgrade();
-        list.set_scroll_handler(move |event, _, cx| {
-            let at_bottom = event.visible_range.end >= event.count;
-            let _ = weak.update(cx, |this, _| this.messages_at_bottom = at_bottom);
+        list.set_scroll_handler(move |_, _, cx| {
+            let weak = weak.clone();
+            cx.defer(move |cx| {
+                let _ = weak.update(cx, |this, _| {
+                    let top = this.messages_list.logical_scroll_top();
+                    this.messages_at_bottom = top.item_ix + 3 >= this.messages_list.item_count();
+                });
+            });
         });
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(200))
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    let mut show = false;
+                    while let Ok(channel) = this.notification_action_rx.try_recv() {
+                        this.pending_channel_switch = Some(channel);
+                        show = true;
+                    }
+                    #[cfg(target_os = "linux")]
+                    while let Ok(action) = this.tray_action_rx.try_recv() {
+                        match action {
+                            tray::TrayAction::Show => show = true,
+                            tray::TrayAction::Quit => cx.quit(),
+                        }
+                    }
+                    #[cfg(target_os = "windows")]
+                    while let Ok(action) = this.tray_action_rx.try_recv() {
+                        match action {
+                            tray_windows::TrayAction::Show => show = true,
+                            tray_windows::TrayAction::Quit => cx.quit(),
+                        }
+                    }
+                    if show {
+                        this.pending_show_window = true;
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
         if app.config.load_failed {
             app.toast("Config could not be parsed; using defaults and keeping a backup.");
         }
@@ -895,6 +942,13 @@ impl LoungeApp {
 
         app
     }
+}
+
+fn floor_char_boundary(text: &str, mut index: usize) -> usize {
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
 }
 
 #[cfg(test)]
@@ -930,10 +984,19 @@ mod tests {
                 index: 4,
             },
         };
-        assert_eq!(selection.range_for(&channel, 10, 12), Some(2..12));
-        assert_eq!(selection.range_for(&channel, 20, 12), Some(0..12));
-        assert_eq!(selection.range_for(&channel, 30, 12), Some(0..4));
-        assert_eq!(selection.range_for(&channel, 99, 12), None);
+        assert_eq!(
+            selection.range_for(&channel, 10, &"x".repeat(12)),
+            Some(2..12)
+        );
+        assert_eq!(
+            selection.range_for(&channel, 20, &"x".repeat(12)),
+            Some(0..12)
+        );
+        assert_eq!(
+            selection.range_for(&channel, 30, &"x".repeat(12)),
+            Some(0..4)
+        );
+        assert_eq!(selection.range_for(&channel, 99, &"x".repeat(12)), None);
     }
 
     #[test]
@@ -949,9 +1012,18 @@ mod tests {
                 index: 2,
             },
         };
-        assert_eq!(selection.range_for(&channel, 10, 12), Some(2..12));
-        assert_eq!(selection.range_for(&channel, 20, 12), Some(0..12));
-        assert_eq!(selection.range_for(&channel, 30, 12), Some(0..4));
+        assert_eq!(
+            selection.range_for(&channel, 10, &"x".repeat(12)),
+            Some(2..12)
+        );
+        assert_eq!(
+            selection.range_for(&channel, 20, &"x".repeat(12)),
+            Some(0..12)
+        );
+        assert_eq!(
+            selection.range_for(&channel, 30, &"x".repeat(12)),
+            Some(0..4)
+        );
     }
 
     #[test]
@@ -967,6 +1039,25 @@ mod tests {
                 index: 80,
             },
         };
-        assert_eq!(selection.range_for(&channel, 10, 12), Some(12..12));
+        assert_eq!(
+            selection.range_for(&channel, 10, &"x".repeat(12)),
+            Some(12..12)
+        );
+    }
+
+    #[test]
+    fn text_selection_clamps_to_char_boundaries() {
+        let channel = channel_with_ids(&[10]);
+        let selection = TextSelection {
+            start: SelectionPoint {
+                message_id: 10,
+                index: 1,
+            },
+            end: SelectionPoint {
+                message_id: 10,
+                index: 3,
+            },
+        };
+        assert_eq!(selection.range_for(&channel, 10, "a日本"), Some(1..1));
     }
 }
