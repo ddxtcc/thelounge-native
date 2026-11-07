@@ -659,32 +659,42 @@ impl LoungeApp {
                     if kind == super::media::MediaKind::Video
                         && let Some(poster) = self.media_poster(&url, cx)
                     {
+                        let max_w: f32 = 440.;
+                        let max_h: f32 = 300.;
+                        let scale = (max_w / poster.width as f32)
+                            .min(max_h / poster.height as f32)
+                            .min(1.);
+                        let width = poster.width as f32 * scale;
+                        let height = poster.height as f32 * scale;
                         card = card.child(
-                            div()
-                                .relative()
-                                .w_full()
-                                .h(px(220.))
-                                .rounded(px(5.))
-                                .overflow_hidden()
-                                .child(
-                                    gpui::img(poster)
-                                        .w_full()
-                                        .h(px(220.))
-                                        .object_fit(gpui::ObjectFit::Cover),
-                                )
-                                .child(
-                                    div()
-                                        .absolute()
-                                        .bottom_2()
-                                        .right_2()
-                                        .px_2()
-                                        .py(px(1.))
-                                        .rounded(px(4.))
-                                        .bg(theme.overlay)
-                                        .text_size(px(11.))
-                                        .text_color(theme.text)
-                                        .child("Play"),
-                                ),
+                            div().w_full().flex().justify_center().child(
+                                div()
+                                    .relative()
+                                    .w(px(width))
+                                    .h(px(height))
+                                    .rounded(px(5.))
+                                    .overflow_hidden()
+                                    .bg(theme.sidebar)
+                                    .child(
+                                        gpui::img(poster.path)
+                                            .w_full()
+                                            .h_full()
+                                            .object_fit(gpui::ObjectFit::Contain),
+                                    )
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .bottom_2()
+                                            .right_2()
+                                            .px_2()
+                                            .py(px(1.))
+                                            .rounded(px(4.))
+                                            .bg(theme.overlay)
+                                            .text_size(px(11.))
+                                            .text_color(theme.text)
+                                            .child("Play"),
+                                    ),
+                            ),
                         );
                     } else if kind == super::media::MediaKind::Audio {
                         card = card.child(

@@ -7,6 +7,13 @@ use yuv::{YuvBiPlanarImage, YuvConversionMode, YuvRange, YuvStandardMatrix, yuv_
 
 use super::*;
 
+#[derive(Clone)]
+pub(super) struct Poster {
+    pub path: PathBuf,
+    pub width: u32,
+    pub height: u32,
+}
+
 pub(super) struct InlineAudio {
     pub message_id: i64,
     pub url: String,
@@ -60,7 +67,7 @@ fn audio_muted(pipeline: &gst::Pipeline) -> bool {
     pipeline.property::<bool>("mute")
 }
 
-fn generate_poster(url: &str) -> Option<PathBuf> {
+fn generate_poster(url: &str) -> Option<Poster> {
     let parsed = url::Url::parse(url).ok()?;
     let video = gpui_video_player::Video::new(&parsed).ok()?;
     video.set_muted(true);
@@ -133,7 +140,11 @@ fn generate_poster(url: &str) -> Option<PathBuf> {
     url.hash(&mut hasher);
     let path = std::env::temp_dir().join(format!("lounge-native-poster-{:x}.png", hasher.finish()));
     buffer.save(&path).ok()?;
-    Some(path)
+    Some(Poster {
+        path,
+        width,
+        height,
+    })
 }
 
 impl LoungeApp {
@@ -191,16 +202,19 @@ impl LoungeApp {
     }
 
     pub(super) fn clear_media_posters(&mut self) {
-        for (_, path) in self.media_posters.borrow_mut().drain() {
-            if let Some(path) = path {
-                let _ = std::fs::remove_file(path);
+        for (_, poster) in self.media_posters.borrow_mut().drain() {
+            if let Some(poster) = poster {
+                let _ = std::fs::remove_file(poster.path);
             }
         }
     }
 
-    pub(super) fn media_poster(&self, url: &str, cx: &mut Context<Self>) -> Option<PathBuf> {
+    pub(super) fn media_poster(&self, url: &str, cx: &mut Context<Self>) -> Option<Poster> {
         if let Some(path) = self.media_posters.borrow().get(url) {
             return path.clone();
+        }
+        if self.media_posters.borrow().len() >= 8 {
+            return None;
         }
         self.media_posters
             .borrow_mut()
@@ -275,6 +289,21 @@ impl LoungeApp {
         cx.notify();
     }
 
+    fn media_fullscreen_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        div()
+            .id("media-fullscreen")
+            .px_2()
+            .py_1()
+            .rounded(px(4.))
+            .bg(theme.sidebar)
+            .cursor_pointer()
+            .hover(|style| style.bg(theme.hover))
+            .on_click(cx.listener(|_, _, window, _| window.toggle_fullscreen()))
+            .child("Full screen")
+            .into_any_element()
+    }
+
     fn render_audio_controls(
         &self,
         pipeline: &gst::Pipeline,
@@ -323,6 +352,7 @@ impl LoungeApp {
                     }))
                     .child(if muted { "Unmute" } else { "Mute" }),
             )
+            .child(self.media_fullscreen_button(cx))
             .into_any_element()
     }
 
@@ -373,7 +403,7 @@ impl LoungeApp {
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.open_lightbox(open_url.clone(), cx);
                                 }))
-                                .child("Open"),
+                                .child("Expand"),
                         )
                         .child(
                             div()
@@ -476,8 +506,9 @@ impl LoungeApp {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.open_lightbox(open_url.clone(), cx);
                         }))
-                        .child("Open"),
+                        .child("Expand"),
                 )
+                .child(self.media_fullscreen_button(cx))
                 .child(
                     div()
                         .id("inline-media-close")
@@ -518,6 +549,34 @@ impl LoungeApp {
                 .border_color(theme.error)
                 .text_color(theme.text)
                 .child(format!("Could not play media: {error}"))
+                .into_any_element();
+        }
+        if kind == MediaKind::Audio {
+            let Some(audio) = self.media_audio.as_ref() else {
+                return div()
+                    .max_w(max_w)
+                    .p_4()
+                    .rounded(px(6.))
+                    .bg(theme.panel)
+                    .text_color(theme.muted)
+                    .child("Loading media...")
+                    .into_any_element();
+            };
+            let file = url.rsplit('/').next().unwrap_or(url).to_string();
+            return div()
+                .id("lightbox-audio")
+                .w(max_w)
+                .p_4()
+                .rounded(px(6.))
+                .bg(theme.panel)
+                .border_1()
+                .border_color(theme.border)
+                .flex()
+                .flex_col()
+                .gap_3()
+                .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+                .child(div().text_size(px(13.)).child(file))
+                .child(self.render_audio_controls(audio, cx))
                 .into_any_element();
         }
         let Some((_, video)) = self
@@ -610,6 +669,7 @@ impl LoungeApp {
                         }))
                         .child(if muted { "Unmute" } else { "Mute" }),
                 )
+                .child(self.media_fullscreen_button(cx))
                 .child(
                     div()
                         .text_size(px(11.))
