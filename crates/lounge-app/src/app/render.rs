@@ -361,7 +361,7 @@ impl LoungeApp {
                     let muted = channel.chan.muted;
                     this.child(self.header_button(
                         if icon_buttons {
-                            if muted { "🔊" } else { "🔇" }
+                            if muted { "🔇" } else { "🔊" }
                         } else if muted {
                             "Unmute"
                         } else {
@@ -503,6 +503,35 @@ impl LoungeApp {
     ) -> AnyElement {
         let theme = self.theme;
         let tooltip = tooltip.to_string();
+        let icon = match label {
+            "🔇" => Some("volume-x"),
+            "🔊" => Some("volume-2"),
+            "⏏" => Some("log-out"),
+            "👥" => Some("users"),
+            "🔍" => Some("search"),
+            "☰" => Some("menu"),
+            "←" => Some("chevron-left"),
+            value if value.starts_with('@') => Some("at-sign"),
+            _ => None,
+        };
+        let content = if let Some(icon) = icon {
+            let color = if active { theme.accent } else { theme.muted };
+            let mut row = div().flex().items_center().gap_1();
+            row = row.child(
+                gpui::svg()
+                    .path(format!("icons/{icon}.svg"))
+                    .w(px(16.))
+                    .h(px(16.))
+                    .text_color(color),
+            );
+            let badge = label.strip_prefix('@').unwrap_or("").trim();
+            if !badge.is_empty() {
+                row = row.child(div().text_size(px(10.)).child(badge.to_string()));
+            }
+            row.into_any_element()
+        } else {
+            div().child(label.to_string()).into_any_element()
+        };
         div()
             .id(ElementId::Name(format!("head-{label}").into()))
             .px_2()
@@ -519,7 +548,7 @@ impl LoungeApp {
             })
             .on_click(cx.listener(move |this, _, window, cx| on_click(this, window, cx)))
             .tooltip(move |_, cx| cx.new(|_| Tooltip::new(tooltip.clone(), theme)).into())
-            .child(label.to_string())
+            .child(content)
             .into_any_element()
     }
 
