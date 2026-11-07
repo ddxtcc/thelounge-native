@@ -515,6 +515,8 @@ pub struct LoungeApp {
     #[cfg(feature = "media-video")]
     media_fullscreen: bool,
     #[cfg(feature = "media-video")]
+    audio_ticker_generation: u64,
+    #[cfg(feature = "media-video")]
     inline_video: Option<media::InlineMedia>,
     #[cfg(feature = "media-video")]
     media_audio: Option<gstreamer::Pipeline>,
@@ -814,6 +816,8 @@ impl LoungeApp {
             media_error: None,
             #[cfg(feature = "media-video")]
             media_fullscreen: false,
+            #[cfg(feature = "media-video")]
+            audio_ticker_generation: 0,
             #[cfg(feature = "media-video")]
             inline_video: None,
             #[cfg(feature = "media-video")]

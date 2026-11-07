@@ -604,6 +604,29 @@ impl LoungeApp {
                     super::media::MediaKind::Video => "VIDEO",
                     super::media::MediaKind::Audio => "AUDIO",
                 };
+                let header = div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .px_1()
+                            .py(px(1.))
+                            .rounded(px(3.))
+                            .bg(theme.sidebar)
+                            .text_size(px(9.))
+                            .text_color(theme.muted)
+                            .child(badge),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .truncate()
+                            .text_size(px(11.))
+                            .text_color(theme.muted)
+                            .child(file),
+                    );
                 let mut card = div()
                     .id(ElementId::Name(
                         format!("media-link-{row_id}-{index}").into(),
@@ -617,37 +640,13 @@ impl LoungeApp {
                     .p_2()
                     .flex()
                     .flex_col()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .px_1()
-                                    .py(px(1.))
-                                    .rounded(px(3.))
-                                    .bg(theme.sidebar)
-                                    .text_size(px(9.))
-                                    .text_color(theme.muted)
-                                    .child(badge),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w(px(0.))
-                                    .truncate()
-                                    .text_size(px(11.))
-                                    .text_color(theme.muted)
-                                    .child(file),
-                            ),
-                    );
+                    .gap_2();
                 if let Some(inline) = self.render_inline_media(row_id, &url, cx) {
                     card = card.child(inline);
                 } else {
                     let play_url = url.clone();
                     card = card
+                        .child(header)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.play_inline_media(row_id, play_url.clone(), kind, cx);
                         }))

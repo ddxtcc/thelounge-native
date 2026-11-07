@@ -148,7 +148,38 @@ fn generate_poster(url: &str) -> Option<Poster> {
     })
 }
 
+fn format_clock(seconds: u64) -> String {
+    format!("{}:{:02}", seconds / 60, seconds % 60)
+}
+
 impl LoungeApp {
+    fn start_audio_ticker(&mut self, cx: &mut Context<Self>) {
+        self.audio_ticker_generation = self.audio_ticker_generation.wrapping_add(1);
+        let generation = self.audio_ticker_generation;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(250))
+                    .await;
+                let active = this.update(cx, |this, cx| {
+                    if this.audio_ticker_generation != generation {
+                        return false;
+                    }
+                    if this.inline_audio.is_some() || this.media_audio.is_some() {
+                        cx.notify();
+                        true
+                    } else {
+                        false
+                    }
+                });
+                if !matches!(active, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
     pub(super) fn open_media_lightbox(&mut self, url: String, cx: &mut Context<Self>) {
         self.lightbox_index = None;
         self.lightbox = Some(url.clone());
@@ -171,6 +202,7 @@ impl LoungeApp {
                     Err(error) => self.media_error = Some(error),
                 }
             }
+            self.start_audio_ticker(cx);
             cx.notify();
             return;
         }
@@ -286,6 +318,7 @@ impl LoungeApp {
                         url,
                         pipeline,
                     });
+                    self.start_audio_ticker(cx);
                 }
                 Err(error) => self.toast(format!("Could not play media: {error}")),
             }
@@ -385,37 +418,178 @@ impl LoungeApp {
         let mute = pipeline.clone();
         let paused = !audio_playing(pipeline);
         let muted = audio_muted(pipeline);
+        let position = pipeline
+            .query_position::<gst::ClockTime>()
+            .map(|time| time.seconds())
+            .unwrap_or(0);
+        let duration = pipeline
+            .query_duration::<gst::ClockTime>()
+            .map(|time| time.seconds())
+            .unwrap_or(0);
+        let ratio = if duration > 0 {
+            (position as f64 / duration as f64).clamp(0., 1.) as f32
+        } else {
+            0.
+        };
+        let time = if duration > 0 {
+            format!(
+                "{} / {}",
+                format_clock(position.min(duration)),
+                format_clock(duration)
+            )
+        } else {
+            "0:00 / --:--".to_string()
+        };
+        let volume = pipeline.property::<f64>("volume").clamp(0., 1.) as f32;
+        let volume_bounds: std::rc::Rc<std::cell::RefCell<Option<Bounds<Pixels>>>> =
+            std::rc::Rc::new(std::cell::RefCell::new(None));
+        let volume_prepaint = volume_bounds.clone();
+        let volume_pipeline = pipeline.clone();
+        let volume_click_bounds = volume_bounds.clone();
+        let track_bounds: std::rc::Rc<std::cell::RefCell<Option<Bounds<Pixels>>>> =
+            std::rc::Rc::new(std::cell::RefCell::new(None));
+        let prepaint_bounds = track_bounds.clone();
+        let seek = pipeline.clone();
+        let seek_bounds = track_bounds.clone();
         div()
             .w_full()
             .flex()
-            .items_center()
-            .justify_center()
+            .flex_col()
             .gap_1()
-            .child(self.media_icon_button(
-                if paused { "play" } else { "pause" },
-                if paused { "Play" } else { "Pause" },
-                !paused,
-                cx,
-                move |_, _, cx| {
-                    let _ = toggle.set_state(if audio_playing(&toggle) {
-                        gst::State::Paused
-                    } else {
-                        gst::State::Playing
-                    });
-                    cx.notify();
-                },
-            ))
-            .child(self.media_icon_button(
-                if muted { "volume-x" } else { "volume-2" },
-                if muted { "Unmute" } else { "Mute" },
-                false,
-                cx,
-                move |_, _, cx| {
-                    mute.set_property("mute", !audio_muted(&mute));
-                    cx.notify();
-                },
-            ))
-            .child(self.media_fullscreen_button(cx))
+            .child(
+                div()
+                    .h(px(9.))
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .on_children_prepainted(move |bounds, _, _| {
+                        *prepaint_bounds.borrow_mut() = bounds.first().cloned();
+                    })
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                            let Some(bounds) = *seek_bounds.borrow() else {
+                                return;
+                            };
+                            if bounds.size.width <= px(0.) {
+                                return;
+                            }
+                            let fraction = ((event.position.x - bounds.origin.x)
+                                / bounds.size.width)
+                                .clamp(0., 1.);
+                            let Some(duration) = seek.query_duration::<gst::ClockTime>() else {
+                                return;
+                            };
+                            let target = gst::ClockTime::from_nseconds(
+                                (duration.nseconds() as f64 * fraction as f64) as u64,
+                            );
+                            let _ = seek.seek_simple(
+                                gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+                                target,
+                            );
+                            this.start_audio_ticker(cx);
+                            cx.notify();
+                        }),
+                    )
+                    .child(
+                        div()
+                            .h(px(5.))
+                            .w_full()
+                            .rounded_full()
+                            .bg(self.theme.border)
+                            .child(
+                                div()
+                                    .h_full()
+                                    .w(relative(ratio))
+                                    .rounded_full()
+                                    .bg(self.theme.accent),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .text_size(px(10.))
+                    .text_color(self.theme.muted)
+                    .child(time)
+                    .child(
+                        div().flex().items_center().gap_1().child(
+                            div()
+                                .h(px(9.))
+                                .w(px(54.))
+                                .flex()
+                                .items_center()
+                                .cursor_pointer()
+                                .on_children_prepainted(move |bounds, _, _| {
+                                    *volume_prepaint.borrow_mut() = bounds.first().cloned();
+                                })
+                                .on_mouse_down(
+                                    gpui::MouseButton::Left,
+                                    cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
+                                        let Some(bounds) = *volume_click_bounds.borrow() else {
+                                            return;
+                                        };
+                                        if bounds.size.width <= px(0.) {
+                                            return;
+                                        }
+                                        let fraction: f32 = ((event.position.x - bounds.origin.x)
+                                            / bounds.size.width)
+                                            .clamp(0., 1.);
+                                        volume_pipeline.set_property("volume", f64::from(fraction));
+                                        cx.notify();
+                                    }),
+                                )
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .h(px(3.))
+                                        .rounded_full()
+                                        .bg(self.theme.border)
+                                        .child(
+                                            div()
+                                                .h_full()
+                                                .w(relative(volume))
+                                                .rounded_full()
+                                                .bg(self.theme.muted),
+                                        ),
+                                ),
+                        ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap_1()
+                    .child(self.media_icon_button(
+                        if paused { "play" } else { "pause" },
+                        if paused { "Play" } else { "Pause" },
+                        !paused,
+                        cx,
+                        move |_, _, cx| {
+                            let _ = toggle.set_state(if audio_playing(&toggle) {
+                                gst::State::Paused
+                            } else {
+                                gst::State::Playing
+                            });
+                            cx.notify();
+                        },
+                    ))
+                    .child(self.media_icon_button(
+                        if muted { "volume-x" } else { "volume-2" },
+                        if muted { "Unmute" } else { "Mute" },
+                        false,
+                        cx,
+                        move |_, _, cx| {
+                            mute.set_property("mute", !audio_muted(&mute));
+                            cx.notify();
+                        },
+                    ))
+                    .child(self.media_fullscreen_button(cx)),
+            )
             .into_any_element()
     }
 
