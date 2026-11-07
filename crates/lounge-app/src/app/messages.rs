@@ -1,10 +1,12 @@
-use super::message_text::{build_message_text, is_status_message, user_mode_prefix_in_message};
+use super::message_text::{
+    build_message_text, image_fallback, is_status_message, user_mode_prefix_in_message,
+};
 use super::*;
 
 impl LoungeApp {
     pub(super) fn render_messages(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
@@ -24,7 +26,22 @@ impl LoungeApp {
             || scroll_offset.y <= -self.last_scroll_max.height + px(48.);
         if scroll_max.height > self.last_scroll_max.height + px(1.) && was_at_bottom {
             self.schedule_scroll_bottom(cx);
+        } else if let Some(preview_message) = self.preview_scroll_message.take()
+            && scroll_max.height > self.last_scroll_max.height + px(1.)
+            && !was_at_bottom
+            && self
+                .state
+                .active_channel()
+                .and_then(|(_, channel)| channel.chan.messages.last())
+                .map(|message| message.id)
+                != Some(preview_message)
+        {
+            let delta = scroll_max.height - self.last_scroll_max.height;
+            let offset = self.messages_scroll.offset();
+            let y = (offset.y - delta).min(px(0.)).max(-scroll_max.height);
+            self.messages_scroll.set_offset(Point { x: offset.x, y });
         }
+        self.preview_scroll_message = None;
         self.last_scroll_max = scroll_max;
         let Some((network, channel)) = self.state.find_channel(active) else {
             return div().flex_1().into_any_element();
@@ -34,6 +51,23 @@ impl LoungeApp {
         }
 
         let rows = build_rows(channel, &self.config);
+        for row in &rows {
+            match row {
+                Row::Message(message) => {
+                    self.message_anchors.entry(message.id).or_insert_with(|| {
+                        gpui::ScrollAnchor::for_handle(self.messages_scroll.clone())
+                    });
+                }
+                Row::Condensed { messages, .. } => {
+                    for message in messages {
+                        self.message_anchors.entry(message.id).or_insert_with(|| {
+                            gpui::ScrollAnchor::for_handle(self.messages_scroll.clone())
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
         let nick_width = if self.config.nick_column && !self.narrow {
             nick_column_width(channel, self.config.font_size)
         } else {
@@ -158,6 +192,17 @@ impl LoungeApp {
             }
         }
 
+        if let Some(message_id) = self.pending_focus_message.take() {
+            if let Some(anchor) = self.message_anchors.get(&message_id) {
+                anchor.scroll_to(window, cx);
+                self.pending_context = None;
+            } else if let Some(context) = self.pending_context.take() {
+                self.message_context = Some(context);
+                window.focus(&self.root_focus);
+            } else {
+                self.toast("Message is not loaded.");
+            }
+        }
         div()
             .id("messages")
             .flex_1()
@@ -165,6 +210,23 @@ impl LoungeApp {
             .min_h(px(0.))
             .overflow_y_scroll()
             .track_scroll(&self.messages_scroll)
+            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
+                if !this.selecting_text {
+                    return;
+                }
+                let bounds = this.messages_scroll.bounds();
+                let edge = px(32.);
+                let delta = if event.position.y < bounds.top() + edge {
+                    px(18.)
+                } else if event.position.y > bounds.bottom() - edge {
+                    px(-18.)
+                } else {
+                    px(0.)
+                };
+                if delta != px(0.) {
+                    this.scroll_messages_by(delta, cx);
+                }
+            }))
             .child(content)
             .into_any_element()
     }
@@ -278,6 +340,11 @@ impl LoungeApp {
                                 index: range.end,
                             },
                         });
+                        this.selecting_text = false;
+                    } else if event.modifiers.shift
+                        && let Some(selection) = &mut this.text_selection
+                    {
+                        selection.end = point;
                         this.selecting_text = false;
                     } else {
                         this.text_selection = Some(TextSelection {
@@ -408,6 +475,17 @@ impl LoungeApp {
                         .filter(|url| !url.is_empty())
                 })
                 .map(|url| self.absolute_media_url(url));
+            let media_type = preview.media_type.as_deref().unwrap_or_default();
+            let video = preview.kind == "video" || media_type.starts_with("video/");
+            let audio = preview.kind == "audio" || media_type.starts_with("audio/");
+            let playable = video || audio;
+            let play_url = self.absolute_media_url(
+                preview
+                    .media
+                    .as_deref()
+                    .filter(|url| !url.is_empty())
+                    .unwrap_or(&preview.link),
+            );
             let mut card = div()
                 .id(ElementId::Name(
                     format!("preview-{}-{}", message.id, preview.link).into(),
@@ -426,7 +504,37 @@ impl LoungeApp {
                 .flex_col()
                 .gap_1()
                 .child(div().truncate().child(label));
-            if let Some(thumb) = thumb {
+            if playable {
+                card = card
+                    .on_click(cx.listener(move |_, _, _, _| {
+                        let _ = open::that(play_url.clone());
+                    }))
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.accent)
+                            .child(if video { "Play video" } else { "Play audio" }),
+                    );
+                if let Some(thumb) = thumb {
+                    card = card.child(
+                        div()
+                            .w(px(220.))
+                            .h(px(140.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                gpui::img(thumb)
+                                    .image_cache(&self.image_cache)
+                                    .w(px(220.))
+                                    .h(px(140.))
+                                    .object_fit(gpui::ObjectFit::Contain)
+                                    .with_fallback(move || image_fallback(theme, "Image failed"))
+                                    .rounded(px(4.)),
+                            ),
+                    );
+                }
+            } else if let Some(thumb) = thumb {
                 let lightbox_url = thumb.clone();
                 card = card
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -434,12 +542,21 @@ impl LoungeApp {
                         cx.notify();
                     }))
                     .child(
-                        gpui::img(thumb)
-                            .image_cache(&self.image_cache)
+                        div()
                             .w(px(220.))
                             .h(px(140.))
-                            .object_fit(gpui::ObjectFit::Contain)
-                            .rounded(px(4.)),
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                gpui::img(thumb)
+                                    .image_cache(&self.image_cache)
+                                    .w(px(220.))
+                                    .h(px(140.))
+                                    .object_fit(gpui::ObjectFit::Contain)
+                                    .with_fallback(move || image_fallback(theme, "Image failed"))
+                                    .rounded(px(4.)),
+                            ),
                     );
             } else {
                 card = card.on_click(cx.listener(move |_, _, _, _| {
@@ -476,6 +593,7 @@ impl LoungeApp {
                             .h(image_height)
                             .max_h(image_height)
                             .object_fit(gpui::ObjectFit::Contain)
+                            .with_fallback(move || image_fallback(theme, "Image failed to load"))
                             .rounded(px(6.)),
                     ),
             );
@@ -505,6 +623,8 @@ impl LoungeApp {
         }
 
         let context_message = message.clone();
+        let focused = self.focused_message == Some(message.id);
+        let anchor = self.message_anchors.get(&message.id).cloned();
         let mut row = div()
             .id(ElementId::Name(format!("row-{}", message.id).into()))
             .flex()
@@ -513,8 +633,15 @@ impl LoungeApp {
             .gap_2()
             .px_4()
             .py(px(self.config.message_spacing))
-            .when(highlight, |this| this.bg(theme.highlight_bg))
+            .when(highlight || focused, |this| {
+                this.bg(if focused {
+                    theme.accent_dim
+                } else {
+                    theme.highlight_bg
+                })
+            })
             .when(is_self, |this| this.opacity(0.85))
+            .anchor_scroll(anchor)
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {

@@ -379,6 +379,27 @@ impl LoungeApp {
                     },
                 ))
             })
+            .child({
+                let unread = self.unread_mentions();
+                let label = if icon_buttons {
+                    if unread > 0 {
+                        format!("@ {unread}")
+                    } else {
+                        "@".to_string()
+                    }
+                } else if unread > 0 {
+                    format!("Mentions {unread}")
+                } else {
+                    "Mentions".to_string()
+                };
+                self.header_button(
+                    &label,
+                    "Recent mentions",
+                    self.mentions_open,
+                    cx,
+                    |this, _, cx| this.open_mentions(cx),
+                )
+            })
             .child(self.header_button(
                 if icon_buttons { "👥" } else { "Users" },
                 "Toggle user list",

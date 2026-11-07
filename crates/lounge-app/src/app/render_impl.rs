@@ -25,6 +25,7 @@ impl Render for LoungeApp {
             || self.message_menu.is_some()
             || self.confirm_remove_network.is_some()
             || self.lightbox.is_some()
+            || self.message_context.is_some()
             || self.palette.is_some();
         self.inputs
             .composer
@@ -43,6 +44,9 @@ impl Render for LoungeApp {
                 let handle = input.read(cx).focus_handle(cx);
                 window.focus(&handle);
             }
+        } else if self.focus_root_request {
+            self.focus_root_request = false;
+            window.focus(&self.root_focus);
         } else if self.pending_focus {
             self.pending_focus = false;
             if matches!(self.route, Route::Chat) {
@@ -59,6 +63,30 @@ impl Render for LoungeApp {
             .id("app-root")
             .track_focus(&self.root_focus)
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.mentions_open
+                    && !event.keystroke.modifiers.control
+                    && !event.keystroke.modifiers.alt
+                    && !event.keystroke.modifiers.platform
+                {
+                    match event.keystroke.key.to_lowercase().as_str() {
+                        "up" => {
+                            this.move_mentions(-1, cx);
+                            cx.stop_propagation();
+                            return;
+                        }
+                        "down" => {
+                            this.move_mentions(1, cx);
+                            cx.stop_propagation();
+                            return;
+                        }
+                        "enter" => {
+                            this.activate_mentions_selection(window, cx);
+                            cx.stop_propagation();
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
                 let secondary =
                     event.keystroke.modifiers.control || event.keystroke.modifiers.platform;
                 let chat_ready = this.route == Route::Chat
@@ -123,6 +151,11 @@ impl Render for LoungeApp {
                                 cx.stop_propagation();
                                 return;
                             }
+                        }
+                        if key == "v" && event.keystroke.modifiers.shift {
+                            this.paste_image_from_clipboard(cx);
+                            cx.stop_propagation();
+                            return;
                         }
                         if key == "v" {
                             let focused = window.focused(cx);
@@ -224,6 +257,7 @@ impl Render for LoungeApp {
             || self.message_menu.is_some()
             || self.confirm_remove_network.is_some()
             || self.lightbox.is_some()
+            || self.message_context.is_some()
             || self.palette.is_some();
         if overlay_needed {
             root = root.child(self.render_modals(window, cx));

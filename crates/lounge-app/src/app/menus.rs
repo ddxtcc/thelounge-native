@@ -96,6 +96,8 @@ impl LoungeApp {
 
     pub(super) fn open_search(&mut self, cx: &mut Context<Self>) {
         self.search_open = true;
+        self.search_selection = 0;
+        self.search_scroll = gpui::ScrollHandle::new();
         self.focus_request = Some(InputRole::Search);
         self.state.search_results = None;
         cx.notify();
@@ -103,6 +105,10 @@ impl LoungeApp {
 
     pub(super) fn open_mentions(&mut self, cx: &mut Context<Self>) {
         self.mentions_open = true;
+        self.mentions_selection = 0;
+        self.mentions_scroll = gpui::ScrollHandle::new();
+        self.focus_root_request = true;
+        self.mark_mentions_seen();
         if let Some(conn) = &self.conn {
             conn.emit("mentions:get", None);
         }
@@ -111,6 +117,8 @@ impl LoungeApp {
 
     pub(super) fn open_emoji_picker(&mut self, cx: &mut Context<Self>) {
         self.emoji_picker_open = true;
+        self.emoji_selection = 0;
+        self.emoji_scroll = gpui::ScrollHandle::new();
         self.focus_request = Some(InputRole::EmojiSearch);
         self.inputs
             .emoji_search
@@ -491,6 +499,8 @@ impl LoungeApp {
         self.confirm_remove_network = None;
         self.lightbox = None;
         self.palette = None;
+        self.message_context = None;
+        self.pending_context = None;
         self.pending_focus = true;
         cx.notify();
     }
@@ -682,6 +692,7 @@ impl LoungeApp {
             ("Give voice", "voice"),
             ("Remove voice", "devoice"),
             ("Kick", "kick"),
+            ("Ban", "ban"),
         ];
         let mut card = self.menu_card(&nick, cx);
         card = card.child(self.menu_button("Mention", cx, move |this, _, cx| {

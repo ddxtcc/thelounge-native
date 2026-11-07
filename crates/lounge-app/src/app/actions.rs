@@ -88,6 +88,19 @@ impl LoungeApp {
             role,
             InputRole::Search | InputRole::EmojiSearch | InputRole::FontSearch | InputRole::Palette
         ) {
+            if role == InputRole::Palette && self.palette.is_some() {
+                self.palette_selection = 0;
+                self.palette_scroll.scroll_to_item(0);
+            }
+            if role == InputRole::Search {
+                self.state.search_results = None;
+                self.search_selection = 0;
+                self.search_scroll.scroll_to_item(0);
+            }
+            if role == InputRole::EmojiSearch {
+                self.emoji_selection = 0;
+                self.emoji_scroll.scroll_to_item(0);
+            }
             cx.notify();
         }
         if role == InputRole::Composer {
@@ -129,6 +142,8 @@ impl LoungeApp {
                 InputAction::Tab => self.complete(cx),
                 InputAction::PrevHistory => self.history_prev(cx),
                 InputAction::NextHistory => self.history_next(cx),
+                InputAction::PasteImage => self.paste_image_from_clipboard(cx),
+                InputAction::MoveLeft | InputAction::MoveRight => {}
                 InputAction::Escape => {
                     if self.reply_to.take().is_some() {
                         cx.notify();
@@ -153,11 +168,23 @@ impl LoungeApp {
                     self.submit_network(cx);
                 }
             }
-            InputRole::Search => {
-                if action == InputAction::Submit {
-                    self.submit_search(cx);
+            InputRole::Search => match action {
+                InputAction::Submit => {
+                    if self
+                        .state
+                        .search_results
+                        .as_ref()
+                        .is_some_and(|results| !results.results.is_empty())
+                    {
+                        self.activate_search_result(self.search_selection, cx);
+                    } else {
+                        self.submit_search(cx);
+                    }
                 }
-            }
+                InputAction::PrevHistory => self.move_search(-1, cx),
+                InputAction::NextHistory => self.move_search(1, cx),
+                _ => {}
+            },
             InputRole::SettingHighlights
             | InputRole::SettingHighlightExceptions
             | InputRole::SettingAwayMessage => {
@@ -165,9 +192,23 @@ impl LoungeApp {
                     self.save_server_setting(role, cx);
                 }
             }
-            InputRole::EmojiSearch | InputRole::FontSearch => {}
+            InputRole::EmojiSearch => match action {
+                InputAction::Submit => self.insert_selected_emoji(cx),
+                InputAction::PrevHistory => self.move_emoji(-7, cx),
+                InputAction::NextHistory => self.move_emoji(7, cx),
+                InputAction::MoveLeft => self.move_emoji(-1, cx),
+                InputAction::MoveRight => self.move_emoji(1, cx),
+                _ => {}
+            },
+            InputRole::FontSearch => {}
             InputRole::Palette => match action {
-                InputAction::Submit => self.run_palette_selection(cx),
+                InputAction::Submit => {
+                    if self.palette == Some(PaletteMode::Alias) {
+                        self.save_command_alias(cx);
+                    } else {
+                        self.run_palette_selection(cx);
+                    }
+                }
                 InputAction::PrevHistory => self.move_palette(-1, cx),
                 InputAction::NextHistory => self.move_palette(1, cx),
                 _ => {}
@@ -300,118 +341,6 @@ impl LoungeApp {
         }
     }
 
-    pub(super) fn open_palette(&mut self, mode: PaletteMode, cx: &mut Context<Self>) {
-        self.close_overlays(cx);
-        self.settings_open = false;
-        self.security_open = false;
-        self.font_picker = None;
-        self.palette = Some(mode);
-        self.palette_selection = 0;
-        self.inputs.palette.update(cx, |input, cx| {
-            input.set_placeholder(match mode {
-                PaletteMode::Commands => "Type a command...",
-                PaletteMode::Channels => "Switch to channel...",
-            });
-            input.set_content("", cx);
-        });
-        self.focus_request = Some(InputRole::Palette);
-        cx.notify();
-    }
-
-    pub(super) fn palette_entries(&self, cx: &mut Context<Self>) -> Vec<(String, PaletteEntry)> {
-        let query = self.inputs.palette.read(cx).content().to_lowercase();
-        match self.palette {
-            Some(PaletteMode::Commands) => [
-                ("Open settings", PaletteCommand::Settings),
-                ("Join a channel", PaletteCommand::Join),
-                ("Search messages", PaletteCommand::Search),
-                ("Recent mentions", PaletteCommand::Mentions),
-                ("Emoji picker", PaletteCommand::Emoji),
-                ("Toggle sidebar", PaletteCommand::ToggleSidebar),
-                ("Toggle user list", PaletteCommand::ToggleUsers),
-                ("Sign out", PaletteCommand::SignOut),
-            ]
-            .into_iter()
-            .filter(|(label, _)| label.to_lowercase().contains(&query))
-            .map(|(label, command)| (label.to_string(), PaletteEntry::Command(command)))
-            .collect(),
-            Some(PaletteMode::Channels) => {
-                let mut entries = Vec::new();
-                for network in &self.state.networks {
-                    for channel in &network.channels {
-                        let name = if channel.is_lobby() {
-                            network.name.clone()
-                        } else {
-                            channel.chan.name.clone()
-                        };
-                        let label = format!("{} / {}", network.name, name);
-                        if label.to_lowercase().contains(&query) {
-                            entries.push((label, PaletteEntry::Channel(channel.chan.id)));
-                        }
-                    }
-                }
-                entries
-            }
-            None => Vec::new(),
-        }
-    }
-
-    fn move_palette(&mut self, delta: i32, cx: &mut Context<Self>) {
-        let len = self.palette_entries(cx).len();
-        if len == 0 {
-            return;
-        }
-        let current = self.palette_selection.min(len - 1) as i32;
-        self.palette_selection = (current + delta).rem_euclid(len as i32) as usize;
-        cx.notify();
-    }
-
-    fn run_palette_selection(&mut self, cx: &mut Context<Self>) {
-        let entries = self.palette_entries(cx);
-        let Some((_, entry)) = entries
-            .get(self.palette_selection.min(entries.len().saturating_sub(1)))
-            .cloned()
-        else {
-            return;
-        };
-        self.run_palette_entry(entry, cx);
-    }
-
-    pub(super) fn run_palette_entry(&mut self, entry: PaletteEntry, cx: &mut Context<Self>) {
-        self.palette = None;
-        self.palette_selection = 0;
-        match entry {
-            PaletteEntry::Channel(id) => {
-                self.pending_channel_switch = Some(id);
-                cx.notify();
-            }
-            PaletteEntry::Command(command) => match command {
-                PaletteCommand::Settings => self.open_settings(cx),
-                PaletteCommand::Join => {
-                    self.inputs
-                        .composer
-                        .update(cx, |input, cx| input.set_content("/join ", cx));
-                    self.focus_request = Some(InputRole::Composer);
-                    cx.notify();
-                }
-                PaletteCommand::Search => self.open_search(cx),
-                PaletteCommand::Mentions => self.open_mentions(cx),
-                PaletteCommand::Emoji => self.open_emoji_picker(cx),
-                PaletteCommand::ToggleSidebar => {
-                    self.config.show_sidebar = !self.config.show_sidebar;
-                    self.config.save();
-                    cx.notify();
-                }
-                PaletteCommand::ToggleUsers => {
-                    self.config.show_user_list = !self.config.show_user_list;
-                    self.config.save();
-                    cx.notify();
-                }
-                PaletteCommand::SignOut => self.sign_out(cx),
-            },
-        }
-    }
-
     fn channel_ids(&self) -> Vec<i64> {
         self.state
             .networks
@@ -470,6 +399,7 @@ impl LoungeApp {
         if self.state.active == Some(id) {
             return;
         }
+        self.message_anchors.clear();
         self.image_cache
             .update(cx, |cache, cx| cache.clear(window, cx));
         self.last_scroll_max = gpui::Size {
@@ -706,6 +636,16 @@ impl LoungeApp {
         true
     }
 
+    pub(super) fn scroll_messages_by(&mut self, delta: Pixels, cx: &mut Context<Self>) {
+        let offset = self.messages_scroll.offset();
+        let max = self.messages_scroll.max_offset();
+        let y = (offset.y + delta).min(px(0.)).max(-max.height);
+        if y != offset.y {
+            self.messages_scroll.set_offset(Point { x: offset.x, y });
+            cx.notify();
+        }
+    }
+
     pub(super) fn scroll_messages_page(&mut self, direction: f32, cx: &mut Context<Self>) {
         let offset = self.messages_scroll.offset();
         let max = self.messages_scroll.max_offset();
@@ -813,6 +753,165 @@ impl LoungeApp {
             self.toast("Connecting network...");
         }
         cx.notify();
+    }
+
+    pub(super) fn unread_mentions(&self) -> usize {
+        self.state
+            .mentions
+            .iter()
+            .filter(|mention| !self.seen_mentions.contains(&mention.msg_id))
+            .count()
+    }
+
+    pub(super) fn mark_mentions_seen(&mut self) {
+        for mention in &self.state.mentions {
+            self.seen_mentions.insert(mention.msg_id);
+        }
+    }
+
+    pub(super) fn move_mentions(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let len = self.state.mentions.len();
+        if len == 0 {
+            return;
+        }
+        let current = self.mentions_selection.min(len - 1) as isize;
+        self.mentions_selection = (current + delta).rem_euclid(len as isize) as usize;
+        self.mentions_scroll.scroll_to_item(self.mentions_selection);
+        cx.notify();
+    }
+
+    pub(super) fn activate_mentions_selection(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.activate_mention(self.mentions_selection, window, cx);
+    }
+
+    pub(super) fn activate_mention(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mention) = self.state.mentions.get(index).cloned() else {
+            return;
+        };
+        if self.state.find_channel(mention.chan_id).is_none() {
+            return;
+        }
+        let channel = self
+            .state
+            .find_channel(mention.chan_id)
+            .map(|(_, channel)| channel.chan.name.clone())
+            .unwrap_or_default();
+        self.pending_focus_message = Some(mention.msg_id);
+        self.pending_context = Some(MessageContext {
+            channel,
+            nick: mention.from.nick.clone(),
+            time: mention.time,
+            text: format::clean(&mention.text),
+        });
+        self.flash_message(mention.msg_id, cx);
+        self.switch_channel(mention.chan_id, window, cx);
+        self.mentions_open = false;
+        cx.notify();
+    }
+
+    fn emoji_entries(&self, cx: &mut Context<Self>) -> Vec<&'static crate::emoji::Emoji> {
+        let term = self.inputs.emoji_search.read(cx).content().to_string();
+        crate::emoji::filter(&term, 240)
+    }
+
+    fn move_emoji(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let len = self.emoji_entries(cx).len();
+        if len == 0 {
+            return;
+        }
+        let current = self.emoji_selection.min(len - 1) as isize;
+        self.emoji_selection = (current + delta).clamp(0, len as isize - 1) as usize;
+        self.emoji_scroll.scroll_to_item(self.emoji_selection);
+        cx.notify();
+    }
+
+    fn insert_selected_emoji(&mut self, cx: &mut Context<Self>) {
+        let glyph = self
+            .emoji_entries(cx)
+            .get(self.emoji_selection)
+            .map(|emoji| emoji.glyph);
+        if let Some(glyph) = glyph {
+            self.insert_emoji(glyph, cx);
+        }
+    }
+
+    fn move_search(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let len = self
+            .state
+            .search_results
+            .as_ref()
+            .map(|results| results.results.len())
+            .unwrap_or(0);
+        if len == 0 {
+            return;
+        }
+        let current = self.search_selection.min(len - 1) as isize;
+        self.search_selection = (current + delta).rem_euclid(len as isize) as usize;
+        self.search_scroll.scroll_to_item(self.search_selection);
+        cx.notify();
+    }
+
+    pub(super) fn activate_search_result(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some((target, message_id, context)) = ({
+            let Some(results) = &self.state.search_results else {
+                return;
+            };
+            let Some(result) = results.results.get(index) else {
+                return;
+            };
+            let context = MessageContext {
+                channel: results.query.channel_name.clone(),
+                nick: result
+                    .from
+                    .as_ref()
+                    .map(|from| from.nick.clone())
+                    .unwrap_or_default(),
+                time: result.time,
+                text: format::clean(&result.text),
+            };
+            let target = self.state.networks.iter().find_map(|network| {
+                if network.uuid != results.query.network_uuid {
+                    return None;
+                }
+                network
+                    .channels
+                    .iter()
+                    .find(|channel| channel.chan.name == results.query.channel_name)
+                    .map(|channel| channel.chan.id)
+            });
+            target.map(|target| (target, result.id, context))
+        }) else {
+            return;
+        };
+        self.pending_focus_message = Some(message_id);
+        self.pending_context = Some(context);
+        self.flash_message(message_id, cx);
+        self.search_open = false;
+        self.pending_channel_switch = Some(target);
+        cx.notify();
+    }
+
+    pub(super) fn flash_message(&mut self, message_id: i64, cx: &mut Context<Self>) {
+        self.focused_message = Some(message_id);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(2)).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.focused_message == Some(message_id) {
+                    this.focused_message = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     pub(super) fn submit_search(&mut self, cx: &mut Context<Self>) {

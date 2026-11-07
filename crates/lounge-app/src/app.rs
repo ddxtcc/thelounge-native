@@ -82,6 +82,14 @@ struct SelectionPoint {
 }
 
 #[derive(Clone)]
+struct MessageContext {
+    channel: String,
+    nick: String,
+    time: Option<chrono::DateTime<chrono::Utc>>,
+    text: String,
+}
+
+#[derive(Clone)]
 struct TextSelection {
     start: SelectionPoint,
     end: SelectionPoint,
@@ -158,24 +166,208 @@ enum FontTarget {
 enum PaletteMode {
     Commands,
     Channels,
+    Themes,
+    Alias,
+    Users(PaletteUserAction),
+}
+
+impl PaletteCommand {
+    fn section(self) -> &'static str {
+        match self {
+            Self::Settings
+            | Self::Security
+            | Self::SettingsHighlights
+            | Self::SettingsHighlightExceptions
+            | Self::SettingsAwayMessage
+            | Self::AddAlias => "Settings",
+            Self::SwitchChannel
+            | Self::NextChannel
+            | Self::PreviousChannel
+            | Self::Join
+            | Self::LoadOlder
+            | Self::JumpToBottom => "Navigation",
+            Self::Search | Self::Mentions | Self::Emoji => "Messages",
+            Self::UploadFile
+            | Self::ClearComposer
+            | Self::PasteImage
+            | Self::CancelReply
+            | Self::CopySelection => "Composer",
+            Self::Theme
+            | Self::ChooseUiFont
+            | Self::ChooseMonoFont
+            | Self::ImportTheme
+            | Self::ExportTheme
+            | Self::ToggleSidebar
+            | Self::ToggleUsers
+            | Self::ToggleInlineImages
+            | Self::TogglePreviews
+            | Self::ToggleTimestamps
+            | Self::Toggle24Hour
+            | Self::ToggleSeconds
+            | Self::ToggleColoredNicks
+            | Self::ToggleNotifications
+            | Self::ToggleIconButtons
+            | Self::ToggleAlignedText
+            | Self::CycleStatusMessages
+            | Self::FontSizeUp
+            | Self::FontSizeDown
+            | Self::LineHeightUp
+            | Self::LineHeightDown
+            | Self::MessageSpacingUp
+            | Self::MessageSpacingDown => "Appearance",
+            Self::MoveChannelUp
+            | Self::MoveChannelDown
+            | Self::LeaveChannel
+            | Self::ToggleMute
+            | Self::ClearChannelHistory
+            | Self::EditTopic => "Channels",
+            Self::AddNetwork
+            | Self::EditNetwork
+            | Self::ReconnectNetwork
+            | Self::DisconnectNetwork
+            | Self::RemoveNetwork
+            | Self::MoveNetworkUp
+            | Self::MoveNetworkDown => "Networks",
+            Self::UserAction(_) => "Users",
+            Self::SignOut => "Account",
+        }
+    }
 }
 
 #[derive(Clone)]
 enum PaletteEntry {
     Command(PaletteCommand),
+    Recent(PaletteCommand),
+    Favorite(PaletteCommand),
     Channel(i64),
+    Theme(String, String),
+    User {
+        action: PaletteUserAction,
+        nick: String,
+    },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum PaletteCommand {
     Settings,
+    Security,
+    SwitchChannel,
+    NextChannel,
+    PreviousChannel,
     Join,
+    UploadFile,
     Search,
     Mentions,
     Emoji,
+    Theme,
+    ChooseUiFont,
+    ChooseMonoFont,
+    ImportTheme,
+    ExportTheme,
     ToggleSidebar,
     ToggleUsers,
+    ToggleInlineImages,
+    TogglePreviews,
+    ToggleTimestamps,
+    Toggle24Hour,
+    ToggleSeconds,
+    ToggleColoredNicks,
+    ToggleNotifications,
+    ToggleIconButtons,
+    ToggleAlignedText,
+    CycleStatusMessages,
+    FontSizeUp,
+    FontSizeDown,
+    LineHeightUp,
+    LineHeightDown,
+    MessageSpacingUp,
+    MessageSpacingDown,
+    SettingsHighlights,
+    SettingsHighlightExceptions,
+    SettingsAwayMessage,
+    MoveChannelUp,
+    MoveChannelDown,
+    AddNetwork,
+    EditNetwork,
+    ReconnectNetwork,
+    DisconnectNetwork,
+    RemoveNetwork,
+    MoveNetworkUp,
+    MoveNetworkDown,
+    LeaveChannel,
+    ToggleMute,
+    ClearChannelHistory,
+    EditTopic,
+    LoadOlder,
+    JumpToBottom,
+    ClearComposer,
+    PasteImage,
+    CancelReply,
+    CopySelection,
     SignOut,
+    AddAlias,
+    UserAction(PaletteUserAction),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PaletteUserAction {
+    Mention,
+    Query,
+    Whois,
+    Op,
+    Deop,
+    Voice,
+    Devoice,
+    Kick,
+    Ban,
+}
+
+impl PaletteUserAction {
+    fn command(self) -> &'static str {
+        match self {
+            Self::Mention => "mention",
+            Self::Query => "query",
+            Self::Whois => "whois",
+            Self::Op => "op",
+            Self::Deop => "deop",
+            Self::Voice => "voice",
+            Self::Devoice => "devoice",
+            Self::Kick => "kick",
+            Self::Ban => "ban",
+        }
+    }
+
+    fn prompt(self) -> &'static str {
+        match self {
+            Self::Mention => "Choose a user to mention...",
+            Self::Query => "Choose a user to query...",
+            Self::Whois => "Choose a user to inspect...",
+            Self::Op => "Choose a user to op...",
+            Self::Deop => "Choose a user to deop...",
+            Self::Voice => "Choose a user to voice...",
+            Self::Devoice => "Choose a user to devoice...",
+            Self::Kick => "Choose a user to kick...",
+            Self::Ban => "Choose a user to ban...",
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::Mention => "Mention user",
+            Self::Query => "Open query",
+            Self::Whois => "Whois user",
+            Self::Op => "Give op",
+            Self::Deop => "Remove op",
+            Self::Voice => "Give voice",
+            Self::Devoice => "Remove voice",
+            Self::Kick => "Kick user",
+            Self::Ban => "Ban user",
+        }
+    }
+
+    fn destructive(self) -> bool {
+        matches!(self, Self::Kick | Self::Ban)
+    }
 }
 
 #[derive(Clone)]
@@ -268,7 +460,11 @@ pub struct LoungeApp {
     input_revisions: HashMap<InputRole, u64>,
     messages_scroll: gpui::ScrollHandle,
     last_scroll_max: gpui::Size<gpui::Pixels>,
+    preview_scroll_message: Option<i64>,
     image_cache: Entity<gpui::RetainAllImageCache>,
+    message_anchors: HashMap<i64, gpui::ScrollAnchor>,
+    pending_focus_message: Option<i64>,
+    focused_message: Option<i64>,
     collapsed_networks: HashSet<String>,
     expanded_condensed: HashSet<i64>,
     narrow: bool,
@@ -287,7 +483,16 @@ pub struct LoungeApp {
     settings_open: bool,
     network_modal_open: bool,
     search_open: bool,
+    search_selection: usize,
+    search_scroll: gpui::ScrollHandle,
     mentions_open: bool,
+    mentions_selection: usize,
+    mentions_scroll: gpui::ScrollHandle,
+    seen_mentions: HashSet<i64>,
+    message_context: Option<MessageContext>,
+    pending_context: Option<MessageContext>,
+    emoji_selection: usize,
+    emoji_scroll: gpui::ScrollHandle,
     network_tls: bool,
     network_defaults_applied: bool,
     pending_focus: bool,
@@ -298,6 +503,7 @@ pub struct LoungeApp {
     uploads_in_flight: usize,
     window_active: bool,
     focus_request: Option<InputRole>,
+    focus_root_request: bool,
     emoji_picker_open: bool,
     security_open: bool,
     network_menu: Option<String>,
@@ -319,11 +525,14 @@ pub struct LoungeApp {
     font_picker: Option<FontTarget>,
     palette: Option<PaletteMode>,
     palette_selection: usize,
+    palette_scroll: gpui::ScrollHandle,
+    recent_commands: Vec<PaletteCommand>,
     pending_channel_switch: Option<i64>,
     scroll_after_more: bool,
 }
 
 mod actions;
+mod commands;
 mod connection;
 mod menus;
 mod message_text;
@@ -454,7 +663,11 @@ impl LoungeApp {
                 width: px(0.),
                 height: px(0.),
             },
+            preview_scroll_message: None,
             image_cache: gpui::RetainAllImageCache::new(cx),
+            message_anchors: HashMap::new(),
+            pending_focus_message: None,
+            focused_message: None,
             collapsed_networks: HashSet::new(),
             expanded_condensed: HashSet::new(),
             narrow: false,
@@ -473,7 +686,16 @@ impl LoungeApp {
             settings_open: false,
             network_modal_open: false,
             search_open: false,
+            search_selection: 0,
+            search_scroll: gpui::ScrollHandle::new(),
             mentions_open: false,
+            mentions_selection: 0,
+            mentions_scroll: gpui::ScrollHandle::new(),
+            seen_mentions: HashSet::new(),
+            message_context: None,
+            pending_context: None,
+            emoji_selection: 0,
+            emoji_scroll: gpui::ScrollHandle::new(),
             network_tls: true,
             network_defaults_applied: false,
             pending_focus: true,
@@ -484,6 +706,7 @@ impl LoungeApp {
             uploads_in_flight: 0,
             window_active: true,
             focus_request: None,
+            focus_root_request: false,
             emoji_picker_open: false,
             security_open: false,
             network_menu: None,
@@ -505,6 +728,8 @@ impl LoungeApp {
             font_picker: None,
             palette: None,
             palette_selection: 0,
+            palette_scroll: gpui::ScrollHandle::new(),
+            recent_commands: Vec::new(),
             pending_channel_switch: None,
             scroll_after_more: false,
         };

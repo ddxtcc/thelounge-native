@@ -37,6 +37,7 @@ actions!(
         Complete,
         PrevHistory,
         NextHistory,
+        PasteImage,
         Escape,
     ]
 );
@@ -68,6 +69,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-delete", DeleteWordForward, context),
         KeyBinding::new("ctrl-v", Paste, context),
         KeyBinding::new("super-v", Paste, context),
+        KeyBinding::new("ctrl-shift-v", PasteImage, context),
+        KeyBinding::new("super-shift-v", PasteImage, context),
         KeyBinding::new("ctrl-c", Copy, context),
         KeyBinding::new("super-c", Copy, context),
         KeyBinding::new("ctrl-x", Cut, context),
@@ -111,6 +114,9 @@ pub enum InputAction {
     Tab,
     PrevHistory,
     NextHistory,
+    PasteImage,
+    MoveLeft,
+    MoveRight,
     Escape,
 }
 
@@ -355,6 +361,7 @@ impl TextInput {
         } else {
             self.move_to(self.selected_range.start, cx);
         }
+        self.emit_action(InputAction::MoveLeft, cx);
     }
 
     fn right(&mut self, _: &Right, _: &mut Window, cx: &mut Context<Self>) {
@@ -363,6 +370,7 @@ impl TextInput {
         } else {
             self.move_to(self.selected_range.end, cx);
         }
+        self.emit_action(InputAction::MoveRight, cx);
     }
 
     fn select_left(&mut self, _: &SelectLeft, _: &mut Window, cx: &mut Context<Self>) {
@@ -498,6 +506,10 @@ impl TextInput {
 
     fn next_history(&mut self, _: &NextHistory, _: &mut Window, cx: &mut Context<Self>) {
         self.emit_action(InputAction::NextHistory, cx);
+    }
+
+    fn paste_image(&mut self, _: &PasteImage, _: &mut Window, cx: &mut Context<Self>) {
+        self.emit_action(InputAction::PasteImage, cx);
     }
 
     fn escape(&mut self, _: &Escape, _: &mut Window, cx: &mut Context<Self>) {

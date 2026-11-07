@@ -1,6 +1,39 @@
 use super::*;
 
 impl LoungeApp {
+    pub(super) fn paste_image_from_clipboard(&mut self, cx: &mut Context<Self>) {
+        let Some(item) = cx.read_from_clipboard() else {
+            self.toast("Clipboard is empty.");
+            return;
+        };
+        let Some(image) = item.entries().iter().find_map(|entry| match entry {
+            gpui::ClipboardEntry::Image(image) => Some(image),
+            gpui::ClipboardEntry::String(_) => None,
+        }) else {
+            self.toast("Clipboard does not contain an image.");
+            return;
+        };
+        let extension = match image.format() {
+            gpui::ImageFormat::Png => "png",
+            gpui::ImageFormat::Jpeg => "jpg",
+            gpui::ImageFormat::Webp => "webp",
+            gpui::ImageFormat::Gif => "gif",
+            gpui::ImageFormat::Bmp => "bmp",
+            gpui::ImageFormat::Tiff => "tiff",
+            gpui::ImageFormat::Svg => "svg",
+        };
+        let path = std::env::temp_dir().join(format!(
+            "lounge-native-clipboard-{}.{}",
+            image.id(),
+            extension
+        ));
+        if let Err(error) = std::fs::write(&path, image.bytes()) {
+            self.toast(format!("Could not save clipboard image: {error}"));
+            return;
+        }
+        self.queue_upload(path, cx);
+    }
+
     pub(super) fn prompt_for_upload(&mut self, cx: &mut Context<Self>) {
         if !self
             .state
