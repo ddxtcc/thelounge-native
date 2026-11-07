@@ -173,6 +173,88 @@ fn set_audio_volume(pipeline: &gst::Pipeline, bounds: Bounds<Pixels>, x: Pixels)
     pipeline.set_property("volume", f64::from(fraction));
 }
 
+fn download_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("XDG_DOWNLOAD_DIR") {
+        let dir = PathBuf::from(dir);
+        if dir.is_absolute() {
+            return Some(dir);
+        }
+    }
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join("Downloads"))
+}
+
+fn download_name(url: &str) -> String {
+    let raw = url::Url::parse(url)
+        .ok()
+        .and_then(|parsed| {
+            parsed
+                .path_segments()
+                .and_then(|mut segments| segments.next_back().map(str::to_string))
+        })
+        .filter(|name| !name.is_empty() && name != "." && name != "..")
+        .unwrap_or_else(|| "media".to_string());
+    raw.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn open_download_file(url: &str) -> Result<(PathBuf, std::fs::File), String> {
+    let dir = download_dir().ok_or_else(|| "Could not find a download directory.".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let name = download_name(url);
+    let path = PathBuf::from(&name);
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("media")
+        .to_string();
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    for attempt in 0..1000 {
+        let filename = if attempt == 0 {
+            name.clone()
+        } else if let Some(extension) = extension {
+            format!("{stem}-{attempt}.{extension}")
+        } else {
+            format!("{stem}-{attempt}")
+        };
+        let candidate = dir.join(filename);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => return Ok((candidate, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Err("Could not choose a download filename.".to_string())
+}
+
+fn download_media_file(url: &str) -> Result<PathBuf, String> {
+    let mut response = ureq::get(url)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(600)))
+        .build()
+        .call()
+        .map_err(|error| error.to_string())?;
+    let (path, mut file) = open_download_file(url)?;
+    let mut reader = response.body_mut().as_reader();
+    if let Err(error) = std::io::copy(&mut reader, &mut file) {
+        drop(file);
+        let _ = std::fs::remove_file(&path);
+        return Err(error.to_string());
+    }
+    Ok(path)
+}
+
 impl LoungeApp {
     fn start_audio_ticker(&mut self, cx: &mut Context<Self>) {
         self.audio_ticker_generation = self.audio_ticker_generation.wrapping_add(1);
@@ -197,6 +279,25 @@ impl LoungeApp {
                     break;
                 }
             }
+        })
+        .detach();
+    }
+
+    pub(super) fn download_media(&mut self, url: String, cx: &mut Context<Self>) {
+        self.toast("Downloading...");
+        let target = url.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { download_media_file(&target) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(path) => this.toast(format!("Saved {}", path.display())),
+                    Err(error) => this.toast(format!("Download failed: {error}")),
+                }
+                cx.notify();
+            });
         })
         .detach();
     }
@@ -434,6 +535,7 @@ impl LoungeApp {
         &self,
         pipeline: &gst::Pipeline,
         expand_url: Option<String>,
+        download_url: Option<String>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let toggle = pipeline.clone();
@@ -630,6 +732,15 @@ impl LoungeApp {
                             cx,
                             move |this, _, cx| this.open_lightbox(url.clone(), cx),
                         ))
+                    })
+                    .when_some(download_url, |this, url| {
+                        this.child(self.media_icon_button(
+                            "download",
+                            "Download",
+                            false,
+                            cx,
+                            move |this, _, cx| this.download_media(url.clone(), cx),
+                        ))
                     }),
             )
             .into_any_element()
@@ -643,6 +754,7 @@ impl LoungeApp {
     ) -> AnyElement {
         let play_url = url.to_string();
         let expand_url = url.to_string();
+        let download_url = url.to_string();
         let file = url.rsplit('/').next().unwrap_or(url).to_string();
         div()
             .w_full()
@@ -732,6 +844,13 @@ impl LoungeApp {
                                 false,
                                 cx,
                                 move |this, _, cx| this.open_lightbox(expand_url.clone(), cx),
+                            ))
+                            .child(self.media_icon_button(
+                                "download",
+                                "Download",
+                                false,
+                                cx,
+                                move |this, _, cx| this.download_media(download_url.clone(), cx),
                             )),
                     ),
             )
@@ -751,6 +870,7 @@ impl LoungeApp {
         {
             let file = audio.url.rsplit('/').next().unwrap_or(url).to_string();
             let open_url = audio.url.clone();
+            let download_url = audio.url.clone();
             return Some(
                 div()
                     .id(ElementId::Name(format!("inline-audio-{message_id}").into()))
@@ -772,7 +892,12 @@ impl LoungeApp {
                             )
                             .child(div().flex_1().truncate().child(file)),
                     )
-                    .child(self.render_audio_controls(&audio.pipeline, Some(open_url), cx))
+                    .child(self.render_audio_controls(
+                        &audio.pipeline,
+                        Some(open_url),
+                        Some(download_url),
+                        cx,
+                    ))
                     .into_any_element(),
             );
         }
@@ -786,6 +911,7 @@ impl LoungeApp {
         let click_video = video.clone();
         let mute = video.clone();
         let open_url = url.clone();
+        let download_url = url.clone();
         let paused = video.paused();
         let muted = video.muted();
         let (video_width, video_height) = video.size();
@@ -859,13 +985,14 @@ impl LoungeApp {
                             cx,
                             move |this, _, cx| this.open_lightbox(open_url.clone(), cx),
                         ))
-                        .child(self.media_fullscreen_button(cx))
-                        .child(
-                            self.media_icon_button("x", "Close", false, cx, |this, _, cx| {
-                                this.clear_inline_media();
-                                cx.notify();
-                            }),
-                        ),
+                        .child(self.media_icon_button(
+                            "download",
+                            "Download",
+                            false,
+                            cx,
+                            move |this, _, cx| this.download_media(download_url.clone(), cx),
+                        ))
+                        .child(self.media_fullscreen_button(cx)),
                 )
                 .into_any_element(),
         )
@@ -922,7 +1049,7 @@ impl LoungeApp {
                 .gap_3()
                 .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
                 .child(div().text_size(px(13.)).child(file))
-                .child(self.render_audio_controls(audio, None, cx))
+                .child(self.render_audio_controls(audio, None, Some(url.to_string()), cx))
                 .child(
                     self.media_icon_button("x", "Close", false, cx, |this, _, cx| {
                         this.close_overlays(cx)
@@ -948,6 +1075,7 @@ impl LoungeApp {
         let controls_video = video.clone();
         let click_video = video.clone();
         let mute_video = video.clone();
+        let download_url = url.to_string();
         let paused = video.paused();
         let muted = video.muted();
         let mut body = div()
@@ -1018,6 +1146,13 @@ impl LoungeApp {
                         cx.notify();
                     },
                 ))
+                .child(self.media_icon_button(
+                    "download",
+                    "Download",
+                    false,
+                    cx,
+                    move |this, _, cx| this.download_media(download_url.clone(), cx),
+                ))
                 .child(self.media_fullscreen_button(cx))
                 .child(
                     self.media_icon_button("x", "Close", false, cx, |this, _, cx| {
@@ -1051,5 +1186,18 @@ mod tests {
         ));
         assert_eq!(media_kind("https://example.com/a.png"), None);
         assert_eq!(media_kind("https://example.com/a"), None);
+    }
+
+    #[test]
+    fn download_names_follow_urls() {
+        assert_eq!(
+            download_name("https://example.com/a/level-bg-2.mp3?x=1"),
+            "level-bg-2.mp3"
+        );
+        assert_eq!(
+            download_name("https://example.com/a/a%20b.mp3"),
+            "a_20b.mp3"
+        );
+        assert_eq!(download_name("https://example.com/"), "media");
     }
 }

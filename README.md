@@ -27,12 +27,15 @@ The installer writes to `$HOME/.local` by default. Set `PREFIX` or `XDG_DATA_HOM
 
 ## Optional media playback
 
-Direct video and audio links can play inside the message lightbox when built with the
-`media-video` feature:
+Build with the `media-video` feature to enable inline video and audio cards:
 
 ```sh
 cargo run --release -p lounge-native --features media-video
 ```
+
+Video cards show a still poster and play in place. Audio cards show progress, time,
+seek, and volume controls before and during playback. Both support expanding to the
+media overlay and saving the original file to `$XDG_DOWNLOAD_DIR` or `~/Downloads`.
 
 This build requires Rust 1.96 or newer and GStreamer with its base, good, and bad
 plugins. The default build does not link GStreamer.

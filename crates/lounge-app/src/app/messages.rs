@@ -711,7 +711,7 @@ impl LoungeApp {
                     if kind == super::media::MediaKind::Video {
                         let play_url = url.clone();
                         let expand_url = url.clone();
-                        let full_url = url.clone();
+                        let download_url = url.clone();
                         card = card.child(
                             div()
                                 .w_full()
@@ -738,13 +738,12 @@ impl LoungeApp {
                                     },
                                 ))
                                 .child(self.media_icon_button(
-                                    "maximize",
-                                    "Full screen",
+                                    "download",
+                                    "Download",
                                     false,
                                     cx,
-                                    move |this, window, cx| {
-                                        this.open_lightbox(full_url.clone(), cx);
-                                        window.toggle_fullscreen();
+                                    move |this, _, cx| {
+                                        this.download_media(download_url.clone(), cx);
                                     },
                                 )),
                         );
