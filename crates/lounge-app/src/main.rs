@@ -8,7 +8,8 @@ mod theme;
 use std::sync::Arc;
 
 use gpui::{
-    App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size,
+    App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, px,
+    size,
 };
 
 use app::LoungeApp;
@@ -18,11 +19,22 @@ fn main() {
         .with_http_client(Arc::new(http_client::BlockingHttpClient))
         .run(|cx: &mut App| {
             text_input::bind_keys(cx);
-            let bounds = Bounds::centered(None, size(px(1150.), px(780.)), cx);
+            let config = config::AppConfig::load();
+            let bounds = match (
+                config.window_x,
+                config.window_y,
+                config.window_width,
+                config.window_height,
+            ) {
+                (Some(x), Some(y), Some(width), Some(height)) => WindowBounds::Windowed(
+                    Bounds::new(point(px(x), px(y)), size(px(width), px(height))),
+                ),
+                _ => WindowBounds::centered(size(px(1150.), px(780.)), cx),
+            };
             let window = cx
                 .open_window(
                     WindowOptions {
-                        window_bounds: Some(WindowBounds::Windowed(bounds)),
+                        window_bounds: Some(bounds),
                         titlebar: Some(TitlebarOptions {
                             title: Some("Lounge Native".into()),
                             ..Default::default()

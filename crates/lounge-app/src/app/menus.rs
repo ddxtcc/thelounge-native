@@ -501,6 +501,7 @@ impl LoungeApp {
         self.palette = None;
         self.message_context = None;
         self.pending_context = None;
+        self.shortcuts_open = false;
         self.pending_focus = true;
         cx.notify();
     }
@@ -650,6 +651,26 @@ impl LoungeApp {
                     cx.notify();
                 }
             }));
+        }
+        if message.id > 0 {
+            let link = format!(
+                "{}/#/chan-{}?focused={}",
+                self.config.server.trim_end_matches('/'),
+                menu.channel_id,
+                message.id
+            );
+            let copy_link = link.clone();
+            card = card.child(self.menu_button("Copy link", cx, move |this, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_link.clone()));
+                this.message_menu = None;
+                this.toast("Message link copied.");
+                cx.notify();
+            }));
+            card = card.child(
+                self.menu_button("Open link in browser", cx, move |_, _, _| {
+                    let _ = open::that(link.clone());
+                }),
+            );
         }
         if message.msgid.is_some() {
             let message = message.clone();

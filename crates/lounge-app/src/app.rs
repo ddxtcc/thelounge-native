@@ -69,6 +69,7 @@ pub struct Inputs {
     setting_away_message: Entity<TextInput>,
     emoji_search: Entity<TextInput>,
     font_search: Entity<TextInput>,
+    users_filter: Entity<TextInput>,
     palette: Entity<TextInput>,
     password_old: Entity<TextInput>,
     password_new: Entity<TextInput>,
@@ -180,6 +181,7 @@ impl PaletteCommand {
             | Self::SettingsHighlightExceptions
             | Self::SettingsAwayMessage
             | Self::AddAlias => "Settings",
+            Self::Shortcuts => "Help",
             Self::SwitchChannel
             | Self::NextChannel
             | Self::PreviousChannel
@@ -306,6 +308,7 @@ enum PaletteCommand {
     CopySelection,
     SignOut,
     AddAlias,
+    Shortcuts,
     UserAction(PaletteUserAction),
 }
 
@@ -383,6 +386,7 @@ struct ChannelMenu {
 #[derive(Clone)]
 struct MessageMenu {
     position: Point<Pixels>,
+    channel_id: i64,
     message: Message,
 }
 
@@ -471,6 +475,10 @@ pub struct LoungeApp {
     sidebar_overlay: bool,
     users_overlay: bool,
     lightbox: Option<String>,
+    lightbox_index: Option<usize>,
+    lightbox_zoom: f32,
+    lightbox_pan: Point<Pixels>,
+    lightbox_drag_last: Option<Point<Pixels>>,
     drafts: HashMap<i64, String>,
     histories: HashMap<i64, Vec<String>>,
     history_index: usize,
@@ -483,6 +491,7 @@ pub struct LoungeApp {
     settings_open: bool,
     network_modal_open: bool,
     search_open: bool,
+    shortcuts_open: bool,
     search_selection: usize,
     search_scroll: gpui::ScrollHandle,
     mentions_open: bool,
@@ -585,6 +594,7 @@ impl LoungeApp {
         let setting_away_message = make("Away message", false, false, cx);
         let emoji_search = make("Search emoji...", false, false, cx);
         let font_search = make("Search installed fonts...", false, false, cx);
+        let users_filter = make("Filter users...", false, false, cx);
         let palette = make("Type a command...", false, false, cx);
         let password_old = make("Current password", false, true, cx);
         let password_new = make("New password", false, true, cx);
@@ -608,6 +618,7 @@ impl LoungeApp {
             setting_away_message: setting_away_message.clone(),
             emoji_search: emoji_search.clone(),
             font_search: font_search.clone(),
+            users_filter: users_filter.clone(),
             palette: palette.clone(),
             password_old: password_old.clone(),
             password_new: password_new.clone(),
@@ -635,6 +646,7 @@ impl LoungeApp {
             (InputRole::SettingAwayMessage, setting_away_message),
             (InputRole::EmojiSearch, emoji_search),
             (InputRole::FontSearch, font_search),
+            (InputRole::UsersFilter, users_filter),
             (InputRole::Palette, palette),
             (InputRole::PasswordOld, password_old),
             (InputRole::PasswordNew, password_new),
@@ -646,6 +658,17 @@ impl LoungeApp {
             })
             .detach();
         }
+
+        let drafts: HashMap<i64, String> = config
+            .saved_drafts
+            .iter()
+            .map(|draft| (draft.channel, draft.text.clone()))
+            .collect();
+        let histories: HashMap<i64, Vec<String>> = config
+            .saved_histories
+            .iter()
+            .map(|history| (history.channel, history.entries.clone()))
+            .collect();
 
         let mut app = Self {
             config,
@@ -674,8 +697,12 @@ impl LoungeApp {
             sidebar_overlay: false,
             users_overlay: false,
             lightbox: None,
-            drafts: HashMap::new(),
-            histories: HashMap::new(),
+            lightbox_index: None,
+            lightbox_zoom: 1.0,
+            lightbox_pan: Point::default(),
+            lightbox_drag_last: None,
+            drafts,
+            histories,
             history_index: 0,
             history_draft: String::new(),
             reply_to: None,
@@ -686,6 +713,7 @@ impl LoungeApp {
             settings_open: false,
             network_modal_open: false,
             search_open: false,
+            shortcuts_open: false,
             search_selection: 0,
             search_scroll: gpui::ScrollHandle::new(),
             mentions_open: false,

@@ -17,6 +17,18 @@ pub enum StatusMessages {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedDraft {
+    pub channel: i64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedHistory {
+    pub channel: i64,
+    pub entries: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub server: String,
@@ -44,6 +56,12 @@ pub struct AppConfig {
     pub custom_theme: Option<CustomTheme>,
     pub favorite_commands: Vec<String>,
     pub command_aliases: HashMap<String, String>,
+    pub saved_drafts: Vec<SavedDraft>,
+    pub saved_histories: Vec<SavedHistory>,
+    pub window_x: Option<f32>,
+    pub window_y: Option<f32>,
+    pub window_width: Option<f32>,
+    pub window_height: Option<f32>,
 }
 
 impl Default for AppConfig {
@@ -74,6 +92,12 @@ impl Default for AppConfig {
             custom_theme: None,
             favorite_commands: Vec::new(),
             command_aliases: HashMap::new(),
+            saved_drafts: Vec::new(),
+            saved_histories: Vec::new(),
+            window_x: None,
+            window_y: None,
+            window_width: None,
+            window_height: None,
         }
     }
 }

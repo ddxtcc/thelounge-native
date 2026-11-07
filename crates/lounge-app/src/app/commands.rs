@@ -236,6 +236,10 @@ impl LoungeApp {
                 PaletteCommand::Emoji => self.open_emoji_picker(cx),
                 PaletteCommand::Theme => self.open_palette(PaletteMode::Themes, cx),
                 PaletteCommand::AddAlias => self.open_palette(PaletteMode::Alias, cx),
+                PaletteCommand::Shortcuts => {
+                    self.shortcuts_open = true;
+                    cx.notify();
+                }
                 PaletteCommand::ChooseUiFont => self.open_font_picker(FontTarget::Ui, cx),
                 PaletteCommand::ChooseMonoFont => self.open_font_picker(FontTarget::Mono, cx),
                 PaletteCommand::ImportTheme => self.import_theme(cx),
@@ -618,6 +622,7 @@ fn command_defs() -> &'static [(&'static str, PaletteCommand)] {
     &[
         ("Open settings", PaletteCommand::Settings),
         ("Add command alias", PaletteCommand::AddAlias),
+        ("Keyboard shortcuts", PaletteCommand::Shortcuts),
         ("Security & sessions", PaletteCommand::Security),
         ("Switch channel", PaletteCommand::SwitchChannel),
         ("Next channel", PaletteCommand::NextChannel),

@@ -444,8 +444,27 @@ impl LoungeApp {
         if !channel.is_channel() {
             return div().into_any_element();
         }
+        let filter = self.inputs.users_filter.read(cx).content().to_lowercase();
+        let users: Vec<_> = channel
+            .users
+            .iter()
+            .filter(|user| {
+                filter.is_empty()
+                    || user.nick.to_lowercase().contains(&filter)
+                    || user.away.to_lowercase().contains(&filter)
+                    || (user.is_bot && "bot".contains(&filter))
+            })
+            .collect();
         let mut list = div().flex().flex_col().gap_0p5().p_2();
-        for user in &channel.users {
+        if users.is_empty() && !filter.is_empty() {
+            list = list.child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme.muted)
+                    .child("No matching users."),
+            );
+        }
+        for user in users {
             let nick = user.nick.clone();
             let mode = user_mode_prefix(user, network);
             let color = if self.config.colored_nicks {

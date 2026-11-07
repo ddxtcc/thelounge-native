@@ -23,6 +23,7 @@ impl LoungeApp {
             InputRole::SettingAwayMessage => Some(&self.inputs.setting_away_message),
             InputRole::EmojiSearch => Some(&self.inputs.emoji_search),
             InputRole::FontSearch => Some(&self.inputs.font_search),
+            InputRole::UsersFilter => Some(&self.inputs.users_filter),
             InputRole::Palette => Some(&self.inputs.palette),
             InputRole::PasswordOld => Some(&self.inputs.password_old),
             InputRole::PasswordNew => Some(&self.inputs.password_new),
