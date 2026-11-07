@@ -40,6 +40,7 @@ impl LoungeApp {
         self.network_modal_open = true;
         self.network_edit_uuid = None;
         self.network_edit_data = None;
+        self.network_edit_loading = false;
         self.network_has_sts = false;
         self.focus_request = Some(InputRole::NetworkHost);
         if !self.network_defaults_applied {
@@ -309,6 +310,7 @@ impl LoungeApp {
         self.network_menu = None;
         self.network_edit_uuid = Some(uuid.to_string());
         self.network_edit_data = None;
+        self.network_edit_loading = true;
         self.network_defaults_applied = true;
         self.network_modal_open = true;
         self.focus_request = Some(InputRole::NetworkHost);
@@ -323,6 +325,9 @@ impl LoungeApp {
         info: &lounge_core::NetworkInfo,
         cx: &mut Context<Self>,
     ) {
+        if self.network_edit_uuid.as_deref() != Some(info.uuid.as_str()) {
+            return;
+        }
         let data = &info.data;
         let get_str = |key: &str| {
             data.get(key)
@@ -337,6 +342,7 @@ impl LoungeApp {
         };
         self.network_edit_uuid = Some(info.uuid.clone());
         self.network_edit_data = Some(info.data.clone());
+        self.network_edit_loading = false;
         self.network_defaults_applied = true;
         self.network_has_sts = get_bool("hasSTSPolicy");
         self.network_tls = get_bool("tls");
@@ -492,6 +498,9 @@ impl LoungeApp {
         }
         self.settings_open = false;
         self.network_modal_open = false;
+        self.network_edit_uuid = None;
+        self.network_edit_data = None;
+        self.network_edit_loading = false;
         self.search_open = false;
         self.mentions_open = false;
         self.emoji_picker_open = false;

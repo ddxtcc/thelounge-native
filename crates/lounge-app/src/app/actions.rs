@@ -458,7 +458,7 @@ impl LoungeApp {
         self.persist_chat_state();
     }
 
-    fn persist_chat_state(&mut self) {
+    pub(super) fn persist_chat_state(&mut self) {
         self.config.saved_drafts = self
             .drafts
             .iter()
@@ -853,6 +853,10 @@ impl LoungeApp {
             if let Ok(port) = port_text.parse::<u16>() {
                 data.insert("port".into(), serde_json::json!(port));
             }
+        }
+        if self.network_edit_loading {
+            self.toast("Loading network settings...");
+            return;
         }
         if let Some(uuid) = self.network_edit_uuid.clone() {
             data.insert("uuid".into(), serde_json::json!(uuid));

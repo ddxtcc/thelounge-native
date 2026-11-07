@@ -519,20 +519,15 @@ pub struct LoungeApp {
     typing_active: bool,
     last_typing_sent: Option<Instant>,
     toast: Option<Toast>,
-    notification_action_tx: std::sync::mpsc::Sender<i64>,
-    notification_action_rx: std::sync::mpsc::Receiver<i64>,
+    notification_action_tx: futures::channel::mpsc::UnboundedSender<i64>,
     window_title: String,
     hotkey_settings_return: bool,
     #[cfg(target_os = "linux")]
     tray_handle: Option<ksni::blocking::Handle<tray::LoungeTray>>,
-    #[cfg(target_os = "linux")]
-    tray_action_rx: std::sync::mpsc::Receiver<tray::TrayAction>,
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     hotkey_manager: Option<global_hotkey::GlobalHotKeyManager>,
     #[cfg(target_os = "windows")]
     tray_handle: Option<tray_windows::TrayHandle>,
-    #[cfg(target_os = "windows")]
-    tray_action_rx: std::sync::mpsc::Receiver<tray_windows::TrayAction>,
     settings_open: bool,
     settings_tab: SettingsTab,
     network_modal_open: bool,
@@ -565,6 +560,7 @@ pub struct LoungeApp {
     network_menu: Option<String>,
     network_edit_uuid: Option<String>,
     network_edit_data: Option<serde_json::Map<String, serde_json::Value>>,
+    network_edit_loading: bool,
     network_has_sts: bool,
     user_menu: Option<UserMenu>,
     channel_menu: Option<ChannelMenu>,
@@ -729,25 +725,19 @@ impl LoungeApp {
             .map(|history| (history.channel, history.entries.clone()))
             .collect();
 
-        let (notification_action_tx, notification_action_rx) = std::sync::mpsc::channel();
+        let (notification_action_tx, notification_action_rx) = futures::channel::mpsc::unbounded();
         #[cfg(target_os = "linux")]
-        let (tray_handle, tray_action_rx) = if config.show_tray_icon {
-            tray::spawn().map_or_else(
-                || (None, std::sync::mpsc::channel().1),
-                |(handle, receiver)| (Some(handle), receiver),
-            )
-        } else {
-            (None, std::sync::mpsc::channel().1)
+        let (tray_handle, tray_action_rx) = match config.show_tray_icon.then(tray::spawn).flatten()
+        {
+            Some((handle, receiver)) => (Some(handle), Some(receiver)),
+            None => (None, None),
         };
         #[cfg(target_os = "windows")]
-        let (tray_handle, tray_action_rx) = if config.show_tray_icon {
-            tray_windows::spawn().map_or_else(
-                || (None, std::sync::mpsc::channel().1),
-                |(handle, receiver)| (Some(handle), receiver),
-            )
-        } else {
-            (None, std::sync::mpsc::channel().1)
-        };
+        let (tray_handle, tray_action_rx) =
+            match config.show_tray_icon.then(tray_windows::spawn).flatten() {
+                Some((handle, receiver)) => (Some(handle), Some(receiver)),
+                None => (None, None),
+            };
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         let hotkey_manager = {
             use global_hotkey::{
@@ -814,19 +804,14 @@ impl LoungeApp {
             last_typing_sent: None,
             toast: None,
             notification_action_tx,
-            notification_action_rx,
             window_title: "Lounge Native".to_string(),
             hotkey_settings_return: false,
             #[cfg(target_os = "linux")]
             tray_handle,
-            #[cfg(target_os = "linux")]
-            tray_action_rx,
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             hotkey_manager,
             #[cfg(target_os = "windows")]
             tray_handle,
-            #[cfg(target_os = "windows")]
-            tray_action_rx,
             settings_open: false,
             settings_tab: SettingsTab::Appearance,
             network_modal_open: false,
@@ -859,6 +844,7 @@ impl LoungeApp {
             network_menu: None,
             network_edit_uuid: None,
             network_edit_data: None,
+            network_edit_loading: false,
             network_has_sts: false,
             user_menu: None,
             channel_menu: None,
@@ -894,39 +880,15 @@ impl LoungeApp {
                 });
             });
         });
-        cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(200))
-                    .await;
-                let _ = this.update(cx, |this, cx| {
-                    let mut show = false;
-                    while let Ok(channel) = this.notification_action_rx.try_recv() {
-                        this.pending_channel_switch = Some(channel);
-                        show = true;
-                    }
-                    #[cfg(target_os = "linux")]
-                    while let Ok(action) = this.tray_action_rx.try_recv() {
-                        match action {
-                            tray::TrayAction::Show => show = true,
-                            tray::TrayAction::Quit => cx.quit(),
-                        }
-                    }
-                    #[cfg(target_os = "windows")]
-                    while let Ok(action) = this.tray_action_rx.try_recv() {
-                        match action {
-                            tray_windows::TrayAction::Show => show = true,
-                            tray_windows::TrayAction::Quit => cx.quit(),
-                        }
-                    }
-                    if show {
-                        this.pending_show_window = true;
-                        cx.notify();
-                    }
-                });
-            }
-        })
-        .detach();
+        app.watch_notifications(notification_action_rx, cx);
+        #[cfg(target_os = "linux")]
+        if let Some(receiver) = tray_action_rx {
+            app.watch_tray(receiver, cx);
+        }
+        #[cfg(target_os = "windows")]
+        if let Some(receiver) = tray_action_rx {
+            app.watch_tray(receiver, cx);
+        }
         if app.config.load_failed {
             app.toast("Config could not be parsed; using defaults and keeping a backup.");
         }

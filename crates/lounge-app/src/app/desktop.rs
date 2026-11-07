@@ -1,6 +1,65 @@
+use futures::StreamExt;
+
 use super::*;
 
 impl LoungeApp {
+    pub(super) fn watch_notifications(
+        &mut self,
+        mut receiver: futures::channel::mpsc::UnboundedReceiver<i64>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            while let Some(channel) = receiver.next().await {
+                let _ = this.update(cx, |this, cx| {
+                    this.pending_channel_switch = Some(channel);
+                    this.pending_show_window = true;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) fn watch_tray(
+        &mut self,
+        mut receiver: futures::channel::mpsc::UnboundedReceiver<tray::TrayAction>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            while let Some(action) = receiver.next().await {
+                let _ = this.update(cx, |this, cx| match action {
+                    tray::TrayAction::Show => {
+                        this.pending_show_window = true;
+                        cx.notify();
+                    }
+                    tray::TrayAction::Quit => cx.quit(),
+                });
+            }
+        })
+        .detach();
+    }
+
+    #[cfg(target_os = "windows")]
+    pub(super) fn watch_tray(
+        &mut self,
+        mut receiver: futures::channel::mpsc::UnboundedReceiver<tray_windows::TrayAction>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            while let Some(action) = receiver.next().await {
+                let _ = this.update(cx, |this, cx| match action {
+                    tray_windows::TrayAction::Show => {
+                        this.pending_show_window = true;
+                        cx.notify();
+                    }
+                    tray_windows::TrayAction::Quit => cx.quit(),
+                });
+            }
+        })
+        .detach();
+    }
+
     pub(super) fn set_tray_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
         self.config.show_tray_icon = enabled;
         self.config.save();
@@ -13,11 +72,10 @@ impl LoungeApp {
                     let unread = self.state.total_unread();
                     handle.update(|tray| tray.unread = unread);
                     self.tray_handle = Some(handle);
-                    self.tray_action_rx = receiver;
+                    self.watch_tray(receiver, cx);
                 }
             } else if let Some(handle) = self.tray_handle.take() {
                 handle.shutdown().wait();
-                self.tray_action_rx = std::sync::mpsc::channel().1;
             }
         }
         #[cfg(target_os = "windows")]
@@ -28,11 +86,10 @@ impl LoungeApp {
                 {
                     handle.set_unread(self.state.total_unread());
                     self.tray_handle = Some(handle);
-                    self.tray_action_rx = receiver;
+                    self.watch_tray(receiver, cx);
                 }
             } else if let Some(handle) = self.tray_handle.take() {
                 handle.stop();
-                self.tray_action_rx = std::sync::mpsc::channel().1;
             }
         }
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]

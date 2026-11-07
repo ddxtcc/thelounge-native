@@ -30,12 +30,15 @@ impl LoungeApp {
             return;
         }
 
-        if server != self.config.server {
+        let account_changed = server != self.config.server || user != self.config.user;
+        if account_changed {
             self.config.token.clear();
             self.config.last_channel = None;
-        }
-        if user != self.config.user {
-            self.config.token.clear();
+            self.drafts.clear();
+            self.histories.clear();
+            self.seen_mentions.clear();
+            self.expanded_condensed.clear();
+            self.persist_chat_state();
         }
         self.config.server = server.clone();
         self.config.user = user.clone();
@@ -193,7 +196,7 @@ impl LoungeApp {
                             if let Ok(output) = output
                                 && String::from_utf8_lossy(&output.stdout).contains("default")
                             {
-                                let _ = actions.send(chan_id);
+                                let _ = actions.unbounded_send(chan_id);
                             }
                         });
                     }
@@ -207,7 +210,7 @@ impl LoungeApp {
                                 .title(&title)
                                 .text1(&body)
                                 .on_activated(move |_| {
-                                    let _ = actions.send(chan_id);
+                                    let _ = actions.unbounded_send(chan_id);
                                     Ok(())
                                 })
                                 .show();

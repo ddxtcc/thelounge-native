@@ -174,3 +174,32 @@ impl AppConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_config_keeps_original_and_suppresses_saves() {
+        let root = std::env::temp_dir().join(format!("lounge-config-test-{}", std::process::id()));
+        let config_dir = root.join("lounge-native");
+        fs::create_dir_all(&config_dir).unwrap();
+        let path = config_dir.join("config.toml");
+        fs::write(&path, "not valid toml = [").unwrap();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &root);
+        }
+
+        let config = AppConfig::load();
+        assert!(config.load_failed);
+        assert!(config_dir.join("config.toml.bak").exists());
+
+        config.save();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "not valid toml = [");
+
+        unsafe {
+            std::env::remove_var("XDG_CONFIG_HOME");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+}

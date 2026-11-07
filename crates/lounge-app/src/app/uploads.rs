@@ -141,11 +141,19 @@ impl LoungeApp {
             progress: progress.clone(),
         });
         let task_progress = progress.clone();
+        let cleanup = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("lounge-native-clipboard-"))
+            .then(|| path.clone());
         let task = cx.background_executor().spawn(async move {
             lounge_core::upload::upload_file(&server, &token, &path, task_progress)
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
+            if let Some(path) = cleanup {
+                let _ = std::fs::remove_file(path);
+            }
             let _ = this.update(cx, |this, cx| {
                 this.uploads_in_flight = this.uploads_in_flight.saturating_sub(1);
                 this.active_upload = None;

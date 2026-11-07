@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use futures::channel::mpsc;
 
 use ksni::{
     Category, Status, Tray,
@@ -13,7 +13,7 @@ pub enum TrayAction {
 }
 
 pub struct LoungeTray {
-    actions: mpsc::Sender<TrayAction>,
+    actions: mpsc::UnboundedSender<TrayAction>,
     pub unread: u32,
 }
 
@@ -47,7 +47,7 @@ impl Tray for LoungeTray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.actions.send(TrayAction::Show);
+        let _ = self.actions.unbounded_send(TrayAction::Show);
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
@@ -55,7 +55,7 @@ impl Tray for LoungeTray {
             StandardItem {
                 label: "Show Lounge Native".into(),
                 activate: Box::new(|this: &mut LoungeTray| {
-                    let _ = this.actions.send(TrayAction::Show);
+                    let _ = this.actions.unbounded_send(TrayAction::Show);
                 }),
                 ..Default::default()
             }
@@ -64,7 +64,7 @@ impl Tray for LoungeTray {
             StandardItem {
                 label: "Quit".into(),
                 activate: Box::new(|this: &mut LoungeTray| {
-                    let _ = this.actions.send(TrayAction::Quit);
+                    let _ = this.actions.unbounded_send(TrayAction::Quit);
                 }),
                 ..Default::default()
             }
@@ -73,8 +73,8 @@ impl Tray for LoungeTray {
     }
 }
 
-pub fn spawn() -> Option<(Handle<LoungeTray>, mpsc::Receiver<TrayAction>)> {
-    let (tx, rx) = mpsc::channel();
+pub fn spawn() -> Option<(Handle<LoungeTray>, mpsc::UnboundedReceiver<TrayAction>)> {
+    let (tx, rx) = mpsc::unbounded();
     let handle = LoungeTray {
         actions: tx,
         unread: 0,
