@@ -433,6 +433,7 @@ impl LoungeApp {
     fn render_audio_controls(
         &self,
         pipeline: &gst::Pipeline,
+        expand_url: Option<String>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let toggle = pipeline.clone();
@@ -620,7 +621,16 @@ impl LoungeApp {
                             mute.set_property("mute", !audio_muted(&mute));
                             cx.notify();
                         },
-                    )),
+                    ))
+                    .when_some(expand_url, |this, url| {
+                        this.child(self.media_icon_button(
+                            "expand",
+                            "Expand",
+                            false,
+                            cx,
+                            move |this, _, cx| this.open_lightbox(url.clone(), cx),
+                        ))
+                    }),
             )
             .into_any_element()
     }
@@ -722,31 +732,7 @@ impl LoungeApp {
                             )
                             .child(div().flex_1().truncate().child(file)),
                     )
-                    .child(self.render_audio_controls(&audio.pipeline, cx))
-                    .child(
-                        div()
-                            .w_full()
-                            .flex()
-                            .justify_center()
-                            .gap_1()
-                            .child(self.media_icon_button(
-                                "expand",
-                                "Expand",
-                                false,
-                                cx,
-                                move |this, _, cx| this.open_lightbox(open_url.clone(), cx),
-                            ))
-                            .child(self.media_icon_button(
-                                "x",
-                                "Close",
-                                false,
-                                cx,
-                                |this, _, cx| {
-                                    this.clear_inline_media();
-                                    cx.notify();
-                                },
-                            )),
-                    )
+                    .child(self.render_audio_controls(&audio.pipeline, Some(open_url), cx))
                     .into_any_element(),
             );
         }
@@ -896,7 +882,7 @@ impl LoungeApp {
                 .gap_3()
                 .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
                 .child(div().text_size(px(13.)).child(file))
-                .child(self.render_audio_controls(audio, cx))
+                .child(self.render_audio_controls(audio, None, cx))
                 .child(
                     self.media_icon_button("x", "Close", false, cx, |this, _, cx| {
                         this.close_overlays(cx)
