@@ -155,6 +155,7 @@ impl LoungeApp {
         self.lightbox_zoom = 1.0;
         self.lightbox_pan = Point::default();
         self.lightbox_drag_last = None;
+        self.media_fullscreen = false;
         self.media_video = None;
         self.media_audio = None;
         self.media_error = None;
@@ -202,6 +203,7 @@ impl LoungeApp {
             let _ = audio.set_state(gst::State::Null);
         }
         self.media_error = None;
+        self.media_fullscreen = false;
     }
 
     pub(super) fn clear_inline_media(&mut self) {
@@ -252,15 +254,24 @@ impl LoungeApp {
         kind: MediaKind,
         cx: &mut Context<Self>,
     ) {
-        if self
-            .inline_video
-            .as_ref()
-            .is_some_and(|inline| inline.url == url)
-            || self
-                .inline_audio
-                .as_ref()
-                .is_some_and(|inline| inline.url == url)
+        if let Some(inline) = self.inline_video.as_mut()
+            && inline.url == url
         {
+            if inline.message_id == message_id {
+                return;
+            }
+            inline.message_id = message_id;
+            cx.notify();
+            return;
+        }
+        if let Some(inline) = self.inline_audio.as_mut()
+            && inline.url == url
+        {
+            if inline.message_id == message_id {
+                return;
+            }
+            inline.message_id = message_id;
+            cx.notify();
             return;
         }
         self.inline_video = None;
@@ -336,10 +347,33 @@ impl LoungeApp {
             .into_any_element()
     }
 
+    fn toggle_media_fullscreen(&mut self, cx: &mut Context<Self>) {
+        if self.media_fullscreen {
+            self.media_fullscreen = false;
+            cx.notify();
+            return;
+        }
+        if let Some(inline) = self.inline_video.take() {
+            self.lightbox = Some(inline.url.clone());
+            self.media_video = Some((inline.url, inline.video));
+        } else if let Some(inline) = self.inline_audio.take() {
+            self.lightbox = Some(inline.url.clone());
+            self.media_audio = Some(inline.pipeline);
+        }
+        self.media_fullscreen = self.media_video.is_some() || self.media_audio.is_some();
+        cx.notify();
+    }
+
     fn media_fullscreen_button(&self, cx: &mut Context<Self>) -> AnyElement {
-        self.media_icon_button("maximize", "Full screen", false, cx, |_, window, _| {
-            window.toggle_fullscreen();
-        })
+        self.media_icon_button(
+            "maximize",
+            "Full screen",
+            self.media_fullscreen,
+            cx,
+            |this, _, cx| {
+                this.toggle_media_fullscreen(cx);
+            },
+        )
     }
 
     fn render_audio_controls(
@@ -551,8 +585,11 @@ impl LoungeApp {
     ) -> AnyElement {
         let theme = self.theme;
         let viewport = window.viewport_size();
-        let max_w = viewport.width * 0.88;
-        let max_h = viewport.height * 0.78;
+        let (max_w, max_h) = if self.media_fullscreen {
+            (viewport.width, viewport.height - px(64.))
+        } else {
+            (viewport.width * 0.88, viewport.height * 0.78)
+        };
         if let Some(error) = &self.media_error {
             return div()
                 .max_w(max_w)
