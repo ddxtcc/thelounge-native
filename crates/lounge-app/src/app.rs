@@ -177,9 +177,11 @@ impl PaletteCommand {
             | Self::LoadOlder
             | Self::JumpToBottom => "Navigation",
             Self::Search | Self::Mentions | Self::Emoji => "Messages",
-            Self::UploadFile | Self::ClearComposer | Self::CancelReply | Self::CopySelection => {
-                "Composer"
-            }
+            Self::UploadFile
+            | Self::ClearComposer
+            | Self::PasteImage
+            | Self::CancelReply
+            | Self::CopySelection => "Composer",
             Self::Theme
             | Self::ChooseUiFont
             | Self::ChooseMonoFont
@@ -288,6 +290,7 @@ enum PaletteCommand {
     LoadOlder,
     JumpToBottom,
     ClearComposer,
+    PasteImage,
     CancelReply,
     CopySelection,
     SignOut,
@@ -447,6 +450,9 @@ pub struct LoungeApp {
     last_scroll_max: gpui::Size<gpui::Pixels>,
     preview_scroll_message: Option<i64>,
     image_cache: Entity<gpui::RetainAllImageCache>,
+    message_anchors: HashMap<i64, gpui::ScrollAnchor>,
+    pending_focus_message: Option<i64>,
+    focused_message: Option<i64>,
     collapsed_networks: HashSet<String>,
     expanded_condensed: HashSet<i64>,
     narrow: bool,
@@ -639,6 +645,9 @@ impl LoungeApp {
             },
             preview_scroll_message: None,
             image_cache: gpui::RetainAllImageCache::new(cx),
+            message_anchors: HashMap::new(),
+            pending_focus_message: None,
+            focused_message: None,
             collapsed_networks: HashSet::new(),
             expanded_condensed: HashSet::new(),
             narrow: false,

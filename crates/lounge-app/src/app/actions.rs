@@ -138,6 +138,7 @@ impl LoungeApp {
                 InputAction::Tab => self.complete(cx),
                 InputAction::PrevHistory => self.history_prev(cx),
                 InputAction::NextHistory => self.history_next(cx),
+                InputAction::PasteImage => self.paste_image_from_clipboard(cx),
                 InputAction::Escape => {
                     if self.reply_to.take().is_some() {
                         cx.notify();
@@ -379,6 +380,7 @@ impl LoungeApp {
         if self.state.active == Some(id) {
             return;
         }
+        self.message_anchors.clear();
         self.image_cache
             .update(cx, |cache, cx| cache.clear(window, cx));
         self.last_scroll_max = gpui::Size {
@@ -751,14 +753,14 @@ impl LoungeApp {
     }
 
     pub(super) fn activate_search_result(&mut self, index: usize, cx: &mut Context<Self>) {
-        let target = {
+        let Some((target, message_id)) = ({
             let Some(results) = &self.state.search_results else {
                 return;
             };
-            if results.results.get(index).is_none() {
+            let Some(result) = results.results.get(index) else {
                 return;
-            }
-            self.state.networks.iter().find_map(|network| {
+            };
+            let target = self.state.networks.iter().find_map(|network| {
                 if network.uuid != results.query.network_uuid {
                     return None;
                 }
@@ -767,13 +769,30 @@ impl LoungeApp {
                     .iter()
                     .find(|channel| channel.chan.name == results.query.channel_name)
                     .map(|channel| channel.chan.id)
-            })
+            });
+            target.map(|target| (target, result.id))
+        }) else {
+            return;
         };
-        if let Some(id) = target {
-            self.search_open = false;
-            self.pending_channel_switch = Some(id);
-            cx.notify();
-        }
+        self.pending_focus_message = Some(message_id);
+        self.flash_message(message_id, cx);
+        self.search_open = false;
+        self.pending_channel_switch = Some(target);
+        cx.notify();
+    }
+
+    pub(super) fn flash_message(&mut self, message_id: i64, cx: &mut Context<Self>) {
+        self.focused_message = Some(message_id);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(2)).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.focused_message == Some(message_id) {
+                    this.focused_message = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     pub(super) fn submit_search(&mut self, cx: &mut Context<Self>) {

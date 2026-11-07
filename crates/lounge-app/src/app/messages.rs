@@ -4,7 +4,7 @@ use super::*;
 impl LoungeApp {
     pub(super) fn render_messages(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
@@ -49,6 +49,23 @@ impl LoungeApp {
         }
 
         let rows = build_rows(channel, &self.config);
+        for row in &rows {
+            match row {
+                Row::Message(message) => {
+                    self.message_anchors.entry(message.id).or_insert_with(|| {
+                        gpui::ScrollAnchor::for_handle(self.messages_scroll.clone())
+                    });
+                }
+                Row::Condensed { messages, .. } => {
+                    for message in messages {
+                        self.message_anchors.entry(message.id).or_insert_with(|| {
+                            gpui::ScrollAnchor::for_handle(self.messages_scroll.clone())
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
         let nick_width = if self.config.nick_column && !self.narrow {
             nick_column_width(channel, self.config.font_size)
         } else {
@@ -173,6 +190,13 @@ impl LoungeApp {
             }
         }
 
+        if let Some(message_id) = self.pending_focus_message.take() {
+            if let Some(anchor) = self.message_anchors.get(&message_id) {
+                anchor.scroll_to(window, cx);
+            } else {
+                self.toast("Message is not loaded.");
+            }
+        }
         div()
             .id("messages")
             .flex_1()
@@ -593,6 +617,8 @@ impl LoungeApp {
         }
 
         let context_message = message.clone();
+        let focused = self.focused_message == Some(message.id);
+        let anchor = self.message_anchors.get(&message.id).cloned();
         let mut row = div()
             .id(ElementId::Name(format!("row-{}", message.id).into()))
             .flex()
@@ -601,8 +627,15 @@ impl LoungeApp {
             .gap_2()
             .px_4()
             .py(px(self.config.message_spacing))
-            .when(highlight, |this| this.bg(theme.highlight_bg))
+            .when(highlight || focused, |this| {
+                this.bg(if focused {
+                    theme.accent_dim
+                } else {
+                    theme.highlight_bg
+                })
+            })
             .when(is_self, |this| this.opacity(0.85))
+            .anchor_scroll(anchor)
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {

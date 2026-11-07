@@ -430,6 +430,7 @@ impl LoungeApp {
                     self.focus_request = Some(InputRole::Composer);
                     cx.notify();
                 }
+                PaletteCommand::PasteImage => self.paste_image_from_clipboard(cx),
                 PaletteCommand::CancelReply => {
                     self.reply_to = None;
                     cx.notify();
@@ -608,6 +609,7 @@ fn command_defs() -> &'static [(&'static str, PaletteCommand)] {
         ("Load older messages", PaletteCommand::LoadOlder),
         ("Jump to bottom", PaletteCommand::JumpToBottom),
         ("Clear composer", PaletteCommand::ClearComposer),
+        ("Paste image from clipboard", PaletteCommand::PasteImage),
         ("Cancel reply", PaletteCommand::CancelReply),
         ("Copy selected text", PaletteCommand::CopySelection),
         ("Sign out", PaletteCommand::SignOut),

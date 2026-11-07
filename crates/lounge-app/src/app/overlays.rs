@@ -653,6 +653,8 @@ impl LoungeApp {
                         .cursor_pointer()
                         .on_click(cx.listener(move |this, _, window, cx| {
                             if this.state.find_channel(chan_id).is_some() {
+                                this.pending_focus_message = Some(msg_id);
+                                this.flash_message(msg_id, cx);
                                 this.switch_channel(chan_id, window, cx);
                                 this.mentions_open = false;
                             }

@@ -124,6 +124,11 @@ impl Render for LoungeApp {
                                 return;
                             }
                         }
+                        if key == "v" && event.keystroke.modifiers.shift {
+                            this.paste_image_from_clipboard(cx);
+                            cx.stop_propagation();
+                            return;
+                        }
                         if key == "v" {
                             let focused = window.focused(cx);
                             let composer = this.inputs.composer.read(cx).focus_handle(cx);

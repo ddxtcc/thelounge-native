@@ -515,6 +515,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::complete))
             .on_action(cx.listener(Self::prev_history))
             .on_action(cx.listener(Self::next_history))
+            .on_action(cx.listener(Self::paste_image))
             .on_action(cx.listener(Self::escape))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
