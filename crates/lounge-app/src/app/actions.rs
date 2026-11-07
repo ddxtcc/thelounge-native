@@ -404,7 +404,7 @@ impl LoungeApp {
     pub(super) fn switch_channel_quiet(
         &mut self,
         id: i64,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.sidebar_overlay = false;
@@ -426,10 +426,6 @@ impl LoungeApp {
         }
         self.messages_at_bottom = true;
         self.scroll_to_bottom_pending = false;
-        self.image_cache_current.borrow_mut().clear();
-        self.image_cache_touched.borrow_mut().clear();
-        self.image_cache
-            .update(cx, |cache, cx| cache.clear(window, cx));
         self.save_draft(cx);
         self.scroll_after_more = false;
         self.state.set_active(id);
