@@ -296,6 +296,7 @@ impl LoungeApp {
             .flex()
             .items_center()
             .gap_3()
+            .when(self.narrow, |this| this.gap_2())
             .border_b_1()
             .border_color(theme.border)
             .child(self.sidebar_toggle(cx))
@@ -310,9 +311,16 @@ impl LoungeApp {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
+                            .min_w(px(0.))
                             .child(
                                 div()
+                                    .truncate()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(name),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
                                     .text_size(px(11.))
                                     .text_color(theme.muted)
                                     .child(network_name),
@@ -336,7 +344,7 @@ impl LoungeApp {
                             .child(gpui::StyledText::new(topic_label).into_any_element()),
                     ),
             )
-            .when(channel.is_channel(), |this| {
+            .when(channel.is_channel() && !self.narrow, |this| {
                 this.child(
                     div()
                         .text_size(px(12.))
@@ -347,56 +355,64 @@ impl LoungeApp {
                         )),
                 )
             })
-            .when(channel.is_channel() || channel.is_query(), |this| {
-                let muted = channel.chan.muted;
-                this.child(self.header_button(
-                    if icon_buttons {
-                        if muted { "🔊" } else { "🔇" }
-                    } else if muted {
-                        "Unmute"
+            .when(
+                (channel.is_channel() || channel.is_query()) && !self.narrow,
+                |this| {
+                    let muted = channel.chan.muted;
+                    this.child(self.header_button(
+                        if icon_buttons {
+                            if muted { "🔊" } else { "🔇" }
+                        } else if muted {
+                            "Unmute"
+                        } else {
+                            "Mute"
+                        },
+                        if muted { "Unmute" } else { "Mute" },
+                        muted,
+                        cx,
+                        move |this, _, cx| {
+                            if let (Some(conn), Some(target)) = (&this.conn, this.state.active) {
+                                conn.emit(
+                                    "mute:change",
+                                    Some(
+                                        serde_json::json!({"target": target, "setMutedTo": !muted}),
+                                    ),
+                                );
+                            }
+                            cx.notify();
+                        },
+                    ))
+                },
+            )
+            .when(
+                (channel.is_channel() || channel.is_query()) && !self.narrow,
+                |this| {
+                    let is_query = channel.is_query();
+                    let label = if icon_buttons {
+                        "⏏"
+                    } else if is_query {
+                        "Close"
                     } else {
-                        "Mute"
-                    },
-                    if muted { "Unmute" } else { "Mute" },
-                    muted,
-                    cx,
-                    move |this, _, cx| {
-                        if let (Some(conn), Some(target)) = (&this.conn, this.state.active) {
-                            conn.emit(
-                                "mute:change",
-                                Some(serde_json::json!({"target": target, "setMutedTo": !muted})),
-                            );
-                        }
-                        cx.notify();
-                    },
-                ))
-            })
-            .when(channel.is_channel() || channel.is_query(), |this| {
-                let is_query = channel.is_query();
-                let label = if icon_buttons {
-                    "⏏"
-                } else if is_query {
-                    "Close"
-                } else {
-                    "Leave"
-                };
-                this.child(self.header_button(
-                    label,
-                    if is_query {
-                        "Close query"
-                    } else {
-                        "Leave channel"
-                    },
-                    false,
-                    cx,
-                    move |this, _, cx| {
-                        if let (Some(conn), Some(target)) = (&this.conn, this.state.active) {
-                            conn.input(target, if is_query { "/close" } else { "/part" }, None);
-                        }
-                        cx.notify();
-                    },
-                ))
-            })
+                        "Leave"
+                    };
+                    this.child(self.header_button(
+                        label,
+                        if is_query {
+                            "Close query"
+                        } else {
+                            "Leave channel"
+                        },
+                        false,
+                        cx,
+                        move |this, _, cx| {
+                            if let (Some(conn), Some(target)) = (&this.conn, this.state.active) {
+                                conn.input(target, if is_query { "/close" } else { "/part" }, None);
+                            }
+                            cx.notify();
+                        },
+                    ))
+                },
+            )
             .child({
                 let unread = self.unread_mentions();
                 let label = if icon_buttons {
