@@ -229,7 +229,7 @@ impl LoungeApp {
                 };
                 match target {
                     ClickTarget::Url(url) => {
-                        let _ = open::that(url);
+                        let _ = weak.update(cx, |this, cx| this.play_media_or_open(url, cx));
                     }
                     ClickTarget::Nick(nick) => {
                         let _ = weak.update(cx, |this, cx| this.insert_nick(&nick, cx));
@@ -459,8 +459,8 @@ impl LoungeApp {
                 .child(div().truncate().child(label));
             if playable {
                 card = card
-                    .on_click(cx.listener(move |_, _, _, _| {
-                        let _ = open::that(play_url.clone());
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.play_media_or_open(play_url.clone(), cx);
                     }))
                     .child(
                         div()

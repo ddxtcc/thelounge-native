@@ -496,6 +496,8 @@ impl LoungeApp {
             cx.notify();
             return;
         }
+        #[cfg(feature = "media-video")]
+        self.clear_media();
         self.settings_open = false;
         self.network_modal_open = false;
         self.network_edit_uuid = None;

@@ -104,6 +104,14 @@ impl LoungeApp {
     }
 
     pub(super) fn open_lightbox(&mut self, url: String, cx: &mut Context<Self>) {
+        #[cfg(feature = "media-video")]
+        {
+            if super::media::media_kind(&url).is_some() {
+                self.open_media_lightbox(url, cx);
+                return;
+            }
+            self.clear_media();
+        }
         let urls = self.channel_image_urls();
         self.lightbox_index = urls.iter().position(|candidate| candidate == &url);
         self.lightbox = Some(url);
@@ -136,6 +144,10 @@ impl LoungeApp {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        #[cfg(feature = "media-video")]
+        if let Some(kind) = super::media::media_kind(url) {
+            return self.render_media_lightbox(url, kind, window, cx);
+        }
         let theme = self.theme;
         self.touch_image(url);
         let viewport = window.viewport_size();

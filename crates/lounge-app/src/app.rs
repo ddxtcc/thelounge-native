@@ -508,6 +508,10 @@ pub struct LoungeApp {
     lightbox: Option<String>,
     lightbox_index: Option<usize>,
     lightbox_zoom: f32,
+    #[cfg(feature = "media-video")]
+    media_video: Option<(String, gpui_video_player::Video)>,
+    #[cfg(feature = "media-video")]
+    media_error: Option<String>,
     lightbox_pan: Point<Pixels>,
     lightbox_drag_last: Option<Point<Pixels>>,
     drafts: HashMap<i64, String>,
@@ -592,6 +596,8 @@ mod badge;
 mod commands;
 mod connection;
 mod desktop;
+#[cfg(feature = "media-video")]
+mod media;
 mod menus;
 mod message_list;
 mod message_text;
@@ -792,6 +798,10 @@ impl LoungeApp {
             lightbox: None,
             lightbox_index: None,
             lightbox_zoom: 1.0,
+            #[cfg(feature = "media-video")]
+            media_video: None,
+            #[cfg(feature = "media-video")]
+            media_error: None,
             lightbox_pan: Point::default(),
             lightbox_drag_last: None,
             drafts,

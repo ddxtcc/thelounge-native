@@ -787,6 +787,19 @@ impl LoungeApp {
         });
     }
 
+    pub(super) fn play_media_or_open(&mut self, url: String, cx: &mut Context<Self>) {
+        #[cfg(feature = "media-video")]
+        {
+            if super::media::media_kind(&url).is_some() {
+                self.open_media_lightbox(url, cx);
+                return;
+            }
+        }
+        #[cfg(not(feature = "media-video"))]
+        let _ = cx;
+        let _ = open::that(url);
+    }
+
     pub(super) fn submit_network(&mut self, cx: &mut Context<Self>) {
         let name = self
             .inputs
