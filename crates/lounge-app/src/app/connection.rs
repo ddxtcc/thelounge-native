@@ -57,7 +57,10 @@ impl LoungeApp {
         self.conn_generation = self.conn_generation.wrapping_add(1);
         let generation = self.conn_generation;
         self.state = ClientState::new();
-        self.messages_scroll = gpui::ScrollHandle::new();
+        self.messages_list.reset(0);
+        self.messages_list_keys.clear();
+        self.messages_at_bottom = true;
+        self.scroll_to_bottom_pending = false;
         self.reply_to = None;
         self.history_index = 0;
         self.typing_active = false;
@@ -135,10 +138,6 @@ impl LoungeApp {
                 let is_message = matches!(event, ServerEvent::Message(_));
                 let is_search_results = matches!(event, ServerEvent::SearchResults(_));
                 let is_mentions = matches!(event, ServerEvent::Mentions(_));
-                let preview_message = match &event {
-                    ServerEvent::MessagePreview(preview) => Some(preview.id),
-                    _ => None,
-                };
                 let upload_token = match &event {
                     ServerEvent::UploadAuth(token) => Some(token.clone()),
                     _ => None,
@@ -228,9 +227,6 @@ impl LoungeApp {
                     }
                     self.mentions_selection = 0;
                     self.mentions_scroll.scroll_to_item(0);
-                }
-                if let Some(message_id) = preview_message {
-                    self.preview_scroll_message = Some(message_id);
                 }
                 if let Some(token) = upload_token {
                     self.upload_next(token, cx);

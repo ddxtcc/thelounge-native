@@ -7,9 +7,10 @@ use std::time::{Duration, Instant};
 
 use chrono::Local;
 use gpui::{
-    AnyElement, App, ClipboardItem, Context, ElementId, Entity, ExternalPaths, Focusable,
-    FontWeight, Hsla, InteractiveText, MouseButton, PathPromptOptions, Pixels, Point, SharedString,
-    StyledText, TextRun, UnderlineStyle, Window, div, prelude::*, px, relative, rgb,
+    AnyElement, App, Bounds, ClipboardItem, Context, ElementId, Entity, ExternalPaths, Focusable,
+    FontWeight, Hsla, InteractiveText, ListAlignment, ListOffset, ListState, MouseButton,
+    PathPromptOptions, Pixels, Point, SharedString, StyledText, TextRun, UnderlineStyle, Window,
+    div, list, prelude::*, px, relative, rgb,
 };
 use lounge_core::format::{self, IrcColor};
 use lounge_core::proto::{Message, MessageType, ServerEvent, User};
@@ -486,13 +487,14 @@ pub struct LoungeApp {
     login_error: Option<String>,
     inputs: Inputs,
     input_revisions: HashMap<InputRole, u64>,
-    messages_scroll: gpui::ScrollHandle,
-    last_scroll_max: gpui::Size<gpui::Pixels>,
-    preview_scroll_message: Option<i64>,
+    messages_list: ListState,
+    messages_list_keys: Vec<String>,
+    messages_at_bottom: bool,
+    messages_bounds: Option<Bounds<Pixels>>,
+    scroll_to_bottom_pending: bool,
     image_cache: Entity<gpui::RetainAllImageCache>,
     image_cache_current: RefCell<HashSet<String>>,
     image_cache_touched: RefCell<VecDeque<String>>,
-    message_anchors: HashMap<i64, gpui::ScrollAnchor>,
     pending_focus_message: Option<i64>,
     focused_message: Option<i64>,
     collapsed_networks: HashSet<String>,
@@ -588,6 +590,7 @@ mod badge;
 mod commands;
 mod connection;
 mod menus;
+mod message_list;
 mod message_text;
 mod messages;
 mod overlays;
@@ -771,16 +774,14 @@ impl LoungeApp {
             login_error: None,
             inputs,
             input_revisions: HashMap::new(),
-            messages_scroll: gpui::ScrollHandle::new(),
-            last_scroll_max: gpui::Size {
-                width: px(0.),
-                height: px(0.),
-            },
-            preview_scroll_message: None,
+            messages_list: ListState::new(0, ListAlignment::Bottom, px(600.)),
+            messages_list_keys: Vec::new(),
+            messages_at_bottom: true,
+            messages_bounds: None,
+            scroll_to_bottom_pending: false,
             image_cache: gpui::RetainAllImageCache::new(cx),
             image_cache_current: RefCell::new(HashSet::new()),
             image_cache_touched: RefCell::new(VecDeque::new()),
-            message_anchors: HashMap::new(),
             pending_focus_message: None,
             focused_message: None,
             collapsed_networks: HashSet::new(),
@@ -869,6 +870,12 @@ impl LoungeApp {
             pending_channel_switch: None,
             scroll_after_more: false,
         };
+        let list = app.messages_list.clone();
+        let weak = cx.entity().downgrade();
+        list.set_scroll_handler(move |event, _, cx| {
+            let at_bottom = event.visible_range.end >= event.count;
+            let _ = weak.update(cx, |this, _| this.messages_at_bottom = at_bottom);
+        });
         app.prefill_login(cx);
 
         if !app.config.server.is_empty() && !app.config.token.is_empty() {
