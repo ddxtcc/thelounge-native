@@ -5,6 +5,7 @@ use image::{ImageBuffer, Rgba};
 use std::hash::{Hash, Hasher};
 use yuv::{YuvBiPlanarImage, YuvConversionMode, YuvRange, YuvStandardMatrix, yuv_nv12_to_bgra};
 
+use super::tooltip::Tooltip;
 use super::*;
 
 #[derive(Clone)]
@@ -289,19 +290,47 @@ impl LoungeApp {
         cx.notify();
     }
 
-    fn media_fullscreen_button(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn media_icon_button(
+        &self,
+        icon: &str,
+        tooltip: &str,
+        active: bool,
+        cx: &mut Context<Self>,
+        on_click: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) -> AnyElement {
         let theme = self.theme;
+        let tooltip = tooltip.to_string();
+        let color = if active { theme.accent } else { theme.muted };
+        let icon = icon.to_string();
         div()
-            .id("media-fullscreen")
-            .px_2()
-            .py_1()
+            .id(ElementId::Name(format!("media-{icon}-{tooltip}").into()))
+            .size(px(26.))
+            .flex()
+            .items_center()
+            .justify_center()
             .rounded(px(4.))
-            .bg(theme.sidebar)
             .cursor_pointer()
-            .hover(|style| style.bg(theme.hover))
-            .on_click(cx.listener(|_, _, window, _| window.toggle_fullscreen()))
-            .child("Full screen")
+            .when(active, |this| this.bg(theme.accent_dim))
+            .when(!active, |this| this.hover(|style| style.bg(theme.hover)))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                on_click(this, window, cx);
+                cx.stop_propagation();
+            }))
+            .tooltip(move |_, cx| cx.new(|_| Tooltip::new(tooltip.clone(), theme)).into())
+            .child(
+                gpui::svg()
+                    .path(format!("icons/{icon}.svg"))
+                    .w(px(16.))
+                    .h(px(16.))
+                    .text_color(color),
+            )
             .into_any_element()
+    }
+
+    fn media_fullscreen_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        self.media_icon_button("maximize", "Full screen", false, cx, |_, window, _| {
+            window.toggle_fullscreen();
+        })
     }
 
     fn render_audio_controls(
@@ -309,7 +338,6 @@ impl LoungeApp {
         pipeline: &gst::Pipeline,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let theme = self.theme;
         let toggle = pipeline.clone();
         let mute = pipeline.clone();
         let paused = !audio_playing(pipeline);
@@ -317,41 +345,31 @@ impl LoungeApp {
         div()
             .flex()
             .items_center()
-            .gap_2()
-            .child(
-                div()
-                    .id("audio-toggle")
-                    .px_2()
-                    .py_1()
-                    .rounded(px(4.))
-                    .bg(theme.sidebar)
-                    .cursor_pointer()
-                    .hover(|style| style.bg(theme.hover))
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        let _ = toggle.set_state(if audio_playing(&toggle) {
-                            gst::State::Paused
-                        } else {
-                            gst::State::Playing
-                        });
-                        cx.notify();
-                    }))
-                    .child(if paused { "Play" } else { "Pause" }),
-            )
-            .child(
-                div()
-                    .id("audio-mute")
-                    .px_2()
-                    .py_1()
-                    .rounded(px(4.))
-                    .bg(theme.sidebar)
-                    .cursor_pointer()
-                    .hover(|style| style.bg(theme.hover))
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        mute.set_property("mute", !audio_muted(&mute));
-                        cx.notify();
-                    }))
-                    .child(if muted { "Unmute" } else { "Mute" }),
-            )
+            .gap_1()
+            .child(self.media_icon_button(
+                if paused { "play" } else { "pause" },
+                if paused { "Play" } else { "Pause" },
+                !paused,
+                cx,
+                move |_, _, cx| {
+                    let _ = toggle.set_state(if audio_playing(&toggle) {
+                        gst::State::Paused
+                    } else {
+                        gst::State::Playing
+                    });
+                    cx.notify();
+                },
+            ))
+            .child(self.media_icon_button(
+                if muted { "volume-x" } else { "volume-2" },
+                if muted { "Unmute" } else { "Mute" },
+                false,
+                cx,
+                move |_, _, cx| {
+                    mute.set_property("mute", !audio_muted(&mute));
+                    cx.notify();
+                },
+            ))
             .child(self.media_fullscreen_button(cx))
             .into_any_element()
     }
@@ -381,37 +399,37 @@ impl LoungeApp {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child("♪")
+                            .child(
+                                gpui::svg()
+                                    .path("icons/music.svg")
+                                    .w(px(14.))
+                                    .h(px(14.))
+                                    .text_color(self.theme.accent),
+                            )
                             .child(div().flex_1().truncate().child(file)),
                     )
                     .child(self.render_audio_controls(&audio.pipeline, cx))
                     .child(
                         div()
                             .flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .id("inline-media-open")
-                                    .text_color(self.theme.accent)
-                                    .cursor_pointer()
-                                    .hover(|style| style.underline())
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.open_lightbox(open_url.clone(), cx);
-                                    }))
-                                    .child("Expand"),
-                            )
-                            .child(
-                                div()
-                                    .id("inline-media-close")
-                                    .text_color(self.theme.muted)
-                                    .cursor_pointer()
-                                    .hover(|style| style.text_color(self.theme.text))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.clear_inline_media();
-                                        cx.notify();
-                                    }))
-                                    .child("Close"),
-                            ),
+                            .gap_1()
+                            .child(self.media_icon_button(
+                                "expand",
+                                "Expand",
+                                false,
+                                cx,
+                                move |this, _, cx| this.open_lightbox(open_url.clone(), cx),
+                            ))
+                            .child(self.media_icon_button(
+                                "x",
+                                "Close",
+                                false,
+                                cx,
+                                |this, _, cx| {
+                                    this.clear_inline_media();
+                                    cx.notify();
+                                },
+                            )),
                     )
                     .into_any_element(),
             );
@@ -458,66 +476,40 @@ impl LoungeApp {
                     div()
                         .flex()
                         .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .id("inline-media-toggle")
-                                .px_2()
-                                .py_1()
-                                .rounded(px(4.))
-                                .bg(self.theme.sidebar)
-                                .cursor_pointer()
-                                .hover(|style| style.bg(self.theme.hover))
-                                .on_click(cx.listener(move |_, _, _, cx| {
-                                    toggle.set_paused(!toggle.paused());
-                                    cx.notify();
-                                }))
-                                .child(if paused { "Play" } else { "Pause" }),
-                        )
-                        .child(
-                            div()
-                                .id("inline-media-mute")
-                                .px_2()
-                                .py_1()
-                                .rounded(px(4.))
-                                .bg(self.theme.sidebar)
-                                .cursor_pointer()
-                                .hover(|style| style.bg(self.theme.hover))
-                                .on_click(cx.listener(move |_, _, _, cx| {
-                                    mute.set_muted(!mute.muted());
-                                    cx.notify();
-                                }))
-                                .child(if muted { "Unmute" } else { "Mute" }),
-                        )
-                        .child(
-                            div()
-                                .id("inline-media-open")
-                                .px_2()
-                                .py_1()
-                                .rounded(px(4.))
-                                .text_color(self.theme.accent)
-                                .cursor_pointer()
-                                .hover(|style| style.underline())
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.open_lightbox(open_url.clone(), cx);
-                                }))
-                                .child("Expand"),
-                        )
+                        .gap_1()
+                        .child(self.media_icon_button(
+                            if paused { "play" } else { "pause" },
+                            if paused { "Play" } else { "Pause" },
+                            !paused,
+                            cx,
+                            move |_, _, cx| {
+                                toggle.set_paused(!toggle.paused());
+                                cx.notify();
+                            },
+                        ))
+                        .child(self.media_icon_button(
+                            if muted { "volume-x" } else { "volume-2" },
+                            if muted { "Unmute" } else { "Mute" },
+                            false,
+                            cx,
+                            move |_, _, cx| {
+                                mute.set_muted(!mute.muted());
+                                cx.notify();
+                            },
+                        ))
+                        .child(self.media_icon_button(
+                            "expand",
+                            "Expand",
+                            false,
+                            cx,
+                            move |this, _, cx| this.open_lightbox(open_url.clone(), cx),
+                        ))
                         .child(self.media_fullscreen_button(cx))
                         .child(
-                            div()
-                                .id("inline-media-close")
-                                .px_2()
-                                .py_1()
-                                .rounded(px(4.))
-                                .text_color(self.theme.muted)
-                                .cursor_pointer()
-                                .hover(|style| style.text_color(self.theme.text))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.clear_inline_media();
-                                    cx.notify();
-                                }))
-                                .child("Close"),
+                            self.media_icon_button("x", "Close", false, cx, |this, _, cx| {
+                                this.clear_inline_media();
+                                cx.notify();
+                            }),
                         ),
                 )
                 .into_any_element(),
@@ -573,6 +565,11 @@ impl LoungeApp {
                 .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
                 .child(div().text_size(px(13.)).child(file))
                 .child(self.render_audio_controls(audio, cx))
+                .child(
+                    self.media_icon_button("x", "Close", false, cx, |this, _, cx| {
+                        this.close_overlays(cx)
+                    }),
+                )
                 .into_any_element();
         }
         let Some((_, video)) = self
@@ -631,41 +628,32 @@ impl LoungeApp {
                 .flex()
                 .items_center()
                 .gap_3()
-                .child(
-                    div()
-                        .id("media-toggle")
-                        .px_2()
-                        .py_1()
-                        .rounded(px(4.))
-                        .bg(theme.panel)
-                        .border_1()
-                        .border_color(theme.border)
-                        .cursor_pointer()
-                        .hover(|style| style.bg(theme.hover))
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            controls_video.set_paused(!controls_video.paused());
-                            cx.notify();
-                        }))
-                        .child(if paused { "Play" } else { "Pause" }),
-                )
-                .child(
-                    div()
-                        .id("media-mute")
-                        .px_2()
-                        .py_1()
-                        .rounded(px(4.))
-                        .bg(theme.panel)
-                        .border_1()
-                        .border_color(theme.border)
-                        .cursor_pointer()
-                        .hover(|style| style.bg(theme.hover))
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            mute_video.set_muted(!mute_video.muted());
-                            cx.notify();
-                        }))
-                        .child(if muted { "Unmute" } else { "Mute" }),
-                )
+                .child(self.media_icon_button(
+                    if paused { "play" } else { "pause" },
+                    if paused { "Play" } else { "Pause" },
+                    !paused,
+                    cx,
+                    move |_, _, cx| {
+                        controls_video.set_paused(!controls_video.paused());
+                        cx.notify();
+                    },
+                ))
+                .child(self.media_icon_button(
+                    if muted { "volume-x" } else { "volume-2" },
+                    if muted { "Unmute" } else { "Mute" },
+                    false,
+                    cx,
+                    move |_, _, cx| {
+                        mute_video.set_muted(!mute_video.muted());
+                        cx.notify();
+                    },
+                ))
                 .child(self.media_fullscreen_button(cx))
+                .child(
+                    self.media_icon_button("x", "Close", false, cx, |this, _, cx| {
+                        this.close_overlays(cx)
+                    }),
+                )
                 .child(
                     div()
                         .text_size(px(11.))
