@@ -154,7 +154,20 @@ impl LoungeApp {
                 self.setting_row_toggle("Icon buttons", self.config.icon_buttons, cx, |this| {
                     this.config.icon_buttons = !this.config.icon_buttons
                 }),
-            );
+            )
+            .child(self.setting_row_cycle(
+                "Image cache limit",
+                &format!("{} images", self.config.image_cache_limit),
+                cx,
+                |this| {
+                    this.config.image_cache_limit = match this.config.image_cache_limit {
+                        0..=128 => 256,
+                        129..=256 => 512,
+                        257..=512 => 1024,
+                        _ => 128,
+                    };
+                },
+            ));
         card.into_any_element()
     }
 
