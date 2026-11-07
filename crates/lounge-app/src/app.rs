@@ -512,6 +512,8 @@ pub struct LoungeApp {
     media_video: Option<(String, gpui_video_player::Video)>,
     #[cfg(feature = "media-video")]
     media_error: Option<String>,
+    #[cfg(feature = "media-video")]
+    inline_video: Option<(String, gpui_video_player::Video)>,
     lightbox_pan: Point<Pixels>,
     lightbox_drag_last: Option<Point<Pixels>>,
     drafts: HashMap<i64, String>,
@@ -802,6 +804,8 @@ impl LoungeApp {
             media_video: None,
             #[cfg(feature = "media-video")]
             media_error: None,
+            #[cfg(feature = "media-video")]
+            inline_video: None,
             lightbox_pan: Point::default(),
             lightbox_drag_last: None,
             drafts,

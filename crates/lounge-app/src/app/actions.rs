@@ -419,6 +419,8 @@ impl LoungeApp {
         self.messages_list.reset(0);
         self.messages_list_keys.clear();
         self.message_rows_cache = None;
+        #[cfg(feature = "media-video")]
+        self.clear_inline_media();
         self.messages_at_bottom = true;
         self.scroll_to_bottom_pending = false;
         self.image_cache_current.borrow_mut().clear();

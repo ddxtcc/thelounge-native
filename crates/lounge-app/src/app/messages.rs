@@ -458,17 +458,42 @@ impl LoungeApp {
                 .gap_1()
                 .child(div().truncate().child(label));
             if playable {
-                card = card
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                #[cfg(feature = "media-video")]
+                let mut inline_active = false;
+                #[cfg(not(feature = "media-video"))]
+                let inline_active = false;
+                #[cfg(feature = "media-video")]
+                {
+                    let kind = if video {
+                        super::media::MediaKind::Video
+                    } else {
+                        super::media::MediaKind::Audio
+                    };
+                    if let Some(inline) = self.render_inline_media(&play_url, kind, cx) {
+                        card = card.child(inline);
+                        inline_active = true;
+                    } else {
+                        let inline_url = play_url.clone();
+                        card = card.on_click(cx.listener(move |this, _, _, cx| {
+                            this.play_inline_media(inline_url.clone(), cx);
+                        }));
+                    }
+                }
+                #[cfg(not(feature = "media-video"))]
+                {
+                    card = card.on_click(cx.listener(move |this, _, _, cx| {
                         this.play_media_or_open(play_url.clone(), cx);
-                    }))
-                    .child(
+                    }));
+                }
+                if !inline_active {
+                    card = card.child(
                         div()
                             .text_size(px(11.))
                             .text_color(theme.accent)
                             .child(if video { "Play video" } else { "Play audio" }),
                     );
-                if let Some(thumb) = thumb {
+                }
+                if !inline_active && let Some(thumb) = thumb {
                     self.touch_image(&thumb);
                     card = card.child(
                         div()

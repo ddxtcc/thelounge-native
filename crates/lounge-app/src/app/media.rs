@@ -29,6 +29,7 @@ impl LoungeApp {
         self.lightbox_drag_last = None;
         self.media_video = None;
         self.media_error = None;
+        self.inline_video = None;
         let parsed = match url::Url::parse(&url) {
             Ok(parsed) => parsed,
             Err(error) => {
@@ -50,6 +51,144 @@ impl LoungeApp {
     pub(super) fn clear_media(&mut self) {
         self.media_video = None;
         self.media_error = None;
+    }
+
+    pub(super) fn clear_inline_media(&mut self) {
+        self.inline_video = None;
+    }
+
+    pub(super) fn play_inline_media(&mut self, url: String, cx: &mut Context<Self>) {
+        if self
+            .inline_video
+            .as_ref()
+            .is_some_and(|(current, _)| current == &url)
+        {
+            return;
+        }
+        self.inline_video = None;
+        let Ok(parsed) = url::Url::parse(&url) else {
+            self.toast("Invalid media URL.");
+            return;
+        };
+        match gpui_video_player::Video::new(&parsed) {
+            Ok(video) => {
+                video.set_looping(true);
+                self.inline_video = Some((url, video));
+            }
+            Err(error) => self.toast(format!("Could not play media: {error}")),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn render_inline_media(
+        &self,
+        url: &str,
+        kind: MediaKind,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let (_, video) = self
+            .inline_video
+            .as_ref()
+            .filter(|(current, _)| current == url)?;
+        let video = video.clone();
+        let toggle = video.clone();
+        let mute = video.clone();
+        let open_url = url.to_string();
+        let paused = video.paused();
+        let muted = video.muted();
+        let mut card = div()
+            .id(ElementId::Name(format!("inline-media-{url}").into()))
+            .w_full()
+            .max_w(px(460.))
+            .rounded(px(6.))
+            .bg(self.theme.panel)
+            .border_1()
+            .border_color(self.theme.border)
+            .p_2()
+            .flex()
+            .flex_col()
+            .gap_2();
+        if kind == MediaKind::Video {
+            card = card.child(
+                gpui_video_player::video(video)
+                    .id(ElementId::Name(format!("inline-video-{url}").into()))
+                    .buffer_capacity(30)
+                    .size(px(440.), px(248.)),
+            );
+        } else {
+            card = card.child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(self.theme.text)
+                    .child(url.rsplit('/').next().unwrap_or(url).to_string()),
+            );
+        }
+        card = card.child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .id("inline-media-toggle")
+                        .px_2()
+                        .py_1()
+                        .rounded(px(4.))
+                        .bg(self.theme.sidebar)
+                        .cursor_pointer()
+                        .hover(|style| style.bg(self.theme.hover))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            toggle.set_paused(!toggle.paused());
+                            cx.notify();
+                        }))
+                        .child(if paused { "Play" } else { "Pause" }),
+                )
+                .child(
+                    div()
+                        .id("inline-media-mute")
+                        .px_2()
+                        .py_1()
+                        .rounded(px(4.))
+                        .bg(self.theme.sidebar)
+                        .cursor_pointer()
+                        .hover(|style| style.bg(self.theme.hover))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            mute.set_muted(!mute.muted());
+                            cx.notify();
+                        }))
+                        .child(if muted { "Unmute" } else { "Mute" }),
+                )
+                .child(
+                    div()
+                        .id("inline-media-open")
+                        .px_2()
+                        .py_1()
+                        .rounded(px(4.))
+                        .text_color(self.theme.accent)
+                        .cursor_pointer()
+                        .hover(|style| style.underline())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open_lightbox(open_url.clone(), cx);
+                        }))
+                        .child("Open"),
+                )
+                .child(
+                    div()
+                        .id("inline-media-close")
+                        .px_2()
+                        .py_1()
+                        .rounded(px(4.))
+                        .text_color(self.theme.muted)
+                        .cursor_pointer()
+                        .hover(|style| style.text_color(self.theme.text))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.clear_inline_media();
+                            cx.notify();
+                        }))
+                        .child("Close"),
+                ),
+        );
+        Some(card.into_any_element())
     }
 
     pub(super) fn render_media_lightbox(
