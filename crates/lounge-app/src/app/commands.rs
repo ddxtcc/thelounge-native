@@ -15,11 +15,17 @@ impl LoungeApp {
                 PaletteMode::Channels => "Switch to channel...",
                 PaletteMode::Themes => "Choose a theme...",
                 PaletteMode::Alias => "alias = command label",
+                PaletteMode::Hotkey => "e.g. control+alt+l",
                 PaletteMode::Users(action) => action.prompt(),
             });
             input.set_content("", cx);
         });
-        self.focus_request = Some(InputRole::Palette);
+        if mode == PaletteMode::Hotkey {
+            self.focus_request = None;
+            self.focus_root_request = true;
+        } else {
+            self.focus_request = Some(InputRole::Palette);
+        }
         cx.notify();
     }
 
@@ -126,7 +132,7 @@ impl LoungeApp {
                 }
                 entries
             }
-            Some(PaletteMode::Alias) => Vec::new(),
+            Some(PaletteMode::Alias) | Some(PaletteMode::Hotkey) => Vec::new(),
             Some(PaletteMode::Users(action)) => {
                 let Some((network, channel)) = self.state.active_channel() else {
                     return Vec::new();
@@ -212,6 +218,18 @@ impl LoungeApp {
             | PaletteEntry::Recent(command)
             | PaletteEntry::Favorite(command) => match command {
                 PaletteCommand::Settings => self.open_settings(cx),
+                PaletteCommand::SettingsTab(tab) => {
+                    self.settings_tab = tab;
+                    self.settings_open = true;
+                    cx.notify();
+                }
+                PaletteCommand::ToggleTray => {
+                    self.set_tray_enabled(!self.config.show_tray_icon, cx);
+                }
+                PaletteCommand::ToggleGlobalHotkey => {
+                    self.set_global_hotkey_enabled(!self.config.enable_global_hotkey, cx);
+                }
+                PaletteCommand::SetGlobalHotkey => self.open_hotkey_palette(false, cx),
                 PaletteCommand::Security => {
                     self.settings_open = false;
                     self.security_open = true;
@@ -557,6 +575,25 @@ impl LoungeApp {
             .map(|(label, _)| *label)
     }
 
+    pub(super) fn finish_hotkey_capture(&mut self, cx: &mut Context<Self>) {
+        let return_to_settings = self.hotkey_settings_return;
+        self.hotkey_settings_return = false;
+        self.palette = None;
+        if return_to_settings {
+            self.settings_open = true;
+            self.settings_tab = SettingsTab::General;
+            self.focus_root_request = true;
+        } else {
+            self.pending_focus = true;
+        }
+        cx.notify();
+    }
+
+    pub(super) fn cancel_hotkey_capture(&mut self, cx: &mut Context<Self>) {
+        self.finish_hotkey_capture(cx);
+        self.toast("Global shortcut unchanged.");
+    }
+
     pub(super) fn save_command_alias(&mut self, cx: &mut Context<Self>) {
         let input = self.inputs.palette.read(cx).content().trim().to_string();
         let Some((alias, target)) = input.split_once('=') else {
@@ -621,6 +658,28 @@ impl LoungeApp {
 fn command_defs() -> &'static [(&'static str, PaletteCommand)] {
     &[
         ("Open settings", PaletteCommand::Settings),
+        (
+            "Settings: Appearance",
+            PaletteCommand::SettingsTab(SettingsTab::Appearance),
+        ),
+        (
+            "Settings: Messages",
+            PaletteCommand::SettingsTab(SettingsTab::Messages),
+        ),
+        (
+            "Settings: General",
+            PaletteCommand::SettingsTab(SettingsTab::General),
+        ),
+        (
+            "Settings: Server",
+            PaletteCommand::SettingsTab(SettingsTab::Server),
+        ),
+        (
+            "Settings: About",
+            PaletteCommand::SettingsTab(SettingsTab::About),
+        ),
+        ("Toggle tray icon", PaletteCommand::ToggleTray),
+        ("Toggle global shortcut", PaletteCommand::ToggleGlobalHotkey),
         ("Add command alias", PaletteCommand::AddAlias),
         ("Keyboard shortcuts", PaletteCommand::Shortcuts),
         ("Security & sessions", PaletteCommand::Security),
@@ -718,6 +777,7 @@ fn command_defs() -> &'static [(&'static str, PaletteCommand)] {
             "Disconnect current network",
             PaletteCommand::DisconnectNetwork,
         ),
+        ("Set global shortcut", PaletteCommand::SetGlobalHotkey),
         ("Remove current network", PaletteCommand::RemoveNetwork),
         ("Move current network up", PaletteCommand::MoveNetworkUp),
         ("Move current network down", PaletteCommand::MoveNetworkDown),

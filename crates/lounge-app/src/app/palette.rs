@@ -3,6 +3,25 @@ use super::*;
 impl LoungeApp {
     pub(super) fn render_palette(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
+        if self.palette == Some(PaletteMode::Hotkey) {
+            return self
+                .modal_card("Global shortcut", cx)
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .child("Press the new shortcut. Include Ctrl, Alt, or Meta."),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(theme.muted)
+                        .child(format!("Current: {}", self.config.global_hotkey)),
+                )
+                .child(self.menu_button("Cancel", cx, |this, _, cx| {
+                    this.cancel_hotkey_capture(cx);
+                }))
+                .into_any_element();
+        }
         let entries = self.palette_entries(cx);
         let selection = self.palette_selection.min(entries.len().saturating_sub(1));
         let title = match self.palette {
@@ -10,6 +29,7 @@ impl LoungeApp {
             Some(PaletteMode::Channels) => "Switch channel",
             Some(PaletteMode::Themes) => "Choose theme",
             Some(PaletteMode::Alias) => "Add command alias",
+            Some(PaletteMode::Hotkey) => "Global shortcut",
             Some(PaletteMode::Users(action)) => action.title(),
             None => "Command palette",
         };

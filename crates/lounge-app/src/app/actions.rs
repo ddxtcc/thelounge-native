@@ -832,6 +832,133 @@ impl LoungeApp {
         cx.notify();
     }
 
+    pub(super) fn set_tray_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.config.show_tray_icon = enabled;
+        self.config.save();
+        #[cfg(target_os = "linux")]
+        {
+            if enabled {
+                if self.tray_handle.is_none()
+                    && let Some((handle, receiver)) = crate::app::tray::spawn()
+                {
+                    let unread = self.state.total_unread();
+                    handle.update(|tray| tray.unread = unread);
+                    self.tray_handle = Some(handle);
+                    self.tray_action_rx = receiver;
+                }
+            } else if let Some(handle) = self.tray_handle.take() {
+                handle.shutdown().wait();
+                self.tray_action_rx = std::sync::mpsc::channel().1;
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if enabled {
+                if self.tray_handle.is_none()
+                    && let Some((handle, receiver)) = crate::app::tray_windows::spawn()
+                {
+                    handle.set_unread(self.state.total_unread());
+                    self.tray_handle = Some(handle);
+                    self.tray_action_rx = receiver;
+                }
+            } else if let Some(handle) = self.tray_handle.take() {
+                handle.stop();
+                self.tray_action_rx = std::sync::mpsc::channel().1;
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        {
+            let _ = enabled;
+            let _ = cx;
+        }
+        cx.notify();
+    }
+
+    pub(super) fn set_global_hotkey_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.config.enable_global_hotkey = enabled;
+        self.config.save();
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        {
+            use global_hotkey::{
+                GlobalHotKeyManager,
+                hotkey::{Code, HotKey, Modifiers},
+            };
+            let hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyL);
+            if enabled {
+                if self.hotkey_manager.is_none()
+                    && let Ok(manager) = GlobalHotKeyManager::new()
+                {
+                    let _ = manager.register(hotkey);
+                    self.hotkey_manager = Some(manager);
+                }
+            } else if let Some(manager) = self.hotkey_manager.take() {
+                let _ = manager.unregister(hotkey);
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        {
+            let _ = enabled;
+            let _ = cx;
+        }
+        cx.notify();
+    }
+
+    pub(super) fn open_hotkey_palette(&mut self, return_to_settings: bool, cx: &mut Context<Self>) {
+        self.hotkey_settings_return = return_to_settings;
+        self.open_palette(PaletteMode::Hotkey, cx);
+    }
+
+    pub(super) fn set_global_hotkey(&mut self, spec: &str, cx: &mut Context<Self>) -> bool {
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        {
+            let _ = spec;
+            let _ = cx;
+            self.toast("Global shortcuts are not available on this platform.");
+            return false;
+        }
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        {
+            use global_hotkey::{GlobalHotKeyManager, hotkey::HotKey};
+            let Ok(hotkey) = spec.parse::<HotKey>() else {
+                self.toast("Invalid shortcut. Try control+alt+l.");
+                return false;
+            };
+            if hotkey.mods.is_empty() {
+                self.toast("Include at least one modifier.");
+                return false;
+            }
+            let old = self.config.global_hotkey.parse::<HotKey>().ok();
+            let manager = match self.hotkey_manager.take() {
+                Some(manager) => manager,
+                None => match GlobalHotKeyManager::new() {
+                    Ok(manager) => manager,
+                    Err(error) => {
+                        self.toast(format!("Could not enable global shortcut: {error}"));
+                        return false;
+                    }
+                },
+            };
+            if let Some(old) = old {
+                let _ = manager.unregister(old);
+            }
+            if let Err(error) = manager.register(hotkey) {
+                if let Some(old) = old {
+                    let _ = manager.register(old);
+                }
+                self.hotkey_manager = Some(manager);
+                self.toast(format!("Shortcut unavailable: {error}"));
+                return false;
+            }
+            self.hotkey_manager = Some(manager);
+            self.config.global_hotkey = hotkey.into_string();
+            self.config.enable_global_hotkey = true;
+            self.config.save();
+            self.toast(format!("Global shortcut: {}", self.config.global_hotkey));
+            cx.notify();
+            true
+        }
+    }
+
     pub(super) fn unread_mentions(&self) -> usize {
         self.state
             .mentions

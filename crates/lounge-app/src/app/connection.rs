@@ -176,13 +176,46 @@ impl LoungeApp {
                         .map(|(_, channel)| channel.chan.name.clone())
                         .unwrap_or_default();
                     let body = format::clean(&message.msg.text);
-                    std::thread::spawn(move || {
-                        let _ = std::process::Command::new("notify-send")
-                            .arg("--app-name=Lounge Native")
-                            .arg(format!("{nick} ({channel_name})"))
-                            .arg(body)
-                            .status();
-                    });
+                    let chan_id = message.chan;
+                    #[cfg(target_os = "linux")]
+                    {
+                        let actions = self.notification_action_tx.clone();
+                        std::thread::spawn(move || {
+                            let output = std::process::Command::new("notify-send")
+                                .arg("--wait")
+                                .arg("--expire-time=10000")
+                                .arg("--action=default=Open")
+                                .arg("--app-name=Lounge Native")
+                                .arg(format!("{nick} ({channel_name})"))
+                                .arg(body)
+                                .output();
+                            if let Ok(output) = output
+                                && String::from_utf8_lossy(&output.stdout).contains("default")
+                            {
+                                let _ = actions.send(chan_id);
+                            }
+                        });
+                    }
+                    #[cfg(target_os = "windows")]
+                    {
+                        let actions = self.notification_action_tx.clone();
+                        let title = format!("{nick} ({channel_name})");
+                        std::thread::spawn(move || {
+                            use tauri_winrt_notification::Toast;
+                            let _ = Toast::new("Lounge.Native")
+                                .title(&title)
+                                .text1(&body)
+                                .on_activated(move |_| {
+                                    let _ = actions.send(chan_id);
+                                    Ok(())
+                                })
+                                .show();
+                        });
+                    }
+                    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                    {
+                        let _ = (body, chan_id, nick, channel_name);
+                    }
                 }
                 self.state.apply(event);
                 if is_search_results {

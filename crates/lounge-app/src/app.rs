@@ -20,6 +20,15 @@ use crate::text_input::{InputAction, InputColors, InputRole, TextInput};
 use crate::theme::Theme;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+enum SettingsTab {
+    Appearance,
+    Messages,
+    General,
+    Server,
+    About,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Route {
     Login,
     Chat,
@@ -169,6 +178,7 @@ enum PaletteMode {
     Channels,
     Themes,
     Alias,
+    Hotkey,
     Users(PaletteUserAction),
 }
 
@@ -182,6 +192,10 @@ impl PaletteCommand {
             | Self::SettingsAwayMessage
             | Self::AddAlias => "Settings",
             Self::Shortcuts => "Help",
+            Self::SettingsTab(_)
+            | Self::ToggleTray
+            | Self::ToggleGlobalHotkey
+            | Self::SetGlobalHotkey => "Settings",
             Self::SwitchChannel
             | Self::NextChannel
             | Self::PreviousChannel
@@ -309,6 +323,10 @@ enum PaletteCommand {
     SignOut,
     AddAlias,
     Shortcuts,
+    SettingsTab(SettingsTab),
+    ToggleTray,
+    ToggleGlobalHotkey,
+    SetGlobalHotkey,
     UserAction(PaletteUserAction),
 }
 
@@ -488,7 +506,22 @@ pub struct LoungeApp {
     typing_active: bool,
     last_typing_sent: Option<Instant>,
     toast: Option<Toast>,
+    notification_action_tx: std::sync::mpsc::Sender<i64>,
+    notification_action_rx: std::sync::mpsc::Receiver<i64>,
+    window_title: String,
+    hotkey_settings_return: bool,
+    #[cfg(target_os = "linux")]
+    tray_handle: Option<ksni::blocking::Handle<tray::LoungeTray>>,
+    #[cfg(target_os = "linux")]
+    tray_action_rx: std::sync::mpsc::Receiver<tray::TrayAction>,
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    hotkey_manager: Option<global_hotkey::GlobalHotKeyManager>,
+    #[cfg(target_os = "windows")]
+    tray_handle: Option<tray_windows::TrayHandle>,
+    #[cfg(target_os = "windows")]
+    tray_action_rx: std::sync::mpsc::Receiver<tray_windows::TrayAction>,
     settings_open: bool,
+    settings_tab: SettingsTab,
     network_modal_open: bool,
     search_open: bool,
     shortcuts_open: bool,
@@ -541,6 +574,8 @@ pub struct LoungeApp {
 }
 
 mod actions;
+#[cfg(target_os = "linux")]
+mod badge;
 mod commands;
 mod connection;
 mod menus;
@@ -554,6 +589,10 @@ mod settings;
 mod sidebar;
 mod special;
 mod tooltip;
+#[cfg(target_os = "linux")]
+mod tray;
+#[cfg(target_os = "windows")]
+mod tray_windows;
 mod uploads;
 
 impl LoungeApp {
@@ -670,6 +709,48 @@ impl LoungeApp {
             .map(|history| (history.channel, history.entries.clone()))
             .collect();
 
+        let (notification_action_tx, notification_action_rx) = std::sync::mpsc::channel();
+        #[cfg(target_os = "linux")]
+        let (tray_handle, tray_action_rx) = if config.show_tray_icon {
+            tray::spawn().map_or_else(
+                || (None, std::sync::mpsc::channel().1),
+                |(handle, receiver)| (Some(handle), receiver),
+            )
+        } else {
+            (None, std::sync::mpsc::channel().1)
+        };
+        #[cfg(target_os = "windows")]
+        let (tray_handle, tray_action_rx) = if config.show_tray_icon {
+            tray_windows::spawn().map_or_else(
+                || (None, std::sync::mpsc::channel().1),
+                |(handle, receiver)| (Some(handle), receiver),
+            )
+        } else {
+            (None, std::sync::mpsc::channel().1)
+        };
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        let hotkey_manager = {
+            use global_hotkey::{
+                GlobalHotKeyManager,
+                hotkey::{Code, HotKey, Modifiers},
+            };
+            let manager = config
+                .enable_global_hotkey
+                .then(GlobalHotKeyManager::new)
+                .and_then(Result::ok);
+            if let Some(manager) = &manager {
+                let hotkey = config
+                    .global_hotkey
+                    .parse::<HotKey>()
+                    .ok()
+                    .filter(|hotkey| !hotkey.mods.is_empty())
+                    .unwrap_or_else(|| {
+                        HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyL)
+                    });
+                let _ = manager.register(hotkey);
+            }
+            manager
+        };
         let mut app = Self {
             config,
             theme,
@@ -710,7 +791,22 @@ impl LoungeApp {
             typing_active: false,
             last_typing_sent: None,
             toast: None,
+            notification_action_tx,
+            notification_action_rx,
+            window_title: "Lounge Native".to_string(),
+            hotkey_settings_return: false,
+            #[cfg(target_os = "linux")]
+            tray_handle,
+            #[cfg(target_os = "linux")]
+            tray_action_rx,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            hotkey_manager,
+            #[cfg(target_os = "windows")]
+            tray_handle,
+            #[cfg(target_os = "windows")]
+            tray_action_rx,
             settings_open: false,
+            settings_tab: SettingsTab::Appearance,
             network_modal_open: false,
             search_open: false,
             shortcuts_open: false,
