@@ -677,6 +677,7 @@ impl LoungeApp {
                                     .bg(theme.sidebar)
                                     .child(
                                         gpui::img(poster.path)
+                                            .image_cache(&self.image_cache)
                                             .w_full()
                                             .h_full()
                                             .object_fit(gpui::ObjectFit::Contain),

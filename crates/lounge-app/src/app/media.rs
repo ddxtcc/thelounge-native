@@ -158,14 +158,23 @@ impl LoungeApp {
         self.media_video = None;
         self.media_audio = None;
         self.media_error = None;
-        self.inline_video = None;
-        self.inline_audio = None;
         let kind = media_kind(&url).unwrap_or(MediaKind::Video);
+        let inline_audio = self.inline_audio.take().filter(|inline| inline.url == url);
+        let inline_video = self.inline_video.take().filter(|inline| inline.url == url);
         if kind == MediaKind::Audio {
-            match start_audio(&url) {
-                Ok(pipeline) => self.media_audio = Some(pipeline),
-                Err(error) => self.media_error = Some(error),
+            if let Some(inline) = inline_audio {
+                self.media_audio = Some(inline.pipeline);
+            } else {
+                match start_audio(&url) {
+                    Ok(pipeline) => self.media_audio = Some(pipeline),
+                    Err(error) => self.media_error = Some(error),
+                }
             }
+            cx.notify();
+            return;
+        }
+        if let Some(inline) = inline_video {
+            self.media_video = Some((url, inline.video));
             cx.notify();
             return;
         }
