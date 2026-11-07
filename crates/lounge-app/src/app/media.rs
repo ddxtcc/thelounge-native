@@ -152,6 +152,27 @@ fn format_clock(seconds: u64) -> String {
     format!("{}:{:02}", seconds / 60, seconds % 60)
 }
 
+fn seek_audio(pipeline: &gst::Pipeline, bounds: Bounds<Pixels>, x: Pixels) {
+    if bounds.size.width <= px(0.) {
+        return;
+    }
+    let fraction = ((x - bounds.origin.x) / bounds.size.width).clamp(0., 1.);
+    let Some(duration) = pipeline.query_duration::<gst::ClockTime>() else {
+        return;
+    };
+    let target =
+        gst::ClockTime::from_nseconds((duration.nseconds() as f64 * fraction as f64) as u64);
+    let _ = pipeline.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, target);
+}
+
+fn set_audio_volume(pipeline: &gst::Pipeline, bounds: Bounds<Pixels>, x: Pixels) {
+    if bounds.size.width <= px(0.) {
+        return;
+    }
+    let fraction: f32 = ((x - bounds.origin.x) / bounds.size.width).clamp(0., 1.);
+    pipeline.set_property("volume", f64::from(fraction));
+}
+
 impl LoungeApp {
     fn start_audio_ticker(&mut self, cx: &mut Context<Self>) {
         self.audio_ticker_generation = self.audio_ticker_generation.wrapping_add(1);
@@ -445,12 +466,16 @@ impl LoungeApp {
             std::rc::Rc::new(std::cell::RefCell::new(None));
         let volume_prepaint = volume_bounds.clone();
         let volume_pipeline = pipeline.clone();
+        let volume_move_pipeline = pipeline.clone();
         let volume_click_bounds = volume_bounds.clone();
+        let volume_move_bounds = volume_bounds.clone();
         let track_bounds: std::rc::Rc<std::cell::RefCell<Option<Bounds<Pixels>>>> =
             std::rc::Rc::new(std::cell::RefCell::new(None));
         let prepaint_bounds = track_bounds.clone();
         let seek = pipeline.clone();
+        let seek_move = seek.clone();
         let seek_bounds = track_bounds.clone();
+        let seek_move_bounds = track_bounds.clone();
         div()
             .w_full()
             .flex()
@@ -467,30 +492,24 @@ impl LoungeApp {
                     })
                     .on_mouse_down(
                         gpui::MouseButton::Left,
-                        cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                        cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
                             let Some(bounds) = *seek_bounds.borrow() else {
                                 return;
                             };
-                            if bounds.size.width <= px(0.) {
-                                return;
-                            }
-                            let fraction = ((event.position.x - bounds.origin.x)
-                                / bounds.size.width)
-                                .clamp(0., 1.);
-                            let Some(duration) = seek.query_duration::<gst::ClockTime>() else {
-                                return;
-                            };
-                            let target = gst::ClockTime::from_nseconds(
-                                (duration.nseconds() as f64 * fraction as f64) as u64,
-                            );
-                            let _ = seek.seek_simple(
-                                gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-                                target,
-                            );
-                            this.start_audio_ticker(cx);
+                            seek_audio(&seek, bounds, event.position.x);
                             cx.notify();
                         }),
                     )
+                    .on_mouse_move(cx.listener(move |_, event: &gpui::MouseMoveEvent, _, cx| {
+                        if event.pressed_button != Some(gpui::MouseButton::Left) {
+                            return;
+                        }
+                        let Some(bounds) = *seek_move_bounds.borrow() else {
+                            return;
+                        };
+                        seek_audio(&seek_move, bounds, event.position.x);
+                        cx.notify();
+                    }))
                     .child(
                         div()
                             .h(px(5.))
@@ -531,16 +550,30 @@ impl LoungeApp {
                                         let Some(bounds) = *volume_click_bounds.borrow() else {
                                             return;
                                         };
-                                        if bounds.size.width <= px(0.) {
-                                            return;
-                                        }
-                                        let fraction: f32 = ((event.position.x - bounds.origin.x)
-                                            / bounds.size.width)
-                                            .clamp(0., 1.);
-                                        volume_pipeline.set_property("volume", f64::from(fraction));
+                                        set_audio_volume(
+                                            &volume_pipeline,
+                                            bounds,
+                                            event.position.x,
+                                        );
                                         cx.notify();
                                     }),
                                 )
+                                .on_mouse_move(cx.listener(
+                                    move |_, event: &gpui::MouseMoveEvent, _, cx| {
+                                        if event.pressed_button != Some(gpui::MouseButton::Left) {
+                                            return;
+                                        }
+                                        let Some(bounds) = *volume_move_bounds.borrow() else {
+                                            return;
+                                        };
+                                        set_audio_volume(
+                                            &volume_move_pipeline,
+                                            bounds,
+                                            event.position.x,
+                                        );
+                                        cx.notify();
+                                    },
+                                ))
                                 .child(
                                     div()
                                         .w_full()
