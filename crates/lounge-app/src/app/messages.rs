@@ -106,11 +106,12 @@ impl LoungeApp {
         }
 
         let chrome = if self.narrow { 110. } else { 80. };
-        let max_list_height = (window.viewport_size().height - px(chrome)).max(px(120.));
+        let viewport_height = window.window_bounds().get_bounds().size.height;
+        let max_list_height = (viewport_height - px(chrome)).max(px(120.));
         let list_height = if self.messages_available > px(0.) {
             self.messages_available.min(max_list_height)
         } else {
-            (window.viewport_size().height - px(150.)).max(px(120.))
+            (viewport_height - px(150.)).max(px(120.))
         };
         let entity = cx.entity();
         let item_rows = rows.clone();
@@ -118,6 +119,11 @@ impl LoungeApp {
         let bounds_weak = entity.downgrade();
         let selection_weak = entity.downgrade();
         div()
+            .flex()
+            .flex_1()
+            .w_full()
+            .min_h(px(0.))
+            .relative()
             .on_children_prepainted(move |bounds, _, cx| {
                 if let Some(bounds) = bounds.first()
                     && let Some(this) = bounds_weak.upgrade()
@@ -125,6 +131,7 @@ impl LoungeApp {
                     this.update(cx, |this, _| this.messages_bounds = Some(*bounds));
                 }
             })
+            .id("messages")
             .on_mouse_up_out(
                 MouseButton::Left,
                 cx.listener(|this, _: &gpui::MouseUpEvent, _, cx| {

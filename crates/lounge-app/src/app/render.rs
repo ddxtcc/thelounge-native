@@ -175,7 +175,7 @@ impl LoungeApp {
         root = root.child(
             div()
                 .flex_1()
-                .h(window.viewport_size().height)
+                .h(window.window_bounds().get_bounds().size.height)
                 .min_w(px(0.))
                 .flex()
                 .flex_col()
@@ -188,7 +188,7 @@ impl LoungeApp {
                     if bounds.len() < 3 {
                         return;
                     }
-                    let available = (window.viewport_size().height
+                    let available = (window.window_bounds().get_bounds().size.height
                         - bounds[0].size.height
                         - bounds[bounds.len() - 1].size.height)
                         .max(px(0.));
