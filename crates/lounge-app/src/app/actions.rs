@@ -210,8 +210,6 @@ impl LoungeApp {
                 InputAction::Submit => {
                     if self.palette == Some(PaletteMode::Alias) {
                         self.save_command_alias(cx);
-                    } else if self.palette == Some(PaletteMode::Hotkey) {
-                        self.save_global_hotkey(cx);
                     } else {
                         self.run_palette_selection(cx);
                     }
@@ -941,7 +939,6 @@ impl LoungeApp {
             self.config.enable_global_hotkey = true;
             self.config.save();
             self.toast(format!("Global shortcut: {}", self.config.global_hotkey));
-            self.hotkey_settings_return = false;
             cx.notify();
             true
         }

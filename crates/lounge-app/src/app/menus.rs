@@ -474,6 +474,8 @@ impl LoungeApp {
     }
 
     pub(super) fn close_overlays(&mut self, cx: &mut Context<Self>) {
+        let return_hotkey_settings =
+            self.palette == Some(PaletteMode::Hotkey) && self.hotkey_settings_return;
         self.last_overlay_open = false;
         self.sidebar_overlay = false;
         self.users_overlay = false;
@@ -503,7 +505,13 @@ impl LoungeApp {
         self.pending_context = None;
         self.shortcuts_open = false;
         self.hotkey_settings_return = false;
-        self.pending_focus = true;
+        if return_hotkey_settings {
+            self.settings_open = true;
+            self.settings_tab = SettingsTab::General;
+            self.focus_root_request = true;
+        } else {
+            self.pending_focus = true;
+        }
         cx.notify();
     }
 

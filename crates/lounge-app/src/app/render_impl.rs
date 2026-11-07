@@ -117,6 +117,49 @@ impl Render for LoungeApp {
             .id("app-root")
             .track_focus(&self.root_focus)
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if this.palette == Some(PaletteMode::Hotkey) {
+                    let key = event.keystroke.key.to_lowercase();
+                    if key == "escape" {
+                        this.cancel_hotkey_capture(cx);
+                        cx.stop_propagation();
+                        return;
+                    }
+                    let mut parts = Vec::new();
+                    if event.keystroke.modifiers.control {
+                        parts.push("control");
+                    }
+                    if event.keystroke.modifiers.alt {
+                        parts.push("alt");
+                    }
+                    if event.keystroke.modifiers.shift {
+                        parts.push("shift");
+                    }
+                    if event.keystroke.modifiers.platform {
+                        parts.push("meta");
+                    }
+                    if parts.is_empty()
+                        || matches!(
+                            key.as_str(),
+                            "control" | "alt" | "shift" | "platform" | "super" | "meta"
+                        )
+                    {
+                        if !matches!(
+                            key.as_str(),
+                            "control" | "alt" | "shift" | "platform" | "super" | "meta"
+                        ) {
+                            this.toast("Include Ctrl, Alt, or Meta.");
+                        }
+                        cx.stop_propagation();
+                        return;
+                    }
+                    parts.push(&key);
+                    let spec = parts.join("+");
+                    if this.set_global_hotkey(&spec, cx) {
+                        this.finish_hotkey_capture(cx);
+                    }
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.mentions_open
                     && !event.keystroke.modifiers.control
                     && !event.keystroke.modifiers.alt

@@ -20,7 +20,12 @@ impl LoungeApp {
             });
             input.set_content("", cx);
         });
-        self.focus_request = Some(InputRole::Palette);
+        if mode == PaletteMode::Hotkey {
+            self.focus_request = None;
+            self.focus_root_request = true;
+        } else {
+            self.focus_request = Some(InputRole::Palette);
+        }
         cx.notify();
     }
 
@@ -570,21 +575,23 @@ impl LoungeApp {
             .map(|(label, _)| *label)
     }
 
-    pub(super) fn save_global_hotkey(&mut self, cx: &mut Context<Self>) {
-        let spec = self.inputs.palette.read(cx).content().trim().to_string();
-        if self.set_global_hotkey(&spec, cx) {
-            let return_to_settings = self.hotkey_settings_return;
-            self.hotkey_settings_return = false;
-            self.palette = None;
-            if return_to_settings {
-                self.settings_open = true;
-                self.settings_tab = SettingsTab::General;
-                self.focus_root_request = true;
-            } else {
-                self.pending_focus = true;
-            }
-            cx.notify();
+    pub(super) fn finish_hotkey_capture(&mut self, cx: &mut Context<Self>) {
+        let return_to_settings = self.hotkey_settings_return;
+        self.hotkey_settings_return = false;
+        self.palette = None;
+        if return_to_settings {
+            self.settings_open = true;
+            self.settings_tab = SettingsTab::General;
+            self.focus_root_request = true;
+        } else {
+            self.pending_focus = true;
         }
+        cx.notify();
+    }
+
+    pub(super) fn cancel_hotkey_capture(&mut self, cx: &mut Context<Self>) {
+        self.finish_hotkey_capture(cx);
+        self.toast("Global shortcut unchanged.");
     }
 
     pub(super) fn save_command_alias(&mut self, cx: &mut Context<Self>) {
