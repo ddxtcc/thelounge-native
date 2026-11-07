@@ -100,8 +100,20 @@ jobs:
             "gstreamer-1.0-devel-msvc-x86_64-$env:GSTREAMER_VERSION.msi"
           )
           foreach ($file in $files) {
-            Invoke-WebRequest "$base/$file" -OutFile $file
-            $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/i `"$PWD\$file`" /qn /norestart"
+            $msiPath = Join-Path $PWD $file
+            $downloaded = $false
+            for ($attempt = 1; $attempt -le 10; $attempt++) {
+              & curl.exe --fail --location --http1.1 --connect-timeout 30 --speed-time 120 --speed-limit 1024 -C - --silent --show-error -o $msiPath "$base/$file"
+              if ($LASTEXITCODE -eq 0) {
+                $downloaded = $true
+                break
+              }
+              Start-Sleep -Seconds 5
+            }
+            if (-not $downloaded) {
+              throw "GStreamer download failed: $file"
+            }
+            $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/i `"$msiPath`" /qn /norestart"
             if ($process.ExitCode -ne 0) {
               throw "GStreamer install failed: $file ($($process.ExitCode))"
             }
