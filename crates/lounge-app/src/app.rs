@@ -562,6 +562,7 @@ pub struct LoungeApp {
     security_open: bool,
     network_menu: Option<String>,
     network_edit_uuid: Option<String>,
+    network_edit_data: Option<serde_json::Map<String, serde_json::Value>>,
     network_has_sts: bool,
     user_menu: Option<UserMenu>,
     channel_menu: Option<ChannelMenu>,
@@ -850,6 +851,7 @@ impl LoungeApp {
             security_open: false,
             network_menu: None,
             network_edit_uuid: None,
+            network_edit_data: None,
             network_has_sts: false,
             user_menu: None,
             channel_menu: None,
@@ -878,6 +880,9 @@ impl LoungeApp {
             let at_bottom = event.visible_range.end >= event.count;
             let _ = weak.update(cx, |this, _| this.messages_at_bottom = at_bottom);
         });
+        if app.config.load_failed {
+            app.toast("Config could not be parsed; using defaults and keeping a backup.");
+        }
         app.prefill_login(cx);
 
         if !app.config.server.is_empty() && !app.config.token.is_empty() {

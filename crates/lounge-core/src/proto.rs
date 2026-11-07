@@ -201,17 +201,17 @@ pub struct Message {
     pub new_nick: Option<String>,
     #[serde(default)]
     pub highlight: bool,
-    #[serde(default)]
+    #[serde(default, rename = "showInActive")]
     pub show_in_active: bool,
     #[serde(default)]
     pub new_ident: Option<String>,
     #[serde(default)]
     pub new_host: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "ctcpMessage")]
     pub ctcp_message: Option<String>,
     #[serde(default)]
     pub command: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "invitedYou")]
     pub invited_you: bool,
     #[serde(default)]
     pub gecos: Option<String>,
@@ -233,15 +233,15 @@ pub struct Message {
     pub whois: Option<Value>,
     #[serde(default)]
     pub users: Vec<String>,
-    #[serde(default)]
+    #[serde(default, rename = "statusmsgGroup")]
     pub statusmsg_group: Option<String>,
     #[serde(default)]
     pub params: Vec<String>,
-    #[serde(default)]
+    #[serde(default, rename = "replyTo")]
     pub reply_to: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "replyToNick")]
     pub reply_to_nick: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "replyToText")]
     pub reply_to_text: Option<String>,
     #[serde(default)]
     pub multiline: bool,
@@ -939,6 +939,38 @@ mod tests {
         assert_eq!(message.previews.len(), 1);
         assert_eq!(message.previews[0].size, -1);
         assert_eq!(message.previews[0].link, "https://example.com");
+    }
+
+    #[test]
+    fn parses_camel_case_message_fields() {
+        let event = ServerEvent::parse(
+            "msg",
+            Some(&serde_json::json!({
+                "chan": 2,
+                "msg": {
+                    "id": 7,
+                    "text": "reply",
+                    "showInActive": true,
+                    "ctcpMessage": "ACTION waves",
+                    "invitedYou": true,
+                    "statusmsgGroup": "@",
+                    "replyTo": "parent",
+                    "replyToNick": "alice",
+                    "replyToText": "hello"
+                }
+            })),
+        )
+        .unwrap();
+        let ServerEvent::Message(event) = event else {
+            panic!("expected message event");
+        };
+        assert!(event.msg.show_in_active);
+        assert_eq!(event.msg.ctcp_message.as_deref(), Some("ACTION waves"));
+        assert!(event.msg.invited_you);
+        assert_eq!(event.msg.statusmsg_group.as_deref(), Some("@"));
+        assert_eq!(event.msg.reply_to.as_deref(), Some("parent"));
+        assert_eq!(event.msg.reply_to_nick.as_deref(), Some("alice"));
+        assert_eq!(event.msg.reply_to_text.as_deref(), Some("hello"));
     }
 
     #[test]

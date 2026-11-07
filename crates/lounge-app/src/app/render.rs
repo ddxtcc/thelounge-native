@@ -605,11 +605,11 @@ impl LoungeApp {
         if let Some(upload) = &self.active_upload {
             let sent = upload.progress.sent();
             let total = upload.progress.total();
-            let percent = if total == 0 {
-                0
-            } else {
-                (sent.min(total) * 100 / total) as u32
-            };
+            let percent = sent
+                .min(total)
+                .saturating_mul(100)
+                .checked_div(total)
+                .unwrap_or(0) as u32;
             let progress = upload.progress.clone();
             footer = footer.child(
                 div()

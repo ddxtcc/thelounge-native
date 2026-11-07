@@ -61,6 +61,7 @@ impl LoungeApp {
         self.messages_list_keys.clear();
         self.messages_at_bottom = true;
         self.scroll_to_bottom_pending = false;
+        self.reset_uploads();
         self.reply_to = None;
         self.history_index = 0;
         self.typing_active = false;
@@ -427,6 +428,7 @@ impl LoungeApp {
         }
         self.conn_generation = self.conn_generation.wrapping_add(1);
         self.conn = None;
+        self.reset_uploads();
         self.config.token.clear();
         self.config.save();
         self.route = Route::Login;

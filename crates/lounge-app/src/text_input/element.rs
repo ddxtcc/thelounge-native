@@ -96,8 +96,10 @@ impl EntityInputHandler for TextInput {
         }
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|range| self.range_from_utf16(range))
-            .map(|range| range.start + range.start..range.start + range.end)
+            .map(|range| {
+                let selected = utf16_range_to_bytes(new_text, range.clone());
+                range.start + selected.start..range.start + selected.end
+            })
             .unwrap_or_else(|| {
                 let cursor = range.start + new_text.len();
                 cursor..cursor
@@ -135,19 +137,6 @@ impl EntityInputHandler for TextInput {
         let offset = self.index_for_mouse_position(point);
         Some(self.offset_to_utf16(offset))
     }
-}
-
-fn clamp_range(text: &str, range: Range<usize>) -> Range<usize> {
-    let start = floor_char_boundary(text, range.start.min(text.len()));
-    let end = floor_char_boundary(text, range.end.min(text.len()));
-    start..end.max(start)
-}
-
-fn floor_char_boundary(text: &str, mut index: usize) -> usize {
-    while index > 0 && !text.is_char_boundary(index) {
-        index -= 1;
-    }
-    index
 }
 
 struct TextElement {

@@ -278,14 +278,20 @@ impl LoungeApp {
         let Some(target) = self.state.active else {
             return;
         };
-        let reply_to = self.reply_to.as_ref().map(|reply| reply.msgid.clone());
-        if let Some(conn) = &self.conn {
-            conn.input(target, text.clone(), reply_to);
-            conn.emit(
-                "typing",
-                Some(serde_json::json!({"target": target, "status": "done"})),
-            );
+        if !self.status.is_online() {
+            self.toast("Not connected. Message left in the composer.");
+            return;
         }
+        let Some(conn) = &self.conn else {
+            self.toast("Not connected. Message left in the composer.");
+            return;
+        };
+        let reply_to = self.reply_to.as_ref().map(|reply| reply.msgid.clone());
+        conn.input(target, text.clone(), reply_to);
+        conn.emit(
+            "typing",
+            Some(serde_json::json!({"target": target, "status": "done"})),
+        );
         self.typing_active = false;
         let history = self.histories.entry(target).or_default();
         if history.last() != Some(&text) {
@@ -305,6 +311,9 @@ impl LoungeApp {
     }
 
     pub(super) fn send_typing(&mut self, active: bool, cx: &mut Context<Self>) {
+        if !self.status.is_online() {
+            return;
+        }
         let Some(target) = self.state.active else {
             return;
         };
@@ -520,10 +529,7 @@ impl LoungeApp {
     pub(super) fn complete(&mut self, cx: &mut Context<Self>) {
         let content = self.inputs.composer.read(cx).content().to_string();
         let trimmed_end = content.trim_end_matches(' ').len();
-        let token_start = content[..trimmed_end]
-            .rfind(char::is_whitespace)
-            .map(|index| index + 1)
-            .unwrap_or(0);
+        let token_start = completion_token_start(&content, trimmed_end);
         let token = &content[token_start..trimmed_end];
 
         if token.starts_with(':')
@@ -826,29 +832,29 @@ impl LoungeApp {
             self.toast("Nickname is required.");
             return;
         }
-        let mut data = serde_json::json!({
-            "name": name,
-            "nick": nick,
-            "username": username,
-            "realname": realname,
-            "password": password,
-            "tls": self.network_tls,
-            "rejectUnauthorized": true,
-        });
+        let mut data = self.network_edit_data.take().unwrap_or_default();
+        data.insert("name".into(), serde_json::json!(name));
+        data.insert("nick".into(), serde_json::json!(nick));
+        data.insert("username".into(), serde_json::json!(username));
+        data.insert("realname".into(), serde_json::json!(realname));
+        data.insert("password".into(), serde_json::json!(password));
+        data.insert("tls".into(), serde_json::json!(self.network_tls));
+        data.entry("rejectUnauthorized")
+            .or_insert_with(|| serde_json::json!(true));
         if !host.is_empty() {
-            data["host"] = serde_json::json!(host);
+            data.insert("host".into(), serde_json::json!(host));
             if let Ok(port) = port_text.parse::<u16>() {
-                data["port"] = serde_json::json!(port);
+                data.insert("port".into(), serde_json::json!(port));
             }
         }
         if let Some(uuid) = self.network_edit_uuid.clone() {
-            data["uuid"] = serde_json::json!(uuid);
-            conn.emit("network:edit", Some(data));
+            data.insert("uuid".into(), serde_json::json!(uuid));
+            conn.emit("network:edit", Some(serde_json::Value::Object(data)));
             self.network_modal_open = false;
             self.network_edit_uuid = None;
             self.toast("Network settings saved.");
         } else {
-            conn.emit("network:new", Some(data));
+            conn.emit("network:new", Some(serde_json::Value::Object(data)));
             self.network_modal_open = false;
             self.toast("Connecting network...");
         }
@@ -1167,6 +1173,14 @@ impl LoungeApp {
     }
 }
 
+fn completion_token_start(content: &str, end: usize) -> usize {
+    content[..end]
+        .char_indices()
+        .rev()
+        .find_map(|(index, ch)| ch.is_whitespace().then_some(index + ch.len_utf8()))
+        .unwrap_or(0)
+}
+
 fn image_eviction_position(touched: &VecDeque<String>, current: &HashSet<String>) -> Option<usize> {
     touched.iter().position(|url| !current.contains(url))
 }
@@ -1191,5 +1205,12 @@ mod tests {
         let touched = VecDeque::from(["one".to_string(), "two".to_string()]);
         let current = HashSet::from(["one".to_string(), "two".to_string()]);
         assert_eq!(image_eviction_position(&touched, &current), None);
+    }
+
+    #[test]
+    fn completion_token_start_handles_multibyte_whitespace() {
+        assert_eq!(completion_token_start("foo bar", 7), 4);
+        assert_eq!(completion_token_start("foo\u{00a0}bar", 8), 5);
+        assert_eq!(completion_token_start("foo\u{3000}bar", 8), 6);
     }
 }

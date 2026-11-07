@@ -189,18 +189,17 @@ async fn run(
                     _ => 15,
                 });
                 let _ = evt_tx.send(ClientEvent::Reconnecting { attempt, delay });
-                tokio::select! {
-                    _ = tokio::time::sleep(delay) => {}
-                    command = cmd_rx.recv() => {
-                        match command {
+                let sleep = tokio::time::sleep(delay);
+                tokio::pin!(sleep);
+                loop {
+                    tokio::select! {
+                        _ = &mut sleep => break,
+                        command = cmd_rx.recv() => match command {
                             Some(Command::Close) | None => {
                                 let _ = evt_tx.send(ClientEvent::Closed);
-                                break;
+                                return;
                             }
-                            _ => {
-
-
-                            }
+                            _ => {}
                         }
                     }
                 }
