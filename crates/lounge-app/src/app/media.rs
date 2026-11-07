@@ -343,8 +343,10 @@ impl LoungeApp {
         let paused = !audio_playing(pipeline);
         let muted = audio_muted(pipeline);
         div()
+            .w_full()
             .flex()
             .items_center()
+            .justify_center()
             .gap_1()
             .child(self.media_icon_button(
                 if paused { "play" } else { "pause" },
@@ -411,7 +413,9 @@ impl LoungeApp {
                     .child(self.render_audio_controls(&audio.pipeline, cx))
                     .child(
                         div()
+                            .w_full()
                             .flex()
+                            .justify_center()
                             .gap_1()
                             .child(self.media_icon_button(
                                 "expand",
@@ -474,8 +478,10 @@ impl LoungeApp {
                 )
                 .child(
                     div()
+                        .w_full()
                         .flex()
                         .items_center()
+                        .justify_center()
                         .gap_1()
                         .child(self.media_icon_button(
                             if paused { "play" } else { "pause" },
@@ -625,8 +631,10 @@ impl LoungeApp {
         }
         body = body.child(
             div()
+                .w_full()
                 .flex()
                 .items_center()
+                .justify_center()
                 .gap_3()
                 .child(self.media_icon_button(
                     if paused { "play" } else { "pause" },
