@@ -299,7 +299,7 @@ impl LoungeApp {
         cx.notify();
     }
 
-    fn media_icon_button(
+    pub(super) fn media_icon_button(
         &self,
         icon: &str,
         tooltip: &str,
