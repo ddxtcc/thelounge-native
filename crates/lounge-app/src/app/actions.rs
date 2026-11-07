@@ -404,7 +404,7 @@ impl LoungeApp {
     pub(super) fn switch_channel_quiet(
         &mut self,
         id: i64,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.sidebar_overlay = false;
@@ -419,12 +419,13 @@ impl LoungeApp {
         self.messages_list.reset(0);
         self.messages_list_keys.clear();
         self.message_rows_cache = None;
+        #[cfg(feature = "media")]
+        {
+            self.clear_inline_media();
+            self.clear_media_posters(_window, cx);
+        }
         self.messages_at_bottom = true;
         self.scroll_to_bottom_pending = false;
-        self.image_cache_current.borrow_mut().clear();
-        self.image_cache_touched.borrow_mut().clear();
-        self.image_cache
-            .update(cx, |cache, cx| cache.clear(window, cx));
         self.save_draft(cx);
         self.scroll_after_more = false;
         self.state.set_active(id);
@@ -785,6 +786,19 @@ impl LoungeApp {
             text: text.into(),
             until: Instant::now() + Duration::from_secs(6),
         });
+    }
+
+    pub(super) fn play_media_or_open(&mut self, url: String, cx: &mut Context<Self>) {
+        #[cfg(feature = "media")]
+        {
+            if super::media::media_kind(&url).is_some() {
+                self.open_media_lightbox(url, cx);
+                return;
+            }
+        }
+        #[cfg(not(feature = "media"))]
+        let _ = cx;
+        let _ = open::that(url);
     }
 
     pub(super) fn submit_network(&mut self, cx: &mut Context<Self>) {

@@ -192,6 +192,8 @@ impl LoungeApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
+        #[cfg(feature = "media")]
+        let row_id = message.id;
         let highlight = message.highlight;
         let is_self = message.is_self;
         let time = format::format_time(
@@ -220,6 +222,8 @@ impl LoungeApp {
         let selection_text = text.clone();
 
         let weak = cx.entity().downgrade();
+        #[cfg(feature = "media")]
+        let inline_message_id = message.id;
         let targets = Rc::new(targets);
         let click = {
             let weak = weak.clone();
@@ -229,7 +233,14 @@ impl LoungeApp {
                 };
                 match target {
                     ClickTarget::Url(url) => {
-                        let _ = open::that(url);
+                        let _ = weak.update(cx, |this, cx| {
+                            #[cfg(feature = "media")]
+                            if let Some(kind) = super::media::media_kind(&url) {
+                                this.play_inline_media(inline_message_id, url.clone(), kind, cx);
+                                return;
+                            }
+                            this.play_media_or_open(url, cx);
+                        });
                     }
                     ClickTarget::Nick(nick) => {
                         let _ = weak.update(cx, |this, cx| this.insert_nick(&nick, cx));
@@ -402,6 +413,8 @@ impl LoungeApp {
         inline_images.sort();
         inline_images.dedup();
 
+        #[cfg(feature = "media")]
+        let mut preview_media_urls = HashSet::new();
         for preview in &message.previews {
             if !self.config.show_previews
                 || preview.head.is_empty()
@@ -439,6 +452,11 @@ impl LoungeApp {
                     .filter(|url| !url.is_empty())
                     .unwrap_or(&preview.link),
             );
+            #[cfg(feature = "media")]
+            if playable {
+                preview_media_urls.insert(play_url.clone());
+                preview_media_urls.insert(self.absolute_media_url(&preview.link));
+            }
             let mut card = div()
                 .id(ElementId::Name(
                     format!("preview-{}-{}", message.id, preview.link).into(),
@@ -458,17 +476,41 @@ impl LoungeApp {
                 .gap_1()
                 .child(div().truncate().child(label));
             if playable {
-                card = card
-                    .on_click(cx.listener(move |_, _, _, _| {
-                        let _ = open::that(play_url.clone());
-                    }))
-                    .child(
+                #[cfg(feature = "media")]
+                let mut inline_active = false;
+                #[cfg(not(feature = "media"))]
+                let inline_active = false;
+                #[cfg(feature = "media")]
+                {
+                    let kind = if video {
+                        super::media::MediaKind::Video
+                    } else {
+                        super::media::MediaKind::Audio
+                    };
+                    if let Some(inline) = self.render_inline_media(row_id, &play_url, cx) {
+                        card = card.child(inline);
+                        inline_active = true;
+                    } else {
+                        card = card.on_click(cx.listener(move |this, _, _, cx| {
+                            this.play_inline_media(row_id, play_url.clone(), kind, cx);
+                        }));
+                    }
+                }
+                #[cfg(not(feature = "media"))]
+                {
+                    card = card.on_click(cx.listener(move |this, _, _, cx| {
+                        this.play_media_or_open(play_url.clone(), cx);
+                    }));
+                }
+                if !inline_active {
+                    card = card.child(
                         div()
                             .text_size(px(11.))
                             .text_color(theme.accent)
                             .child(if video { "Play video" } else { "Play audio" }),
                     );
-                if let Some(thumb) = thumb {
+                }
+                if !inline_active && let Some(thumb) = thumb {
                     self.touch_image(&thumb);
                     card = card.child(
                         div()
@@ -553,6 +595,175 @@ impl LoungeApp {
             );
         }
 
+        #[cfg(feature = "media")]
+        let mut media_cards = div().flex().flex_col().gap_2();
+        #[cfg(not(feature = "media"))]
+        let media_cards = div().flex().flex_col().gap_2();
+        #[cfg(feature = "media")]
+        {
+            let mut seen_media_urls = HashSet::new();
+            for (index, link) in format::find_links(&message.text).into_iter().enumerate() {
+                let url = self.absolute_media_url(&link.url);
+                let Some(kind) = super::media::media_kind(&url) else {
+                    continue;
+                };
+                if !seen_media_urls.insert(url.clone()) || preview_media_urls.contains(&url) {
+                    continue;
+                }
+                let file = url.rsplit('/').next().unwrap_or(url.as_str()).to_string();
+                let badge = match kind {
+                    super::media::MediaKind::Video => "VIDEO",
+                    super::media::MediaKind::Audio => "AUDIO",
+                };
+                let header = div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .px_1()
+                            .py(px(1.))
+                            .rounded(px(3.))
+                            .bg(theme.sidebar)
+                            .text_size(px(9.))
+                            .text_color(theme.muted)
+                            .child(badge),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .truncate()
+                            .text_size(px(11.))
+                            .text_color(theme.muted)
+                            .child(file),
+                    );
+                let mut card = div()
+                    .id(ElementId::Name(
+                        format!("media-link-{row_id}-{index}").into(),
+                    ))
+                    .w_full()
+                    .max_w(px(460.))
+                    .rounded(px(8.))
+                    .bg(theme.panel)
+                    .border_1()
+                    .border_color(theme.border)
+                    .p_2()
+                    .flex()
+                    .flex_col()
+                    .gap_2();
+                if let Some(inline) = self.render_inline_media(row_id, &url, cx) {
+                    card = card.child(inline);
+                } else if kind == super::media::MediaKind::Audio {
+                    card = card.child(self.render_audio_preview(row_id, &url, cx));
+                } else {
+                    let play_url = url.clone();
+                    card = card
+                        .child(header)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.play_inline_media(row_id, play_url.clone(), kind, cx);
+                        }))
+                        .cursor_pointer();
+                    if kind == super::media::MediaKind::Video
+                        && let Some(poster) = self.media_poster(&url, cx)
+                    {
+                        let max_w: f32 = 440.;
+                        let max_h: f32 = 300.;
+                        let scale = (max_w / poster.width as f32)
+                            .min(max_h / poster.height as f32)
+                            .min(1.);
+                        let width = poster.width as f32 * scale;
+                        let height = poster.height as f32 * scale;
+                        card = card.child(
+                            div().w_full().flex().justify_center().child(
+                                div()
+                                    .relative()
+                                    .w(px(width))
+                                    .h(px(height))
+                                    .rounded(px(5.))
+                                    .overflow_hidden()
+                                    .bg(theme.sidebar)
+                                    .child(
+                                        gpui::img(poster.path)
+                                            .image_cache(&self.image_cache)
+                                            .w_full()
+                                            .h_full()
+                                            .object_fit(gpui::ObjectFit::Contain),
+                                    )
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .top_0()
+                                            .left_0()
+                                            .size_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .child(
+                                                div()
+                                                    .size(px(52.))
+                                                    .rounded_full()
+                                                    .bg(theme.overlay)
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .child(
+                                                        gpui::svg()
+                                                            .path("icons/play.svg")
+                                                            .w(px(24.))
+                                                            .h(px(24.))
+                                                            .text_color(theme.text),
+                                                    ),
+                                            ),
+                                    ),
+                            ),
+                        );
+                    }
+                    if kind == super::media::MediaKind::Video {
+                        let play_url = url.clone();
+                        let expand_url = url.clone();
+                        let download_url = url.clone();
+                        card = card.child(
+                            div()
+                                .w_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .gap_1()
+                                .child(self.media_icon_button(
+                                    "play",
+                                    "Play",
+                                    false,
+                                    cx,
+                                    move |this, _, cx| {
+                                        this.play_inline_media(row_id, play_url.clone(), kind, cx);
+                                    },
+                                ))
+                                .child(self.media_icon_button(
+                                    "expand",
+                                    "Expand",
+                                    false,
+                                    cx,
+                                    move |this, _, cx| {
+                                        this.open_lightbox(expand_url.clone(), cx);
+                                    },
+                                ))
+                                .child(self.media_icon_button(
+                                    "download",
+                                    "Download",
+                                    false,
+                                    cx,
+                                    move |this, _, cx| {
+                                        this.download_media(download_url.clone(), cx);
+                                    },
+                                )),
+                        );
+                    }
+                }
+                media_cards = media_cards.child(card);
+            }
+        }
+
         let mut content = div()
             .flex_1()
             .min_w(px(0.))
@@ -570,7 +781,8 @@ impl LoungeApp {
                     .line_height(relative(self.config.line_height.max(1.3)))
                     .child(text_element)
                     .child(inline)
-                    .child(previews),
+                    .child(previews)
+                    .child(media_cards),
             );
 
         if let Some(reply_button) = reply_button {

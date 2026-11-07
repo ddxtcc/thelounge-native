@@ -25,10 +25,32 @@ sh packaging/install.sh
 
 The installer writes to `$HOME/.local` by default. Set `PREFIX` or `XDG_DATA_HOME` to change the target. Release archives include the binary, `lounge-native.desktop`, `install.sh`, and hicolor icons; run `./install.sh` from the unpacked archive.
 
+## Media playback
+
+The build requires Rust 1.96 or newer and GStreamer with its base, good, and bad
+plugins. On Arch Linux:
+
+```sh
+sudo pacman -S gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad
+```
+
+On Debian and Ubuntu:
+
+```sh
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+```
+
+macOS builds require GStreamer from Homebrew or the official GStreamer packages.
+Windows builds require the GStreamer SDK and a working `pkg-config` setup. Release
+archives are not bundled with GStreamer, so Windows and macOS users need the GStreamer
+runtime installed before launching. Use `--no-default-features` to build without media
+support.
+
 ## Development
 
 ```sh
-cargo test -p lounge-core
+cargo test --workspace --locked
 cargo build -p lounge-native
 ```
 
