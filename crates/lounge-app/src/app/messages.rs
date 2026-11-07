@@ -520,6 +520,7 @@ impl LoungeApp {
                     .flex()
                     .flex_col()
                     .gap_1()
+                    .line_height(relative(self.config.line_height.max(1.3)))
                     .child(text_element)
                     .child(inline)
                     .child(previews),
