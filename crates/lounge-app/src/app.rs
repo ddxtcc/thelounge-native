@@ -514,6 +514,12 @@ pub struct LoungeApp {
     media_error: Option<String>,
     #[cfg(feature = "media-video")]
     inline_video: Option<media::InlineMedia>,
+    #[cfg(feature = "media-video")]
+    media_audio: Option<gstreamer::Pipeline>,
+    #[cfg(feature = "media-video")]
+    inline_audio: Option<media::InlineAudio>,
+    #[cfg(feature = "media-video")]
+    media_previews: RefCell<HashMap<String, gpui_video_player::Video>>,
     lightbox_pan: Point<Pixels>,
     lightbox_drag_last: Option<Point<Pixels>>,
     drafts: HashMap<i64, String>,
@@ -806,6 +812,12 @@ impl LoungeApp {
             media_error: None,
             #[cfg(feature = "media-video")]
             inline_video: None,
+            #[cfg(feature = "media-video")]
+            media_audio: None,
+            #[cfg(feature = "media-video")]
+            inline_audio: None,
+            #[cfg(feature = "media-video")]
+            media_previews: RefCell::new(HashMap::new()),
             lightbox_pan: Point::default(),
             lightbox_drag_last: None,
             drafts,

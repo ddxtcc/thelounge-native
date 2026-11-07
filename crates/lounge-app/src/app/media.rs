@@ -1,9 +1,18 @@
+use gstreamer as gst;
+use gstreamer::glib::object::Cast;
+use gstreamer::prelude::*;
+
 use super::*;
+
+pub(super) struct InlineAudio {
+    pub message_id: i64,
+    pub url: String,
+    pub pipeline: gst::Pipeline,
+}
 
 pub(super) struct InlineMedia {
     pub message_id: i64,
     pub url: String,
-    pub kind: MediaKind,
     pub video: gpui_video_player::Video,
 }
 
@@ -27,6 +36,27 @@ pub(super) fn media_kind(url: &str) -> Option<MediaKind> {
     }
 }
 
+fn start_audio(url: &str) -> Result<gst::Pipeline, String> {
+    gst::init().map_err(|error| error.to_string())?;
+    let uri = url.replace('"', "%22");
+    let pipeline = gst::parse::launch(&format!("playbin uri=\"{uri}\""))
+        .map_err(|error| error.to_string())?
+        .downcast::<gst::Pipeline>()
+        .map_err(|_| "audio pipeline was not a playbin".to_string())?;
+    pipeline
+        .set_state(gst::State::Playing)
+        .map_err(|error| error.to_string())?;
+    Ok(pipeline)
+}
+
+fn audio_playing(pipeline: &gst::Pipeline) -> bool {
+    pipeline.state(gst::ClockTime::ZERO).1 == gst::State::Playing
+}
+
+fn audio_muted(pipeline: &gst::Pipeline) -> bool {
+    pipeline.property::<bool>("mute")
+}
+
 impl LoungeApp {
     pub(super) fn open_media_lightbox(&mut self, url: String, cx: &mut Context<Self>) {
         self.lightbox_index = None;
@@ -35,8 +65,19 @@ impl LoungeApp {
         self.lightbox_pan = Point::default();
         self.lightbox_drag_last = None;
         self.media_video = None;
+        self.media_audio = None;
         self.media_error = None;
         self.inline_video = None;
+        self.inline_audio = None;
+        let kind = media_kind(&url).unwrap_or(MediaKind::Video);
+        if kind == MediaKind::Audio {
+            match start_audio(&url) {
+                Ok(pipeline) => self.media_audio = Some(pipeline),
+                Err(error) => self.media_error = Some(error),
+            }
+            cx.notify();
+            return;
+        }
         let parsed = match url::Url::parse(&url) {
             Ok(parsed) => parsed,
             Err(error) => {
@@ -57,11 +98,51 @@ impl LoungeApp {
 
     pub(super) fn clear_media(&mut self) {
         self.media_video = None;
+        if let Some(audio) = self.media_audio.take() {
+            let _ = audio.set_state(gst::State::Null);
+        }
         self.media_error = None;
     }
 
     pub(super) fn clear_inline_media(&mut self) {
         self.inline_video = None;
+        if let Some(audio) = self.inline_audio.take() {
+            let _ = audio.pipeline.set_state(gst::State::Null);
+        }
+    }
+
+    pub(super) fn clear_media_previews(&mut self) {
+        self.media_previews.borrow_mut().clear();
+    }
+
+    pub(super) fn media_preview(
+        &self,
+        url: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui_video_player::Video> {
+        if let Some(video) = self.media_previews.borrow().get(url) {
+            return Some(video.clone());
+        }
+        if self.media_previews.borrow().len() >= 4 {
+            return None;
+        }
+        let parsed = url::Url::parse(url).ok()?;
+        let video = gpui_video_player::Video::new(&parsed).ok()?;
+        video.set_muted(true);
+        video.set_looping(true);
+        self.media_previews
+            .borrow_mut()
+            .insert(url.to_string(), video.clone());
+        let preview = video.clone();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(350))
+                .await;
+            preview.set_paused(true);
+            let _ = this.update(cx, |_, cx| cx.notify());
+        })
+        .detach();
+        Some(video)
     }
 
     pub(super) fn play_inline_media(
@@ -75,10 +156,31 @@ impl LoungeApp {
             .inline_video
             .as_ref()
             .is_some_and(|inline| inline.url == url)
+            || self
+                .inline_audio
+                .as_ref()
+                .is_some_and(|inline| inline.url == url)
         {
             return;
         }
         self.inline_video = None;
+        if let Some(audio) = self.inline_audio.take() {
+            let _ = audio.pipeline.set_state(gst::State::Null);
+        }
+        if kind == MediaKind::Audio {
+            match start_audio(&url) {
+                Ok(pipeline) => {
+                    self.inline_audio = Some(InlineAudio {
+                        message_id,
+                        url,
+                        pipeline,
+                    });
+                }
+                Err(error) => self.toast(format!("Could not play media: {error}")),
+            }
+            cx.notify();
+            return;
+        }
         let Ok(parsed) = url::Url::parse(&url) else {
             self.toast("Invalid media URL.");
             return;
@@ -89,7 +191,6 @@ impl LoungeApp {
                 self.inline_video = Some(InlineMedia {
                     message_id,
                     url,
-                    kind,
                     video,
                 });
             }
@@ -98,18 +199,127 @@ impl LoungeApp {
         cx.notify();
     }
 
+    fn render_audio_controls(
+        &self,
+        pipeline: &gst::Pipeline,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = self.theme;
+        let toggle = pipeline.clone();
+        let mute = pipeline.clone();
+        let paused = !audio_playing(pipeline);
+        let muted = audio_muted(pipeline);
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .id("audio-toggle")
+                    .px_2()
+                    .py_1()
+                    .rounded(px(4.))
+                    .bg(theme.sidebar)
+                    .cursor_pointer()
+                    .hover(|style| style.bg(theme.hover))
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        let _ = toggle.set_state(if audio_playing(&toggle) {
+                            gst::State::Paused
+                        } else {
+                            gst::State::Playing
+                        });
+                        cx.notify();
+                    }))
+                    .child(if paused { "Play" } else { "Pause" }),
+            )
+            .child(
+                div()
+                    .id("audio-mute")
+                    .px_2()
+                    .py_1()
+                    .rounded(px(4.))
+                    .bg(theme.sidebar)
+                    .cursor_pointer()
+                    .hover(|style| style.bg(theme.hover))
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        mute.set_property("mute", !audio_muted(&mute));
+                        cx.notify();
+                    }))
+                    .child(if muted { "Unmute" } else { "Mute" }),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn render_inline_media(
         &self,
         message_id: i64,
         url: &str,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        if let Some(audio) = self
+            .inline_audio
+            .as_ref()
+            .filter(|inline| inline.message_id == message_id && inline.url == url)
+        {
+            let file = audio.url.rsplit('/').next().unwrap_or(url).to_string();
+            let open_url = audio.url.clone();
+            let card = div()
+                .id(ElementId::Name(format!("inline-audio-{message_id}").into()))
+                .w_full()
+                .max_w(px(460.))
+                .rounded(px(8.))
+                .bg(self.theme.panel)
+                .border_1()
+                .border_color(self.theme.border)
+                .p_2()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child("♪")
+                        .child(div().flex_1().truncate().child(file)),
+                )
+                .child(self.render_audio_controls(&audio.pipeline, cx))
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(
+                            div()
+                                .id("inline-media-open")
+                                .text_color(self.theme.accent)
+                                .cursor_pointer()
+                                .hover(|style| style.underline())
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.open_lightbox(open_url.clone(), cx);
+                                }))
+                                .child("Open"),
+                        )
+                        .child(
+                            div()
+                                .id("inline-media-close")
+                                .text_color(self.theme.muted)
+                                .cursor_pointer()
+                                .hover(|style| style.text_color(self.theme.text))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.clear_inline_media();
+                                    cx.notify();
+                                }))
+                                .child("Close"),
+                        ),
+                );
+            return Some(card.into_any_element());
+        }
         let inline = self
             .inline_video
             .as_ref()
             .filter(|inline| inline.message_id == message_id && inline.url == url)?;
         let url = inline.url.clone();
-        let kind = inline.kind;
+        let kind = MediaKind::Video;
         let video = inline.video.clone();
         let toggle = video.clone();
         let mute = video.clone();

@@ -3750,6 +3750,7 @@ dependencies = [
  "global-hotkey",
  "gpui",
  "gpui-video-player",
+ "gstreamer",
  "ksni",
  "libc",
  "lounge-core",

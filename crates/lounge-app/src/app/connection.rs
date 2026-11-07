@@ -60,7 +60,10 @@ impl LoungeApp {
         self.messages_list_keys.clear();
         self.message_rows_cache = None;
         #[cfg(feature = "media-video")]
-        self.clear_inline_media();
+        {
+            self.clear_inline_media();
+            self.clear_media_previews();
+        }
         self.messages_at_bottom = true;
         self.scroll_to_bottom_pending = false;
         self.reset_uploads();

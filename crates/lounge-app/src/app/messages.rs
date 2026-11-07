@@ -604,13 +604,17 @@ impl LoungeApp {
                     super::media::MediaKind::Video => "Play video",
                     super::media::MediaKind::Audio => "Play audio",
                 };
+                let badge = match kind {
+                    super::media::MediaKind::Video => "VIDEO",
+                    super::media::MediaKind::Audio => "AUDIO",
+                };
                 let mut card = div()
                     .id(ElementId::Name(
                         format!("media-link-{row_id}-{index}").into(),
                     ))
                     .w_full()
                     .max_w(px(460.))
-                    .rounded(px(5.))
+                    .rounded(px(8.))
                     .bg(theme.panel)
                     .border_1()
                     .border_color(theme.border)
@@ -618,7 +622,31 @@ impl LoungeApp {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(div().text_size(px(11.)).text_color(theme.muted).child(file));
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .px_1()
+                                    .py(px(1.))
+                                    .rounded(px(3.))
+                                    .bg(theme.sidebar)
+                                    .text_size(px(9.))
+                                    .text_color(theme.muted)
+                                    .child(badge),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    .truncate()
+                                    .text_size(px(11.))
+                                    .text_color(theme.muted)
+                                    .child(file),
+                            ),
+                    );
                 if let Some(inline) = self.render_inline_media(row_id, &url, cx) {
                     card = card.child(inline);
                 } else {
@@ -627,12 +655,62 @@ impl LoungeApp {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.play_inline_media(row_id, play_url.clone(), kind, cx);
                         }))
-                        .child(
+                        .cursor_pointer();
+                    if kind == super::media::MediaKind::Video
+                        && let Some(preview) = self.media_preview(&url, cx)
+                    {
+                        let width = if self.narrow { px(300.) } else { px(440.) };
+                        let height = width * 0.5625;
+                        card = card.child(
                             div()
-                                .text_size(px(12.))
-                                .text_color(theme.accent)
-                                .child(label),
+                                .relative()
+                                .w_full()
+                                .h(height)
+                                .rounded(px(5.))
+                                .overflow_hidden()
+                                .child(
+                                    gpui_video_player::video(preview)
+                                        .id(ElementId::Name(
+                                            format!("media-preview-{row_id}-{index}").into(),
+                                        ))
+                                        .buffer_capacity(0)
+                                        .size(width, height),
+                                )
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .bottom_2()
+                                        .right_2()
+                                        .px_2()
+                                        .py(px(1.))
+                                        .rounded(px(4.))
+                                        .bg(theme.overlay)
+                                        .text_size(px(11.))
+                                        .text_color(theme.text)
+                                        .child("Play"),
+                                ),
                         );
+                    } else if kind == super::media::MediaKind::Audio {
+                        card = card.child(
+                            div()
+                                .h(px(44.))
+                                .w_full()
+                                .rounded(px(5.))
+                                .bg(theme.sidebar)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(18.))
+                                .text_color(theme.accent)
+                                .child("♪"),
+                        );
+                    }
+                    card = card.child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(theme.accent)
+                            .child(label),
+                    );
                 }
                 media_cards = media_cards.child(card);
             }
