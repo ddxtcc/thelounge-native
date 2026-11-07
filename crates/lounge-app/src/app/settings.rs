@@ -3,10 +3,12 @@ use super::*;
 impl LoungeApp {
     pub(super) fn render_settings(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut card = self.modal_card("Settings", cx);
+        let viewport_height = window.viewport_size().height;
+        let height = (viewport_height - px(80.)).clamp(px(360.), px(620.));
+        let mut card = self.modal_card("Settings", cx).fixed_height(height);
         card = card.child(self.settings_tabs(cx));
         card = match self.settings_tab {
             SettingsTab::Appearance => card.child(self.settings_appearance(cx)),

@@ -12,6 +12,12 @@ impl ModalCard {
         self
     }
 
+    pub(super) fn fixed_height(mut self, height: Pixels) -> Self {
+        self.card = self.card.h(height);
+        self.body = self.body.max_h((height - px(90.)).max(px(200.)));
+        self
+    }
+
     pub(super) fn into_any_element(self) -> AnyElement {
         self.card.child(self.body).into_any_element()
     }
