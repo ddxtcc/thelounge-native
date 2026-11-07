@@ -77,7 +77,8 @@ impl Render for LoungeApp {
             self.switch_channel_quiet(id, window, cx);
         }
 
-        let overlay_open = self.settings_open
+        let overlay_open = self.theme_editor.is_some()
+            || self.settings_open
             || self.network_modal_open
             || self.search_open
             || self.shortcuts_open
@@ -369,6 +370,9 @@ impl Render for LoungeApp {
             || self.lightbox.is_some()
             || self.message_context.is_some()
             || self.palette.is_some();
+        if self.theme_editor.is_some() {
+            root = root.child(self.render_theme_editor_window(cx));
+        }
         if overlay_needed {
             root = root.child(self.render_modals(window, cx));
         }

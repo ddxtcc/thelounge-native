@@ -124,11 +124,13 @@ impl LoungeApp {
                         ));
                     }
                 }
-                if self.config.custom_theme.is_some() && "custom".contains(&query) {
-                    entries.push((
-                        "Custom".to_string(),
-                        PaletteEntry::Theme("custom".to_string(), "Custom".to_string()),
-                    ));
+                for saved in &self.config.saved_themes {
+                    if saved.name.to_lowercase().contains(&query) {
+                        entries.push((
+                            saved.name.clone(),
+                            PaletteEntry::Theme(saved.id.clone(), saved.name.clone()),
+                        ));
+                    }
                 }
                 entries
             }
@@ -252,6 +254,8 @@ impl LoungeApp {
                 PaletteCommand::Mentions => self.open_mentions(cx),
                 PaletteCommand::Emoji => self.open_emoji_picker(cx),
                 PaletteCommand::Theme => self.open_palette(PaletteMode::Themes, cx),
+                PaletteCommand::EditTheme => self.edit_current_theme(cx),
+                PaletteCommand::ThemeEditor => self.new_theme_editor(cx),
                 PaletteCommand::AddAlias => self.open_palette(PaletteMode::Alias, cx),
                 PaletteCommand::Shortcuts => {
                     self.shortcuts_open = true;
@@ -282,7 +286,13 @@ impl LoungeApp {
                     cx.notify();
                 }
                 PaletteCommand::ToggleInlineImages => {
-                    self.config.show_inline_images = !self.config.show_inline_images;
+                    self.config.preview_mode = match self.config.preview_mode {
+                        crate::config::PreviewMode::Shown => crate::config::PreviewMode::Collapsed,
+                        crate::config::PreviewMode::Collapsed => crate::config::PreviewMode::Hidden,
+                        crate::config::PreviewMode::Hidden => crate::config::PreviewMode::Shown,
+                    };
+                    self.config.show_inline_images =
+                        self.config.preview_mode != crate::config::PreviewMode::Hidden;
                     self.config.save();
                     cx.notify();
                 }
@@ -724,13 +734,18 @@ fn command_defs() -> &'static [(&'static str, PaletteCommand)] {
         ("Recent mentions", PaletteCommand::Mentions),
         ("Emoji picker", PaletteCommand::Emoji),
         ("Choose theme", PaletteCommand::Theme),
+        ("Edit current theme", PaletteCommand::EditTheme),
+        ("New custom theme", PaletteCommand::ThemeEditor),
         ("Choose message font", PaletteCommand::ChooseUiFont),
         ("Choose monospace font", PaletteCommand::ChooseMonoFont),
         ("Import custom theme", PaletteCommand::ImportTheme),
         ("Export current theme", PaletteCommand::ExportTheme),
         ("Toggle sidebar", PaletteCommand::ToggleSidebar),
         ("Toggle user list", PaletteCommand::ToggleUsers),
-        ("Toggle inline images", PaletteCommand::ToggleInlineImages),
+        (
+            "Cycle image and media previews",
+            PaletteCommand::ToggleInlineImages,
+        ),
         ("Toggle link previews", PaletteCommand::TogglePreviews),
         ("Toggle timestamps", PaletteCommand::ToggleTimestamps),
         ("Toggle 24-hour clock", PaletteCommand::Toggle24Hour),

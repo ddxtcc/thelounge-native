@@ -28,6 +28,8 @@ impl LoungeApp {
             InputRole::PasswordOld => Some(&self.inputs.password_old),
             InputRole::PasswordNew => Some(&self.inputs.password_new),
             InputRole::PasswordVerify => Some(&self.inputs.password_verify),
+            InputRole::ThemeName => Some(&self.inputs.theme_name),
+            InputRole::ThemeHex => Some(&self.inputs.theme_hex),
         }
     }
 

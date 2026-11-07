@@ -42,10 +42,9 @@ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
 ```
 
 macOS builds require GStreamer from Homebrew or the official GStreamer packages.
-Windows builds require the GStreamer SDK and a working `pkg-config` setup. Release
-archives are not bundled with GStreamer, so Windows and macOS users need the GStreamer
-runtime installed before launching. Use `--no-default-features` to build without media
-support.
+Windows builds require the GStreamer SDK and a working `pkg-config` setup. Windows
+and macOS release archives bundle the GStreamer runtime. Use `--no-default-features`
+to build without media support on other platforms.
 
 ## Development
 

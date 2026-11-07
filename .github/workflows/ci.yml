@@ -138,6 +138,7 @@ jobs:
           $gstRoot = Split-Path (Split-Path $pkgConfigDir)
           "$gstRoot\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "PKG_CONFIG_PATH=$pkgConfigDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "GSTREAMER_ROOT=$gstRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Verify GStreamer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -166,6 +167,9 @@ jobs:
           echo "/Library/Frameworks/GStreamer.framework/Versions/1.0/bin" >> "$GITHUB_PATH"
           echo "PKG_CONFIG_PATH=/Library/Frameworks/GStreamer.framework/Versions/1.0/lib/pkgconfig" >> "$GITHUB_ENV"
       - name: Build
+        shell: bash
+        env:
+          RUSTFLAGS: ${{ runner.os == 'macOS' && '-C link-arg=-Wl,-headerpad_max_install_names' || '' }}
         run: cargo build --release --locked --target ${{ matrix.target }} -p lounge-native
       - name: Package Linux
         if: runner.os == 'Linux'
@@ -184,6 +188,17 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/lounge-native.exe" dist/
           Copy-Item README.md, LICENSE dist/
+          if (-not $env:GSTREAMER_ROOT) {
+            throw "GSTREAMER_ROOT is not set."
+          }
+          Copy-Item "$env:GSTREAMER_ROOT\bin\*.dll" dist/
+          New-Item -ItemType Directory -Force dist/lib | Out-Null
+          Copy-Item "$env:GSTREAMER_ROOT\lib\gstreamer-1.0" dist/lib -Recurse
+          $scanner = Get-ChildItem -LiteralPath $env:GSTREAMER_ROOT -Filter "gst-plugin-scanner.exe" -Recurse | Select-Object -First 1
+          if (-not $scanner) {
+            throw "Could not locate gst-plugin-scanner.exe."
+          }
+          Copy-Item $scanner.FullName dist/
           Compress-Archive -Path dist/* -DestinationPath "${{ matrix.package }}" -Force
       - name: Package macOS
         if: runner.os == 'macOS'
@@ -211,6 +226,16 @@ jobs:
             echo '</dict>'
             echo '</plist>'
           } > "$app/Info.plist"
+          mkdir -p "$app/Frameworks"
+          cp -R /Library/Frameworks/GStreamer.framework "$app/Frameworks/"
+          scanner=$(find /Library/Frameworks/GStreamer.framework -name gst-plugin-scanner -type f | head -n 1)
+          if [ -z "$scanner" ]; then
+            echo "gst-plugin-scanner not found" >&2
+            exit 1
+          fi
+          cp "$scanner" "$app/MacOS/"
+          python3 packaging/macos-relocate.py "$app/MacOS/lounge-native" "$app/MacOS/gst-plugin-scanner" "$app/Frameworks/GStreamer.framework"
+          codesign --force --deep --sign - "dist/Lounge Native.app"
           cp README.md LICENSE dist/
           tar -C dist -czf ${{ matrix.package }} .
       - uses: actions/upload-artifact@v7

@@ -5,7 +5,16 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::theme::CustomTheme;
+use crate::theme::{CustomTheme, SavedTheme};
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewMode {
+    #[default]
+    Shown,
+    Collapsed,
+    Hidden,
+}
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -43,6 +52,7 @@ pub struct AppConfig {
     pub message_spacing: f32,
     pub image_cache_limit: usize,
     pub show_inline_images: bool,
+    pub preview_mode: PreviewMode,
     pub show_previews: bool,
     pub show_sidebar: bool,
     pub nick_column: bool,
@@ -57,7 +67,10 @@ pub struct AppConfig {
     pub show_tray_icon: bool,
     pub enable_global_hotkey: bool,
     pub global_hotkey: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_theme: Option<CustomTheme>,
+    #[serde(default)]
+    pub saved_themes: Vec<SavedTheme>,
     pub favorite_commands: Vec<String>,
     pub command_aliases: HashMap<String, String>,
     pub saved_drafts: Vec<SavedDraft>,
@@ -85,6 +98,7 @@ impl Default for AppConfig {
             message_spacing: 2.0,
             image_cache_limit: 256,
             show_inline_images: true,
+            preview_mode: PreviewMode::Shown,
             show_previews: true,
             show_sidebar: true,
             nick_column: true,
@@ -100,6 +114,7 @@ impl Default for AppConfig {
             enable_global_hotkey: true,
             global_hotkey: "control+shift+l".into(),
             custom_theme: None,
+            saved_themes: Vec::new(),
             favorite_commands: Vec::new(),
             command_aliases: HashMap::new(),
             saved_drafts: Vec::new(),
@@ -126,8 +141,12 @@ impl AppConfig {
     pub fn load() -> Self {
         let path = Self::path();
         match fs::read_to_string(&path) {
-            Ok(text) => match toml::from_str(&text) {
-                Ok(config) => config,
+            Ok(text) => match toml::from_str::<Self>(&text) {
+                Ok(mut config) => {
+                    config.migrate_themes();
+                    config.migrate_previews();
+                    config
+                }
                 Err(_) => {
                     let _ = fs::copy(&path, path.with_extension("toml.bak"));
                     Self {
@@ -137,6 +156,28 @@ impl AppConfig {
                 }
             },
             Err(_) => Self::default(),
+        }
+    }
+
+    fn migrate_previews(&mut self) {
+        if !self.show_inline_images && self.preview_mode == PreviewMode::Shown {
+            self.preview_mode = PreviewMode::Hidden;
+        }
+    }
+
+    fn migrate_themes(&mut self) {
+        let Some(theme) = self.custom_theme.take() else {
+            return;
+        };
+        if !self.saved_themes.iter().any(|saved| saved.id == "custom") {
+            self.saved_themes.insert(
+                0,
+                SavedTheme {
+                    id: "custom".into(),
+                    name: "Custom".into(),
+                    theme,
+                },
+            );
         }
     }
 
@@ -178,6 +219,31 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_hidden_images_migrate_to_preview_mode() {
+        let mut config = AppConfig {
+            show_inline_images: false,
+            ..Default::default()
+        };
+        config.migrate_previews();
+        assert_eq!(config.preview_mode, PreviewMode::Hidden);
+    }
+
+    #[test]
+    fn legacy_custom_theme_migrates_to_saved_theme() {
+        let custom = CustomTheme::default();
+        let mut config = AppConfig {
+            custom_theme: Some(custom.clone()),
+            theme: "custom".into(),
+            ..Default::default()
+        };
+        config.migrate_themes();
+        assert!(config.custom_theme.is_none());
+        assert_eq!(config.saved_themes.len(), 1);
+        assert_eq!(config.saved_themes[0].id, "custom");
+        assert_eq!(config.saved_themes[0].theme, custom);
+    }
 
     #[test]
     fn invalid_config_keeps_original_and_suppresses_saves() {

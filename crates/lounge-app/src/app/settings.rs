@@ -64,6 +64,16 @@ impl LoungeApp {
             .child(self.setting_section("Theme"))
             .child(self.theme_picker(cx))
             .child(
+                self.setting_row_button("New custom theme", "Create", cx, |this, cx| {
+                    this.new_theme_editor(cx)
+                }),
+            )
+            .child(
+                self.setting_row_button("Edit custom theme", "Edit", cx, |this, cx| {
+                    this.edit_selected_theme(cx)
+                }),
+            )
+            .child(
                 self.setting_row_button("Import custom theme", "Paste", cx, |this, cx| {
                     this.import_theme(cx)
                 }),
@@ -214,11 +224,23 @@ impl LoungeApp {
                     };
                 },
             ))
-            .child(self.setting_row_toggle(
-                "Show inline images",
-                self.config.show_inline_images,
+            .child(self.setting_row_cycle(
+                "Image and media previews",
+                match self.config.preview_mode {
+                    crate::config::PreviewMode::Shown => "Shown",
+                    crate::config::PreviewMode::Collapsed => "Hidden until expanded",
+                    crate::config::PreviewMode::Hidden => "Hidden",
+                },
                 cx,
-                |this| this.config.show_inline_images = !this.config.show_inline_images,
+                |this| {
+                    this.config.preview_mode = match this.config.preview_mode {
+                        crate::config::PreviewMode::Shown => crate::config::PreviewMode::Collapsed,
+                        crate::config::PreviewMode::Collapsed => crate::config::PreviewMode::Hidden,
+                        crate::config::PreviewMode::Hidden => crate::config::PreviewMode::Shown,
+                    };
+                    this.config.show_inline_images =
+                        this.config.preview_mode != crate::config::PreviewMode::Hidden;
+                },
             ))
             .child(self.setting_row_toggle(
                 "Show link previews",
@@ -375,8 +397,9 @@ impl LoungeApp {
         };
         match toml::from_str::<crate::theme::CustomTheme>(&text) {
             Ok(theme) => {
-                self.config.custom_theme = Some(theme);
-                self.config.theme = "custom".into();
+                let saved = crate::theme::SavedTheme::new("Imported", theme);
+                self.config.theme = saved.id.clone();
+                self.config.saved_themes.push(saved);
                 self.apply_theme(cx);
                 self.config.save();
                 self.toast("Custom theme imported.");
@@ -388,8 +411,10 @@ impl LoungeApp {
     pub(super) fn export_theme(&mut self, cx: &mut Context<Self>) {
         let theme = self
             .config
-            .custom_theme
-            .clone()
+            .saved_themes
+            .iter()
+            .find(|saved| saved.id == self.config.theme)
+            .map(|saved| saved.theme.clone())
             .unwrap_or_else(|| crate::theme::CustomTheme::from_theme(&self.theme));
         match toml::to_string_pretty(&theme) {
             Ok(text) => {
@@ -403,13 +428,18 @@ impl LoungeApp {
     pub(super) fn theme_picker(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let mut row = div().flex().flex_wrap().gap_2();
-        let mut themes = crate::theme::THEMES.to_vec();
-        if self.config.custom_theme.is_some() {
-            themes.push(("custom", "Custom"));
-        }
+        let mut themes = crate::theme::THEMES
+            .iter()
+            .map(|(id, label)| (id.to_string(), label.to_string()))
+            .collect::<Vec<_>>();
+        themes.extend(
+            self.config
+                .saved_themes
+                .iter()
+                .map(|saved| (saved.id.clone(), saved.name.clone())),
+        );
         for (id, label) in themes {
-            let active = self.config.theme == *id;
-            let id = id.to_string();
+            let active = self.config.theme == id;
             row = row.child(
                 div()
                     .id(ElementId::Name(format!("theme-{id}").into()))
