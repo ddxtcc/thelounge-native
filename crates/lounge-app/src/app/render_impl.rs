@@ -2,6 +2,20 @@ use super::*;
 
 impl Render for LoungeApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        while let Ok(channel) = self.notification_action_rx.try_recv() {
+            self.pending_channel_switch = Some(channel);
+            window.activate_window();
+        }
+        let unread = self.state.total_unread();
+        let title = if unread > 0 {
+            format!("Lounge Native ({unread})")
+        } else {
+            "Lounge Native".to_string()
+        };
+        if self.window_title != title {
+            window.set_window_title(&title);
+            self.window_title = title;
+        }
         let bounds = window.window_bounds().get_bounds();
         let x = f32::from(bounds.origin.x);
         let y = f32::from(bounds.origin.y);

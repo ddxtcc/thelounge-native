@@ -488,6 +488,9 @@ pub struct LoungeApp {
     typing_active: bool,
     last_typing_sent: Option<Instant>,
     toast: Option<Toast>,
+    notification_action_tx: std::sync::mpsc::Sender<i64>,
+    notification_action_rx: std::sync::mpsc::Receiver<i64>,
+    window_title: String,
     settings_open: bool,
     network_modal_open: bool,
     search_open: bool,
@@ -670,6 +673,7 @@ impl LoungeApp {
             .map(|history| (history.channel, history.entries.clone()))
             .collect();
 
+        let (notification_action_tx, notification_action_rx) = std::sync::mpsc::channel();
         let mut app = Self {
             config,
             theme,
@@ -710,6 +714,9 @@ impl LoungeApp {
             typing_active: false,
             last_typing_sent: None,
             toast: None,
+            notification_action_tx,
+            notification_action_rx,
+            window_title: "Lounge Native".to_string(),
             settings_open: false,
             network_modal_open: false,
             search_open: false,

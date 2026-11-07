@@ -176,12 +176,22 @@ impl LoungeApp {
                         .map(|(_, channel)| channel.chan.name.clone())
                         .unwrap_or_default();
                     let body = format::clean(&message.msg.text);
+                    let chan_id = message.chan;
+                    let actions = self.notification_action_tx.clone();
                     std::thread::spawn(move || {
-                        let _ = std::process::Command::new("notify-send")
+                        let output = std::process::Command::new("notify-send")
+                            .arg("--wait")
+                            .arg("--expire-time=10000")
+                            .arg("--action=default=Open")
                             .arg("--app-name=Lounge Native")
                             .arg(format!("{nick} ({channel_name})"))
                             .arg(body)
-                            .status();
+                            .output();
+                        if let Ok(output) = output
+                            && String::from_utf8_lossy(&output.stdout).contains("default")
+                        {
+                            let _ = actions.send(chan_id);
+                        }
                     });
                 }
                 self.state.apply(event);
