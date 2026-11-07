@@ -6,12 +6,72 @@ impl LoungeApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let theme = self.theme;
         let mut card = self.modal_card("Settings", cx);
+        card = card.child(self.settings_tabs(cx));
+        card = match self.settings_tab {
+            SettingsTab::Appearance => card.child(self.settings_appearance(cx)),
+            SettingsTab::Messages => card.child(self.settings_messages(cx)),
+            SettingsTab::General => card.child(self.settings_general(cx)),
+            SettingsTab::Server => card.child(self.settings_server(cx)),
+            SettingsTab::About => card.child(self.settings_about()),
+        };
+        card.into_any_element()
+    }
 
-        card = card
-            .child(self.setting_section("Appearance"))
+    fn settings_tabs(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let mut tabs = div().flex().flex_wrap().gap_1().pb_2();
+        for (tab, label) in [
+            (SettingsTab::Appearance, "Appearance"),
+            (SettingsTab::Messages, "Messages"),
+            (SettingsTab::General, "General"),
+            (SettingsTab::Server, "Server"),
+            (SettingsTab::About, "About"),
+        ] {
+            let active = self.settings_tab == tab;
+            tabs = tabs.child(
+                div()
+                    .id(ElementId::Name(format!("settings-tab-{label}").into()))
+                    .px_3()
+                    .py_1()
+                    .rounded(px(5.))
+                    .text_size(px(12.))
+                    .cursor_pointer()
+                    .when(active, |this| {
+                        this.bg(theme.accent_dim).text_color(theme.accent)
+                    })
+                    .when(!active, |this| {
+                        this.text_color(theme.muted)
+                            .hover(|style| style.bg(theme.hover))
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.settings_tab = tab;
+                        cx.notify();
+                    }))
+                    .child(label),
+            );
+        }
+        tabs.into_any_element()
+    }
+
+    fn settings_appearance(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let card = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(self.setting_section("Theme"))
             .child(self.theme_picker(cx))
+            .child(
+                self.setting_row_button("Import custom theme", "Paste", cx, |this, cx| {
+                    this.import_theme(cx)
+                }),
+            )
+            .child(
+                self.setting_row_button("Export current theme", "Copy", cx, |this, cx| {
+                    this.export_theme(cx)
+                }),
+            )
+            .child(self.setting_section("Typography"))
             .child(self.setting_row_action(
                 "Font size",
                 &format!("{:.0}px", self.config.font_size),
@@ -64,21 +124,7 @@ impl LoungeApp {
                     this.config.save();
                 },
             ))
-            .child(self.setting_row_action(
-                "Message spacing",
-                &format!("{:.0}px", self.config.message_spacing),
-                cx,
-                |this, cx| {
-                    this.config.message_spacing = (this.config.message_spacing - 1.0).max(0.0);
-                    this.config.save();
-                    cx.notify();
-                },
-                |this, cx| {
-                    this.config.message_spacing = (this.config.message_spacing + 1.0).min(8.0);
-                    this.config.save();
-                    cx.notify();
-                },
-            ))
+            .child(self.setting_section("Display"))
             .child(self.setting_row_toggle(
                 "Show timestamps",
                 self.config.show_timestamps,
@@ -102,51 +148,35 @@ impl LoungeApp {
                 cx,
                 |this| this.config.colored_nicks = !this.config.colored_nicks,
             ))
-            .child(self.setting_row_toggle(
-                "Show user list",
-                self.config.show_user_list,
-                cx,
-                |this| this.config.show_user_list = !this.config.show_user_list,
-            ))
-            .child(self.setting_row_toggle(
-                "Show network sidebar",
-                self.config.show_sidebar,
-                cx,
-                |this| this.config.show_sidebar = !this.config.show_sidebar,
-            ))
-            .child(self.setting_row_toggle(
-                "Desktop notifications",
-                self.config.notifications,
-                cx,
-                |this| this.config.notifications = !this.config.notifications,
-            ))
-            .child(
-                self.setting_row_button("Security & sessions", "Open", cx, |this, cx| {
-                    this.settings_open = false;
-                    this.security_open = true;
-                    if let Some(conn) = &this.conn {
-                        conn.emit("sessions:get", None);
-                    }
-                    cx.notify();
-                }),
-            )
-            .child(self.setting_section("Lounge Native"))
             .child(
                 self.setting_row_toggle("Icon buttons", self.config.icon_buttons, cx, |this| {
                     this.config.icon_buttons = !this.config.icon_buttons
                 }),
-            )
-            .child(
-                self.setting_row_button("Import custom theme", "Paste", cx, |this, cx| {
-                    this.import_theme(cx)
-                }),
-            )
-            .child(
-                self.setting_row_button("Export current theme", "Copy", cx, |this, cx| {
-                    this.export_theme(cx)
-                }),
-            )
+            );
+        card.into_any_element()
+    }
+
+    fn settings_messages(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let card = div()
+            .flex()
+            .flex_col()
+            .gap_3()
             .child(self.setting_section("Messages"))
+            .child(self.setting_row_action(
+                "Message spacing",
+                &format!("{:.0}px", self.config.message_spacing),
+                cx,
+                |this, cx| {
+                    this.config.message_spacing = (this.config.message_spacing - 1.0).max(0.0);
+                    this.config.save();
+                    cx.notify();
+                },
+                |this, cx| {
+                    this.config.message_spacing = (this.config.message_spacing + 1.0).min(8.0);
+                    this.config.save();
+                    cx.notify();
+                },
+            ))
             .child(self.setting_row_toggle(
                 "Aligned message text",
                 self.config.nick_column,
@@ -169,6 +199,18 @@ impl LoungeApp {
                     };
                 },
             ))
+            .child(self.setting_row_toggle(
+                "Show inline images",
+                self.config.show_inline_images,
+                cx,
+                |this| this.config.show_inline_images = !this.config.show_inline_images,
+            ))
+            .child(self.setting_row_toggle(
+                "Show link previews",
+                self.config.show_previews,
+                cx,
+                |this| this.config.show_previews = !this.config.show_previews,
+            ))
             .child(self.setting_row_button(
                 "Clear current channel history",
                 "Clear",
@@ -182,7 +224,84 @@ impl LoungeApp {
                     }
                     cx.notify();
                 },
+            ));
+        card.into_any_element()
+    }
+
+    fn settings_general(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let mut card = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(self.setting_section("Interface"))
+            .child(self.setting_row_toggle(
+                "Show user list",
+                self.config.show_user_list,
+                cx,
+                |this| this.config.show_user_list = !this.config.show_user_list,
             ))
+            .child(self.setting_row_toggle(
+                "Show network sidebar",
+                self.config.show_sidebar,
+                cx,
+                |this| this.config.show_sidebar = !this.config.show_sidebar,
+            ))
+            .child(self.setting_row_toggle(
+                "Desktop notifications",
+                self.config.notifications,
+                cx,
+                |this| this.config.notifications = !this.config.notifications,
+            ));
+        #[cfg(target_os = "linux")]
+        {
+            card = card
+                .child(self.setting_row_value_button(
+                    "Show tray icon",
+                    if self.config.show_tray_icon {
+                        "On"
+                    } else {
+                        "Off"
+                    },
+                    "Toggle",
+                    cx,
+                    |this, _, cx| {
+                        this.set_tray_enabled(!this.config.show_tray_icon, cx);
+                    },
+                ))
+                .child(self.setting_row_value_button(
+                    "Global shortcut",
+                    if self.config.enable_global_hotkey {
+                        "Ctrl+Shift+L"
+                    } else {
+                        "Disabled"
+                    },
+                    "Toggle",
+                    cx,
+                    |this, _, cx| {
+                        this.set_global_hotkey_enabled(!this.config.enable_global_hotkey, cx);
+                    },
+                ));
+        }
+        card.into_any_element()
+    }
+
+    fn settings_server(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let card = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(self.setting_section("Account"))
+            .child(
+                self.setting_row_button("Security & sessions", "Open", cx, |this, cx| {
+                    this.settings_open = false;
+                    this.security_open = true;
+                    if let Some(conn) = &this.conn {
+                        conn.emit("sessions:get", None);
+                    }
+                    cx.notify();
+                }),
+            )
             .child(self.setting_section("Server settings"))
             .child(
                 div()
@@ -196,28 +315,35 @@ impl LoungeApp {
                 &self.inputs.setting_highlight_exceptions,
             ))
             .child(self.labeled_input("Away message", &self.inputs.setting_away_message));
-
-        card = card.child(self.setting_section("About")).child(
-            div().text_size(px(12.)).text_color(theme.muted).child(
-                self.state
-                    .configuration
-                    .as_ref()
-                    .map(|config| {
-                        format!(
-                            "The Lounge server {} - connected to {}",
-                            if config.version.is_empty() {
-                                "unknown version"
-                            } else {
-                                &config.version
-                            },
-                            self.config.server
-                        )
-                    })
-                    .unwrap_or_else(|| "Not connected".into()),
-            ),
-        );
-
         card.into_any_element()
+    }
+
+    fn settings_about(&self) -> AnyElement {
+        let theme = self.theme;
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div().text_size(px(12.)).text_color(theme.muted).child(
+                    self.state
+                        .configuration
+                        .as_ref()
+                        .map(|config| {
+                            format!(
+                                "The Lounge server {} - connected to {}",
+                                if config.version.is_empty() {
+                                    "unknown version"
+                                } else {
+                                    &config.version
+                                },
+                                self.config.server
+                            )
+                        })
+                        .unwrap_or_else(|| "Not connected".into()),
+                ),
+            )
+            .into_any_element()
     }
 
     pub(super) fn import_theme(&mut self, cx: &mut Context<Self>) {

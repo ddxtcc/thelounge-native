@@ -20,6 +20,15 @@ use crate::text_input::{InputAction, InputColors, InputRole, TextInput};
 use crate::theme::Theme;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+enum SettingsTab {
+    Appearance,
+    Messages,
+    General,
+    Server,
+    About,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Route {
     Login,
     Chat,
@@ -182,6 +191,7 @@ impl PaletteCommand {
             | Self::SettingsAwayMessage
             | Self::AddAlias => "Settings",
             Self::Shortcuts => "Help",
+            Self::SettingsTab(_) | Self::ToggleTray | Self::ToggleGlobalHotkey => "Settings",
             Self::SwitchChannel
             | Self::NextChannel
             | Self::PreviousChannel
@@ -309,6 +319,9 @@ enum PaletteCommand {
     SignOut,
     AddAlias,
     Shortcuts,
+    SettingsTab(SettingsTab),
+    ToggleTray,
+    ToggleGlobalHotkey,
     UserAction(PaletteUserAction),
 }
 
@@ -498,6 +511,7 @@ pub struct LoungeApp {
     #[cfg(target_os = "linux")]
     hotkey_manager: Option<global_hotkey::GlobalHotKeyManager>,
     settings_open: bool,
+    settings_tab: SettingsTab,
     network_modal_open: bool,
     search_open: bool,
     shortcuts_open: bool,
@@ -683,17 +697,24 @@ impl LoungeApp {
 
         let (notification_action_tx, notification_action_rx) = std::sync::mpsc::channel();
         #[cfg(target_os = "linux")]
-        let (tray_handle, tray_action_rx) = tray::spawn().map_or_else(
-            || (None, std::sync::mpsc::channel().1),
-            |(handle, receiver)| (Some(handle), receiver),
-        );
+        let (tray_handle, tray_action_rx) = if config.show_tray_icon {
+            tray::spawn().map_or_else(
+                || (None, std::sync::mpsc::channel().1),
+                |(handle, receiver)| (Some(handle), receiver),
+            )
+        } else {
+            (None, std::sync::mpsc::channel().1)
+        };
         #[cfg(target_os = "linux")]
         let hotkey_manager = {
             use global_hotkey::{
                 GlobalHotKeyManager,
                 hotkey::{Code, HotKey, Modifiers},
             };
-            let manager = GlobalHotKeyManager::new().ok();
+            let manager = config
+                .enable_global_hotkey
+                .then(GlobalHotKeyManager::new)
+                .and_then(Result::ok);
             if let Some(manager) = &manager {
                 let _ = manager.register(HotKey::new(
                     Some(Modifiers::CONTROL | Modifiers::SHIFT),
@@ -752,6 +773,7 @@ impl LoungeApp {
             #[cfg(target_os = "linux")]
             hotkey_manager,
             settings_open: false,
+            settings_tab: SettingsTab::Appearance,
             network_modal_open: false,
             search_open: false,
             shortcuts_open: false,

@@ -832,6 +832,62 @@ impl LoungeApp {
         cx.notify();
     }
 
+    pub(super) fn set_tray_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.config.show_tray_icon = enabled;
+        self.config.save();
+        #[cfg(target_os = "linux")]
+        {
+            if enabled {
+                if self.tray_handle.is_none()
+                    && let Some((handle, receiver)) = crate::app::tray::spawn()
+                {
+                    let unread = self.state.total_unread();
+                    handle.update(|tray| tray.unread = unread);
+                    self.tray_handle = Some(handle);
+                    self.tray_action_rx = receiver;
+                }
+            } else if let Some(handle) = self.tray_handle.take() {
+                handle.shutdown().wait();
+                self.tray_action_rx = std::sync::mpsc::channel().1;
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = enabled;
+            let _ = cx;
+        }
+        cx.notify();
+    }
+
+    pub(super) fn set_global_hotkey_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.config.enable_global_hotkey = enabled;
+        self.config.save();
+        #[cfg(target_os = "linux")]
+        {
+            use global_hotkey::{
+                GlobalHotKeyManager,
+                hotkey::{Code, HotKey, Modifiers},
+            };
+            let hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyL);
+            if enabled {
+                if self.hotkey_manager.is_none()
+                    && let Ok(manager) = GlobalHotKeyManager::new()
+                {
+                    let _ = manager.register(hotkey);
+                    self.hotkey_manager = Some(manager);
+                }
+            } else if let Some(manager) = self.hotkey_manager.take() {
+                let _ = manager.unregister(hotkey);
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = enabled;
+            let _ = cx;
+        }
+        cx.notify();
+    }
+
     pub(super) fn unread_mentions(&self) -> usize {
         self.state
             .mentions

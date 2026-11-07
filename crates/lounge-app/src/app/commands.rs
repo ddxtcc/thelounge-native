@@ -212,6 +212,17 @@ impl LoungeApp {
             | PaletteEntry::Recent(command)
             | PaletteEntry::Favorite(command) => match command {
                 PaletteCommand::Settings => self.open_settings(cx),
+                PaletteCommand::SettingsTab(tab) => {
+                    self.settings_tab = tab;
+                    self.settings_open = true;
+                    cx.notify();
+                }
+                PaletteCommand::ToggleTray => {
+                    self.set_tray_enabled(!self.config.show_tray_icon, cx);
+                }
+                PaletteCommand::ToggleGlobalHotkey => {
+                    self.set_global_hotkey_enabled(!self.config.enable_global_hotkey, cx);
+                }
                 PaletteCommand::Security => {
                     self.settings_open = false;
                     self.security_open = true;
@@ -621,6 +632,28 @@ impl LoungeApp {
 fn command_defs() -> &'static [(&'static str, PaletteCommand)] {
     &[
         ("Open settings", PaletteCommand::Settings),
+        (
+            "Settings: Appearance",
+            PaletteCommand::SettingsTab(SettingsTab::Appearance),
+        ),
+        (
+            "Settings: Messages",
+            PaletteCommand::SettingsTab(SettingsTab::Messages),
+        ),
+        (
+            "Settings: General",
+            PaletteCommand::SettingsTab(SettingsTab::General),
+        ),
+        (
+            "Settings: Server",
+            PaletteCommand::SettingsTab(SettingsTab::Server),
+        ),
+        (
+            "Settings: About",
+            PaletteCommand::SettingsTab(SettingsTab::About),
+        ),
+        ("Toggle tray icon", PaletteCommand::ToggleTray),
+        ("Toggle global shortcut", PaletteCommand::ToggleGlobalHotkey),
         ("Add command alias", PaletteCommand::AddAlias),
         ("Keyboard shortcuts", PaletteCommand::Shortcuts),
         ("Security & sessions", PaletteCommand::Security),
