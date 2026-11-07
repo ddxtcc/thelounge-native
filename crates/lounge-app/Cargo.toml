@@ -10,6 +10,10 @@ description = "Native GPUI client for The Lounge IRC"
 name = "lounge-native"
 path = "src/main.rs"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+global-hotkey = "0.9"
+ksni = { version = "0.3", features = ["blocking"] }
+
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true

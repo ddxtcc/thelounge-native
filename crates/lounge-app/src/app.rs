@@ -491,6 +491,12 @@ pub struct LoungeApp {
     notification_action_tx: std::sync::mpsc::Sender<i64>,
     notification_action_rx: std::sync::mpsc::Receiver<i64>,
     window_title: String,
+    #[cfg(target_os = "linux")]
+    tray_handle: Option<ksni::blocking::Handle<tray::LoungeTray>>,
+    #[cfg(target_os = "linux")]
+    tray_action_rx: std::sync::mpsc::Receiver<tray::TrayAction>,
+    #[cfg(target_os = "linux")]
+    hotkey_manager: Option<global_hotkey::GlobalHotKeyManager>,
     settings_open: bool,
     network_modal_open: bool,
     search_open: bool,
@@ -557,6 +563,8 @@ mod settings;
 mod sidebar;
 mod special;
 mod tooltip;
+#[cfg(target_os = "linux")]
+mod tray;
 mod uploads;
 
 impl LoungeApp {
@@ -674,6 +682,26 @@ impl LoungeApp {
             .collect();
 
         let (notification_action_tx, notification_action_rx) = std::sync::mpsc::channel();
+        #[cfg(target_os = "linux")]
+        let (tray_handle, tray_action_rx) = tray::spawn().map_or_else(
+            || (None, std::sync::mpsc::channel().1),
+            |(handle, receiver)| (Some(handle), receiver),
+        );
+        #[cfg(target_os = "linux")]
+        let hotkey_manager = {
+            use global_hotkey::{
+                GlobalHotKeyManager,
+                hotkey::{Code, HotKey, Modifiers},
+            };
+            let manager = GlobalHotKeyManager::new().ok();
+            if let Some(manager) = &manager {
+                let _ = manager.register(HotKey::new(
+                    Some(Modifiers::CONTROL | Modifiers::SHIFT),
+                    Code::KeyL,
+                ));
+            }
+            manager
+        };
         let mut app = Self {
             config,
             theme,
@@ -717,6 +745,12 @@ impl LoungeApp {
             notification_action_tx,
             notification_action_rx,
             window_title: "Lounge Native".to_string(),
+            #[cfg(target_os = "linux")]
+            tray_handle,
+            #[cfg(target_os = "linux")]
+            tray_action_rx,
+            #[cfg(target_os = "linux")]
+            hotkey_manager,
             settings_open: false,
             network_modal_open: false,
             search_open: false,

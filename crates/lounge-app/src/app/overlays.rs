@@ -420,6 +420,7 @@ impl LoungeApp {
             ("Up / Down", "Previous / next input history"),
             ("Ctrl+Shift+V", "Paste image from clipboard"),
             ("Ctrl+C", "Copy text selection"),
+            ("Ctrl+Shift+L", "Show or hide the window"),
             ("Ctrl+,", "Open settings"),
             ("Escape", "Close overlay or cancel reply"),
         ];

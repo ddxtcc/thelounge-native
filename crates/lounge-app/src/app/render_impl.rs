@@ -6,6 +6,25 @@ impl Render for LoungeApp {
             self.pending_channel_switch = Some(channel);
             window.activate_window();
         }
+        #[cfg(target_os = "linux")]
+        while let Ok(action) = self.tray_action_rx.try_recv() {
+            match action {
+                tray::TrayAction::Show => window.activate_window(),
+                tray::TrayAction::Quit => cx.quit(),
+            }
+        }
+        #[cfg(target_os = "linux")]
+        if self.hotkey_manager.is_some() {
+            while let Ok(event) = global_hotkey::GlobalHotKeyEvent::receiver().try_recv() {
+                if event.state == global_hotkey::HotKeyState::Pressed {
+                    if window.is_window_active() {
+                        window.minimize_window();
+                    } else {
+                        window.activate_window();
+                    }
+                }
+            }
+        }
         let unread = self.state.total_unread();
         let title = if unread > 0 {
             format!("Lounge Native ({unread})")
@@ -15,6 +34,10 @@ impl Render for LoungeApp {
         if self.window_title != title {
             window.set_window_title(&title);
             self.window_title = title;
+            #[cfg(target_os = "linux")]
+            if let Some(tray) = &self.tray_handle {
+                tray.update(|tray| tray.unread = unread);
+            }
         }
         let bounds = window.window_bounds().get_bounds();
         let x = f32::from(bounds.origin.x);
