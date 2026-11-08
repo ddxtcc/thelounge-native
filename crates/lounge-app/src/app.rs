@@ -449,6 +449,8 @@ impl LoungeApp {
         #[cfg(all(feature = "media", any(target_os = "windows", target_os = "macos")))]
         media::configure_gstreamer();
         let config = AppConfig::load();
+        #[cfg(feature = "media")]
+        let media_muted = config.media_muted;
         let theme = Theme::from_config(&config.theme, &config.saved_themes);
         let root_focus = cx.focus_handle();
         let colors = theme.input_colors();
@@ -638,7 +640,7 @@ impl LoungeApp {
             #[cfg(feature = "media")]
             audio_ticker_generation: 0,
             #[cfg(feature = "media")]
-            audio_start_muted: false,
+            audio_start_muted: media_muted,
             #[cfg(feature = "media")]
             media_request_generation: 0,
             #[cfg(feature = "media")]

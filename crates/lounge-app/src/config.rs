@@ -91,6 +91,9 @@ pub struct AppConfig {
     pub preview_mode: PreviewMode,
     pub show_previews: bool,
     pub video_thumbnails: bool,
+    #[serde(default = "default_media_volume")]
+    pub media_volume: f32,
+    pub media_muted: bool,
     pub show_sidebar: bool,
     pub nick_column: bool,
     pub show_timestamps: bool,
@@ -141,6 +144,8 @@ impl Default for AppConfig {
             preview_mode: PreviewMode::Shown,
             show_previews: true,
             video_thumbnails: true,
+            media_volume: 1.0,
+            media_muted: false,
             show_sidebar: true,
             nick_column: true,
             show_timestamps: true,
@@ -169,6 +174,10 @@ impl Default for AppConfig {
             load_failed: false,
         }
     }
+}
+
+fn default_media_volume() -> f32 {
+    1.0
 }
 
 impl AppConfig {
@@ -325,6 +334,26 @@ mod tests {
         );
         config.set_channel_notification_mode(7, None);
         assert_eq!(config.channel_notification_mode(7), NotificationMode::All);
+    }
+
+    #[test]
+    fn media_preferences_round_trip() {
+        let config = AppConfig {
+            media_volume: 0.35,
+            media_muted: true,
+            ..Default::default()
+        };
+        let text = toml::to_string_pretty(&config).unwrap();
+        let parsed: AppConfig = toml::from_str(&text).unwrap();
+        assert_eq!(parsed.media_volume, 0.35);
+        assert!(parsed.media_muted);
+    }
+
+    #[test]
+    fn legacy_config_defaults_to_unmuted_media() {
+        let config: AppConfig = toml::from_str("notifications = true").unwrap();
+        assert_eq!(config.media_volume, 1.0);
+        assert!(!config.media_muted);
     }
 
     #[test]

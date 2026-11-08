@@ -222,7 +222,11 @@ impl LoungeApp {
             } else {
                 match start_audio(&url) {
                     Ok(pipeline) => {
-                        pipeline.set_property("mute", self.audio_start_muted);
+                        pipeline.set_property("mute", self.config.media_muted);
+                        pipeline.set_property(
+                            "volume",
+                            f64::from(self.config.media_volume.clamp(0., 1.)),
+                        );
                         self.media_audio = Some(pipeline);
                     }
                     Err(error) => self.media_error = Some(error),
@@ -257,6 +261,8 @@ impl LoungeApp {
                 match result {
                     Ok(video) => {
                         video.set_looping(true);
+                        video.set_muted(this.config.media_muted);
+                        video.set_volume(f64::from(this.config.media_volume.clamp(0., 1.)));
                         this.media_video = Some((target, video));
                     }
                     Err(error) => this.media_error = Some(error.to_string()),
@@ -377,7 +383,9 @@ impl LoungeApp {
         if kind == MediaKind::Audio {
             match start_audio(&url) {
                 Ok(pipeline) => {
-                    pipeline.set_property("mute", self.audio_start_muted);
+                    pipeline.set_property("mute", self.config.media_muted);
+                    pipeline
+                        .set_property("volume", f64::from(self.config.media_volume.clamp(0., 1.)));
                     self.inline_audio = Some(InlineAudio {
                         message_id,
                         url,
@@ -409,6 +417,8 @@ impl LoungeApp {
                 match result {
                     Ok(video) => {
                         video.set_looping(true);
+                        video.set_muted(this.config.media_muted);
+                        video.set_volume(f64::from(this.config.media_volume.clamp(0., 1.)));
                         this.inline_video = Some(InlineMedia {
                             message_id,
                             url: target,
@@ -463,6 +473,7 @@ impl LoungeApp {
         let volume_prepaint = volume_bounds.clone();
         let volume_pipeline = pipeline.clone();
         let volume_move_pipeline = pipeline.clone();
+        let volume_save = pipeline.clone();
         let volume_click_bounds = volume_bounds.clone();
         let volume_move_bounds = volume_bounds.clone();
         let track_bounds: std::rc::Rc<std::cell::RefCell<Option<Bounds<Pixels>>>> =
@@ -570,6 +581,17 @@ impl LoungeApp {
                                         cx.notify();
                                     },
                                 ))
+                                .on_mouse_up(
+                                    gpui::MouseButton::Left,
+                                    cx.listener(move |this, _, _, cx| {
+                                        let volume =
+                                            volume_save.property::<f64>("volume").clamp(0., 1.)
+                                                as f32;
+                                        this.config.media_volume = volume;
+                                        this.config.save();
+                                        cx.notify();
+                                    }),
+                                )
                                 .child(
                                     div()
                                         .w_full()
@@ -616,6 +638,8 @@ impl LoungeApp {
                             let muted = !audio_muted(&mute);
                             mute.set_property("mute", muted);
                             this.audio_start_muted = muted;
+                            this.config.media_muted = muted;
+                            this.config.save();
                             cx.notify();
                         },
                     ))
@@ -757,8 +781,12 @@ impl LoungeApp {
                             if muted { "Unmute" } else { "Mute" },
                             false,
                             cx,
-                            move |_, _, cx| {
-                                mute.set_muted(!mute.muted());
+                            move |this, _, cx| {
+                                let muted = !mute.muted();
+                                mute.set_muted(muted);
+                                this.audio_start_muted = muted;
+                                this.config.media_muted = muted;
+                                this.config.save();
                                 cx.notify();
                             },
                         ))
@@ -908,8 +936,12 @@ impl LoungeApp {
                     if muted { "Unmute" } else { "Mute" },
                     false,
                     cx,
-                    move |_, _, cx| {
-                        mute_video.set_muted(!mute_video.muted());
+                    move |this, _, cx| {
+                        let muted = !mute_video.muted();
+                        mute_video.set_muted(muted);
+                        this.audio_start_muted = muted;
+                        this.config.media_muted = muted;
+                        this.config.save();
                         cx.notify();
                     },
                 ))

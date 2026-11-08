@@ -17,6 +17,9 @@ impl LoungeApp {
         let icon = icon.to_string();
         div()
             .id(ElementId::Name(format!("media-{icon}-{tooltip}").into()))
+            .tab_index(0)
+            .tab_stop(!self.last_overlay_open || self.lightbox.is_some())
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .size(px(26.))
             .flex()
             .items_center()
@@ -149,7 +152,10 @@ impl LoungeApp {
                                 false,
                                 cx,
                                 |this, _, cx| {
-                                    this.audio_start_muted = !this.audio_start_muted;
+                                    let muted = !this.audio_start_muted;
+                                    this.audio_start_muted = muted;
+                                    this.config.media_muted = muted;
+                                    this.config.save();
                                     cx.notify();
                                 },
                             ))
