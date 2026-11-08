@@ -288,7 +288,7 @@ jobs:
           ls dist/*.deb >/dev/null
           ls dist/*.AppImage >/dev/null
       - name: Generate checksums
-        run: sha256sum dist/* > dist/SHA256SUMS
+        run: (cd dist && sha256sum * > SHA256SUMS)
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
