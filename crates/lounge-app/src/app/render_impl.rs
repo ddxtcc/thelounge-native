@@ -165,6 +165,7 @@ impl Render for LoungeApp {
             self.switch_channel_quiet(id, window, cx);
         }
 
+        let entering_settings = self.settings_open && !self.last_overlay_open;
         let overlay_open = self.theme_editor.is_some()
             || self.settings_open
             || self.network_modal_open
@@ -244,7 +245,7 @@ impl Render for LoungeApp {
                 if !event.keystroke.modifiers.control
                     && !event.keystroke.modifiers.alt
                     && !event.keystroke.modifiers.platform
-                    && this.handle_overlay_key(&key, event.keystroke.modifiers.shift, window, cx)
+                    && this.handle_overlay_key(&key, window, cx)
                 {
                     cx.stop_propagation();
                     return;
@@ -510,6 +511,9 @@ impl Render for LoungeApp {
         }
         if overlay_needed {
             root = root.child(self.render_modals(window, cx));
+        }
+        if entering_settings {
+            window.focus(&self.settings_tab_focus);
         }
 
         if let Some(toast) = &self.toast {

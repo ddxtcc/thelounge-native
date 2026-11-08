@@ -30,7 +30,20 @@ impl LoungeApp {
 
     fn settings_tabs(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        let mut tabs = div().flex().flex_wrap().gap_1().pb_2();
+        let mut tabs = div()
+            .track_focus(&self.settings_tab_focus)
+            .tab_index(0)
+            .focus(|style| {
+                style
+                    .border_1()
+                    .border_color(theme.accent)
+                    .rounded(px(6.))
+                    .p(px(2.))
+            })
+            .flex()
+            .flex_wrap()
+            .gap_1()
+            .pb_2();
         for (tab, label) in [
             (SettingsTab::Appearance, "Appearance"),
             (SettingsTab::Messages, "Messages"),
@@ -42,9 +55,6 @@ impl LoungeApp {
             tabs = tabs.child(
                 div()
                     .id(ElementId::Name(format!("settings-tab-{label}").into()))
-                    .tab_index(0)
-                    .tab_stop(false)
-                    .focus(|style| style.bg(theme.hover).text_color(theme.accent))
                     .px_3()
                     .py_1()
                     .rounded(px(5.))
@@ -57,8 +67,9 @@ impl LoungeApp {
                         this.text_color(theme.muted)
                             .hover(|style| style.bg(theme.hover))
                     })
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_click(cx.listener(move |this, _, window, cx| {
                         this.settings_tab = tab;
+                        window.focus(&this.settings_tab_focus);
                         cx.notify();
                     }))
                     .child(label),

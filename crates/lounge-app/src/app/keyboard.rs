@@ -220,7 +220,6 @@ impl LoungeApp {
     pub(super) fn handle_overlay_key(
         &mut self,
         key: &str,
-        shift: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
@@ -240,20 +239,14 @@ impl LoungeApp {
                 .iter()
                 .position(|tab| *tab == self.settings_tab)
                 .unwrap_or(0) as i32;
+            let on_tabs = window.focused(cx).as_ref() == Some(&self.settings_tab_focus);
             match key.as_str() {
-                "tab" => {
-                    let delta = if shift { -1 } else { 1 };
-                    self.settings_tab =
-                        tabs[(current + delta).rem_euclid(tabs.len() as i32) as usize];
-                    cx.notify();
-                    return true;
-                }
-                "left" | "h" => {
+                "left" | "h" if on_tabs => {
                     self.settings_tab = tabs[(current - 1).rem_euclid(tabs.len() as i32) as usize];
                     cx.notify();
                     return true;
                 }
-                "right" | "l" => {
+                "right" | "l" if on_tabs => {
                     self.settings_tab = tabs[(current + 1).rem_euclid(tabs.len() as i32) as usize];
                     cx.notify();
                     return true;
