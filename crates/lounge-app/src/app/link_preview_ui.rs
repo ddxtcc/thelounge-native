@@ -17,7 +17,6 @@ impl LoungeApp {
         let mut text = div()
             .flex_1()
             .min_w(px(0.))
-            .py_1()
             .flex()
             .flex_col()
             .gap_1()
@@ -30,9 +29,10 @@ impl LoungeApp {
         if !preview.body.is_empty() {
             text = text.child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(px(10.))
+                    .line_height(relative(1.2))
                     .text_color(theme.muted)
-                    .max_h(px(48.))
+                    .max_h(px(28.))
                     .overflow_hidden()
                     .child(preview.body.clone()),
             );
@@ -47,6 +47,7 @@ impl LoungeApp {
             .border_1()
             .border_color(theme.border)
             .text_size(px(12.))
+            .line_height(relative(1.2))
             .text_color(theme.text)
             .cursor_pointer()
             .hover(|style| style.border_color(theme.accent))

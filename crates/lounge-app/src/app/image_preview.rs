@@ -147,7 +147,7 @@ impl LoungeApp {
     fn preview_thumbnail_placeholder(&self, size: f32, label: &str) -> AnyElement {
         div()
             .w(px(size))
-            .h(px(size * 0.75))
+            .h(px(size * 9. / 16.))
             .flex()
             .items_center()
             .justify_center()
