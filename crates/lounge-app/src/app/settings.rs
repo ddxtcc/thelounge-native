@@ -176,6 +176,12 @@ impl LoungeApp {
                 cx,
                 |this| this.config.colored_nicks = !this.config.colored_nicks,
             ))
+            .child(self.setting_row_toggle(
+                "Show user modes (@, +)",
+                self.config.show_user_modes,
+                cx,
+                |this| this.config.show_user_modes = !this.config.show_user_modes,
+            ))
             .child(
                 self.setting_row_toggle("Icon buttons", self.config.icon_buttons, cx, |this| {
                     this.config.icon_buttons = !this.config.icon_buttons

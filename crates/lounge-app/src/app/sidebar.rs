@@ -500,7 +500,11 @@ impl LoungeApp {
             let nick = user.nick.clone();
             let nav_focused = self.nav_section == super::keyboard::NavSection::Users
                 && user_index == self.nav_user;
-            let mode = user_mode_prefix(user, network);
+            let mode = if self.config.show_user_modes {
+                user_mode_prefix(user, network)
+            } else {
+                None
+            };
             let color = if self.config.colored_nicks {
                 theme.nick_color(&user.nick)
             } else {

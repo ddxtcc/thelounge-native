@@ -959,11 +959,15 @@ impl LoungeApp {
                 .as_ref()
                 .map(|from| from.nick.clone())
                 .unwrap_or_default();
-            let mode = message
-                .from
-                .as_ref()
-                .and_then(|from| user_mode_prefix_in_message(from, network))
-                .unwrap_or_default();
+            let mode = if self.config.show_user_modes {
+                message
+                    .from
+                    .as_ref()
+                    .and_then(|from| user_mode_prefix_in_message(from, network))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
             let color = if self.config.colored_nicks && !nick.is_empty() {
                 theme.nick_color(&nick)
             } else {
