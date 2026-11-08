@@ -30,7 +30,7 @@ pkgbase = lounge-native
 	depends = desktop-file-utils
 	optdepends = libnotify: desktop notifications
 	optdepends = xdg-utils: open links in the browser
-	source = lounge-native-0.9.0.tar.gz::https://github.com/ddxtcc/thelounge-native/archive/3abd1ccf8a24b35ba1ef953d52ce90ddbeec3e43.tar.gz
-	sha256sums = b46cb018e37a3d22cf2a7081f2aec02da719ecffd6eac8c89935e92f57c2440c
+	source = lounge-native-0.9.0.tar.gz::https://github.com/ddxtcc/thelounge-native/archive/e029c4a318eccae18b55b264930aeeee85149586.tar.gz
+	sha256sums = 1a7f145d0eab50abbbc3f36e46cbce2c191d9a846de21bff3cb2c43187efca9c
 
 pkgname = lounge-native
