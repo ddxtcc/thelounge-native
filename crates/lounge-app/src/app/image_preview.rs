@@ -128,7 +128,6 @@ impl LoungeApp {
                     gpui::img(path)
                         .image_cache(&self.image_cache)
                         .w_full()
-                        .max_h(px(96.))
                         .object_fit(gpui::ObjectFit::Contain),
                 )
                 .into_any_element(),
