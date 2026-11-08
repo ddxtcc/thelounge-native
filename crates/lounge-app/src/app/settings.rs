@@ -18,32 +18,26 @@ impl LoungeApp {
         let height = (viewport_height - px(80.)).clamp(px(360.), px(620.));
         let mut card = self.modal_card("Settings", cx).fixed_height(height);
         card = card.child(self.settings_tabs(cx));
-        card = match self.settings_tab {
-            SettingsTab::Appearance => card.child(self.settings_appearance(cx)),
-            SettingsTab::Messages => card.child(self.settings_messages(cx)),
-            SettingsTab::General => card.child(self.settings_general(cx)),
-            SettingsTab::Server => card.child(self.settings_server(cx)),
-            SettingsTab::About => card.child(self.settings_about(cx)),
+        let content = div().flex().flex_col().child(
+            div()
+                .track_focus(&self.settings_first_focus)
+                .tab_index(0)
+                .tab_stop(false)
+                .h(px(0.)),
+        );
+        let content = match self.settings_tab {
+            SettingsTab::Appearance => content.child(self.settings_appearance(cx)),
+            SettingsTab::Messages => content.child(self.settings_messages(cx)),
+            SettingsTab::General => content.child(self.settings_general(cx)),
+            SettingsTab::Server => content.child(self.settings_server(cx)),
+            SettingsTab::About => content.child(self.settings_about(cx)),
         };
-        card.into_any_element()
+        card.child(content).into_any_element()
     }
 
     fn settings_tabs(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        let mut tabs = div()
-            .track_focus(&self.settings_tab_focus)
-            .tab_index(0)
-            .focus(|style| {
-                style
-                    .border_1()
-                    .border_color(theme.accent)
-                    .rounded(px(6.))
-                    .p(px(2.))
-            })
-            .flex()
-            .flex_wrap()
-            .gap_1()
-            .pb_2();
+        let mut tabs = div().flex().flex_wrap().gap_1().pb_2();
         for (tab, label) in [
             (SettingsTab::Appearance, "Appearance"),
             (SettingsTab::Messages, "Messages"),
@@ -67,9 +61,9 @@ impl LoungeApp {
                         this.text_color(theme.muted)
                             .hover(|style| style.bg(theme.hover))
                     })
-                    .on_click(cx.listener(move |this, _, window, cx| {
+                    .on_click(cx.listener(move |this, _, _, cx| {
                         this.settings_tab = tab;
-                        window.focus(&this.settings_tab_focus);
+                        this.settings_refocus = true;
                         cx.notify();
                     }))
                     .child(label),
@@ -589,7 +583,7 @@ impl LoungeApp {
                         this.config.save();
                         cx.notify();
                     }))
-                    .on_key_down(cx.listener(move |this, event, _, cx| {
+                    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
                         if settings_activation(event) {
                             this.config.theme = id.clone();
                             this.apply_theme(cx);
@@ -641,7 +635,7 @@ impl LoungeApp {
                 this.apply_theme(cx);
                 cx.notify();
             }))
-            .on_key_down(cx.listener(move |this, event, _, cx| {
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
                 if settings_activation(event) {
                     toggle(this);
                     this.config.save();
@@ -692,7 +686,7 @@ impl LoungeApp {
                 this.apply_theme(cx);
                 cx.notify();
             }))
-            .on_key_down(cx.listener(move |this, event, _, cx| {
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
                 if settings_activation(event) {
                     cycle(this);
                     this.config.save();
@@ -791,7 +785,7 @@ impl LoungeApp {
             .px_2()
             .py(px(7.))
             .rounded(px(5.))
-            .on_key_down(cx.listener(move |this, event, _, cx| {
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
                 if settings_activation(event) {
                     action(this, cx);
                     cx.stop_propagation();
@@ -828,12 +822,28 @@ impl LoungeApp {
         let right = std::rc::Rc::new(right);
         let click_right = right.clone();
         div()
+            .id(ElementId::Name(format!("action-{label}").into()))
+            .tab_index(0)
+            .focus(|style| style.bg(theme.hover).text_color(theme.accent))
             .flex()
             .items_center()
             .justify_between()
             .px_2()
             .py(px(7.))
             .rounded(px(5.))
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                let key = event.keystroke.key.to_lowercase();
+                if matches!(key.as_str(), "left" | "h") {
+                    left(this, cx);
+                    cx.stop_propagation();
+                } else if matches!(
+                    key.as_str(),
+                    "right" | "l" | "enter" | "return" | "space" | " "
+                ) {
+                    right(this, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .child(label.to_string())
             .child(
                 div()
@@ -843,19 +853,11 @@ impl LoungeApp {
                     .child(
                         div()
                             .id(ElementId::Name(format!("minus-{label}").into()))
-                            .tab_index(0)
-                            .focus(|style| style.bg(theme.hover).text_color(theme.accent))
                             .px_2()
                             .rounded(px(4.))
                             .bg(theme.hover)
                             .cursor_pointer()
                             .on_click(cx.listener(move |this, _, _, cx| click_left(this, cx)))
-                            .on_key_down(cx.listener(move |this, event, _, cx| {
-                                if settings_activation(event) {
-                                    left(this, cx);
-                                    cx.stop_propagation();
-                                }
-                            }))
                             .child("-"),
                     )
                     .child(
@@ -868,19 +870,11 @@ impl LoungeApp {
                     .child(
                         div()
                             .id(ElementId::Name(format!("plus-{label}").into()))
-                            .tab_index(0)
-                            .focus(|style| style.bg(theme.hover).text_color(theme.accent))
                             .px_2()
                             .rounded(px(4.))
                             .bg(theme.hover)
                             .cursor_pointer()
                             .on_click(cx.listener(move |this, _, _, cx| click_right(this, cx)))
-                            .on_key_down(cx.listener(move |this, event, _, cx| {
-                                if settings_activation(event) {
-                                    right(this, cx);
-                                    cx.stop_propagation();
-                                }
-                            }))
                             .child("+"),
                     ),
             )

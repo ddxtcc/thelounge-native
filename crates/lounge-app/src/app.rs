@@ -396,7 +396,8 @@ pub struct LoungeApp {
     selecting_text: bool,
     confirm_remove_network: Option<String>,
     root_focus: gpui::FocusHandle,
-    settings_tab_focus: gpui::FocusHandle,
+    settings_first_focus: gpui::FocusHandle,
+    settings_refocus: bool,
     overlay_return_focus: Option<gpui::FocusHandle>,
     last_overlay_open: bool,
     fonts: Vec<String>,
@@ -474,7 +475,7 @@ impl LoungeApp {
         let config = AppConfig::load();
         let theme = Theme::from_config(&config.theme, &config.saved_themes);
         let root_focus = cx.focus_handle();
-        let settings_tab_focus = cx.focus_handle();
+        let settings_first_focus = cx.focus_handle();
         let colors = theme.input_colors();
         let font = config.font_size;
         let line = (font * config.line_height).max(20.0);
@@ -752,7 +753,8 @@ impl LoungeApp {
             selecting_text: false,
             confirm_remove_network: None,
             root_focus,
-            settings_tab_focus,
+            settings_first_focus,
+            settings_refocus: false,
             overlay_return_focus: None,
             last_overlay_open: false,
             fonts: Vec::new(),

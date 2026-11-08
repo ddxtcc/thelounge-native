@@ -6,6 +6,7 @@ impl LoungeApp {
         self.users_overlay = false;
         self.nav_mode = false;
         self.settings_open = true;
+        self.settings_refocus = true;
         let highlights = self
             .state
             .settings
