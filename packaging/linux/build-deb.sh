@@ -67,6 +67,8 @@ EOF
 chmod 755 "$control/postinst"
 
 mkdir -p "$(dirname -- "$output")"
+output_dir=$(CDPATH= cd -- "$(dirname -- "$output")" && pwd)
+output="$output_dir/$(basename -- "$output")"
 printf '2.0\n' > "$work/debian-binary"
 tar --owner=0 --group=0 --numeric-owner -C "$control" -czf "$work/control.tar.gz" .
 tar --owner=0 --group=0 --numeric-owner -C "$stage" -czf "$work/data.tar.gz" .
