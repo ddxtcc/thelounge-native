@@ -416,6 +416,7 @@ mod badge;
 mod commands;
 mod connection;
 mod desktop;
+mod image_cache;
 mod image_preview;
 #[cfg(feature = "media")]
 mod media;
