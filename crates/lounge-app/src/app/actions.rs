@@ -492,6 +492,7 @@ impl LoungeApp {
         self.messages_list_keys.clear();
         self.message_rows_cache = None;
         self.preview_overrides.clear();
+        self.clear_image_previews(_window, cx);
         #[cfg(feature = "media")]
         {
             self.clear_inline_media();
@@ -767,6 +768,7 @@ impl LoungeApp {
             self.image_cache
                 .update(cx, |cache, cx| cache.remove(&resource, window, cx));
         }
+        trim_memory();
     }
 
     pub(super) fn absolute_media_url(&self, url: &str) -> String {

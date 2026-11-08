@@ -234,6 +234,10 @@ jobs:
             exit 1
           fi
           cp "$scanner" "$app/MacOS/"
+          gst_root="$app/Frameworks/GStreamer.framework/Versions/1.0"
+          rm -rf "$gst_root/include" "$gst_root/share" "$gst_root/bin" "$gst_root/Headers" "$gst_root/libexec" "$gst_root/lib/gio" "$gst_root/lib/pkgconfig"
+          find "$gst_root/lib" -maxdepth 1 -type f ! -name '*.dylib' -delete
+          find "$gst_root" -name '*.a' -delete
           python3 packaging/macos-relocate.py "$app/MacOS/lounge-native" "$app/MacOS/gst-plugin-scanner" "$app/Frameworks/GStreamer.framework"
           codesign --force --deep --sign - "dist/Lounge Native.app"
           cp README.md LICENSE dist/

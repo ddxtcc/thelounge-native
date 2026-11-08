@@ -388,6 +388,7 @@ pub struct LoungeApp {
     palette_scroll: gpui::ScrollHandle,
     theme_editor: Option<theme_editor::ThemeEditor>,
     preview_overrides: HashMap<i64, bool>,
+    image_previews: RefCell<HashMap<String, image_preview::PreviewState>>,
     recent_commands: Vec<PaletteCommand>,
     pending_channel_switch: Option<i64>,
     pending_show_window: bool,
@@ -401,8 +402,11 @@ mod badge;
 mod commands;
 mod connection;
 mod desktop;
+mod image_preview;
 #[cfg(feature = "media")]
 mod media;
+#[cfg(feature = "media")]
+pub(crate) use media::extract_poster;
 #[cfg(feature = "media")]
 mod media_audio;
 #[cfg(feature = "media")]
@@ -720,6 +724,7 @@ impl LoungeApp {
             palette_scroll: gpui::ScrollHandle::new(),
             theme_editor: None,
             preview_overrides: HashMap::new(),
+            image_previews: RefCell::new(HashMap::new()),
             recent_commands: Vec::new(),
             pending_channel_switch: None,
             pending_show_window: false,
@@ -771,6 +776,16 @@ impl LoungeApp {
         app
     }
 }
+
+#[cfg(target_os = "linux")]
+pub(super) fn trim_memory() {
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) fn trim_memory() {}
 
 fn floor_char_boundary(text: &str, mut index: usize) -> usize {
     while index > 0 && !text.is_char_boundary(index) {

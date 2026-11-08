@@ -248,6 +248,12 @@ impl LoungeApp {
                 cx,
                 |this| this.config.show_previews = !this.config.show_previews,
             ))
+            .child(self.setting_row_toggle(
+                "Generate video thumbnails",
+                self.config.video_thumbnails,
+                cx,
+                |this| this.config.video_thumbnails = !this.config.video_thumbnails,
+            ))
             .child(self.setting_row_button(
                 "Clear current channel history",
                 "Clear",
