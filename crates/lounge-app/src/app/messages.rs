@@ -510,22 +510,12 @@ impl LoungeApp {
                 preview_media_urls.insert(play_url.clone());
                 preview_media_urls.insert(self.absolute_media_url(&preview.link));
             }
-            if !playable && let Some(thumb) = thumb.clone() {
-                let lightbox_url = thumb.clone();
-                previews = previews.child(
-                    div()
-                        .id(ElementId::Name(
-                            format!("preview-image-{}-{}", message.id, preview.link).into(),
-                        ))
-                        .w(px(220.))
-                        .rounded(px(4.))
-                        .overflow_hidden()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.open_lightbox(lightbox_url.clone(), cx);
-                        }))
-                        .child(self.preview_image(&thumb, 220., cx)),
-                );
+            if !playable {
+                previews = previews.child(self.render_link_preview_card(
+                    &format!("preview-{}-{}", message.id, preview.link),
+                    preview,
+                    cx,
+                ));
                 continue;
             }
             let mut card = div()
@@ -634,7 +624,11 @@ impl LoungeApp {
 
         for url in &local_link_urls {
             if let Some(preview) = self.local_link_preview(url, cx) {
-                previews = previews.child(self.render_local_link_preview(&preview, cx));
+                previews = previews.child(self.render_link_preview_card(
+                    &format!("local-preview-{}-{}", message.id, preview.link),
+                    &preview,
+                    cx,
+                ));
             }
         }
 
