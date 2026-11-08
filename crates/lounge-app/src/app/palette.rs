@@ -197,6 +197,7 @@ impl PaletteCommand {
             | Self::RemoveNetwork
             | Self::MoveNetworkUp
             | Self::MoveNetworkDown => "Networks",
+            Self::ListIgnored => "Users",
             Self::UserAction(_) => "Users",
             Self::SignOut => "Account",
         }
@@ -267,6 +268,7 @@ pub(crate) enum PaletteCommand {
     MoveNetworkDown,
     LeaveChannel,
     ToggleMute,
+    ListIgnored,
     ClearChannelHistory,
     EditTopic,
     LoadOlder,
@@ -296,6 +298,7 @@ pub(crate) enum PaletteUserAction {
     Devoice,
     Kick,
     Ban,
+    Ignore,
 }
 
 impl PaletteUserAction {
@@ -310,6 +313,7 @@ impl PaletteUserAction {
             Self::Devoice => "devoice",
             Self::Kick => "kick",
             Self::Ban => "ban",
+            Self::Ignore => "ignore",
         }
     }
 
@@ -324,6 +328,7 @@ impl PaletteUserAction {
             Self::Devoice => "Choose a user to devoice...",
             Self::Kick => "Choose a user to kick...",
             Self::Ban => "Choose a user to ban...",
+            Self::Ignore => "Choose a user to ignore...",
         }
     }
 
@@ -338,6 +343,7 @@ impl PaletteUserAction {
             Self::Devoice => "Remove voice",
             Self::Kick => "Kick user",
             Self::Ban => "Ban user",
+            Self::Ignore => "Ignore user",
         }
     }
 

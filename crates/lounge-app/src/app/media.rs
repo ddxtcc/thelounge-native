@@ -1,16 +1,15 @@
 use gstreamer as gst;
 use gstreamer::prelude::*;
 
-use super::media_audio::{
-    audio_event, audio_muted, audio_playing, finish_audio, format_clock, seek_audio,
-    set_audio_volume, start_audio,
-};
+use super::media_audio::{audio_event, audio_playing, finish_audio, seek_audio_to, start_audio};
 use super::media_download::download_media_file;
 pub(super) use super::media_kind::{MediaKind, media_kind};
 pub(super) use super::media_poster::Poster;
 pub(crate) use super::media_poster::extract_poster;
 use super::media_poster::generate_poster_external;
 use super::*;
+
+const MEDIA_STATE_LIMIT: usize = 64;
 
 pub(super) struct InlineAudio {
     pub message_id: i64,
@@ -147,11 +146,14 @@ impl LoungeApp {
             match event {
                 Ok(()) => {
                     if let Some(audio) = self.inline_audio.as_ref() {
+                        self.media_positions.remove(&audio.url);
+                        self.media_failures.remove(&audio.url);
                         finish_audio(&audio.pipeline);
                     }
                 }
                 Err(error) => {
                     if let Some(audio) = self.inline_audio.take() {
+                        self.remember_failure(audio.url.clone(), error.clone());
                         let _ = audio.pipeline.set_state(gst::State::Null);
                     }
                     self.toast(format!("Media playback failed: {error}"));
@@ -163,11 +165,18 @@ impl LoungeApp {
             match event {
                 Ok(()) => {
                     if let Some(audio) = self.media_audio.as_ref() {
+                        if let Some(url) = self.media_audio_url.as_deref() {
+                            self.media_positions.remove(url);
+                            self.media_failures.remove(url);
+                        }
                         finish_audio(audio);
                     }
                 }
                 Err(error) => {
                     if let Some(audio) = self.media_audio.take() {
+                        if let Some(url) = self.media_audio_url.take() {
+                            self.remember_failure(url, error.clone());
+                        }
                         let _ = audio.set_state(gst::State::Null);
                     }
                     self.media_error = Some(error);
@@ -210,20 +219,39 @@ impl LoungeApp {
         self.media_video_loading = None;
         self.inline_video_loading = None;
         self.media_audio = None;
+        self.media_audio_url = None;
         self.media_error = None;
         self.media_request_generation = self.media_request_generation.wrapping_add(1);
         let generation = self.media_request_generation;
         let kind = media_kind(&url).unwrap_or(MediaKind::Video);
-        let inline_audio = self.inline_audio.take().filter(|inline| inline.url == url);
-        let inline_video = self.inline_video.take().filter(|inline| inline.url == url);
-        if kind == MediaKind::Audio {
-            if let Some(inline) = inline_audio {
-                self.media_audio = Some(inline.pipeline);
+        self.media_failures.remove(&url);
+        if let Some(audio) = self.inline_audio.take() {
+            self.remember_audio_position(&audio.url, &audio.pipeline);
+            if audio.url == url {
+                self.media_audio = Some(audio.pipeline);
+                self.media_audio_url = Some(audio.url);
             } else {
+                let _ = audio.pipeline.set_state(gst::State::Null);
+            }
+        }
+        if let Some(video) = self.inline_video.take() {
+            self.remember_video_position(&video.url, &video.video);
+            if video.url == url {
+                self.media_video = Some((video.url, video.video));
+            }
+        }
+        if kind == MediaKind::Audio {
+            if self.media_audio.is_none() {
                 match start_audio(&url) {
                     Ok(pipeline) => {
-                        pipeline.set_property("mute", self.audio_start_muted);
+                        pipeline.set_property("mute", self.config.media_muted);
+                        pipeline.set_property(
+                            "volume",
+                            f64::from(self.config.media_volume.clamp(0., 1.)),
+                        );
+                        self.resume_audio(&url, &pipeline);
                         self.media_audio = Some(pipeline);
+                        self.media_audio_url = Some(url);
                     }
                     Err(error) => self.media_error = Some(error),
                 }
@@ -232,8 +260,7 @@ impl LoungeApp {
             cx.notify();
             return;
         }
-        if let Some(inline) = inline_video {
-            self.media_video = Some((url, inline.video));
+        if self.media_video.is_some() {
             cx.notify();
             return;
         }
@@ -257,6 +284,9 @@ impl LoungeApp {
                 match result {
                     Ok(video) => {
                         video.set_looping(true);
+                        video.set_muted(this.config.media_muted);
+                        video.set_volume(f64::from(this.config.media_volume.clamp(0., 1.)));
+                        this.resume_video(&target, &video);
                         this.media_video = Some((target, video));
                     }
                     Err(error) => this.media_error = Some(error.to_string()),
@@ -268,13 +298,62 @@ impl LoungeApp {
         cx.notify();
     }
 
+    fn remember_audio_position(&mut self, url: &str, pipeline: &gst::Pipeline) {
+        if let Some(position) = pipeline.query_position::<gst::ClockTime>() {
+            self.remember_position(url, position.seconds());
+        }
+    }
+
+    fn remember_video_position(&mut self, url: &str, video: &gpui_video_player::Video) {
+        self.remember_position(url, video.position().as_secs());
+    }
+
+    fn remember_position(&mut self, url: &str, position: u64) {
+        if position > 0
+            && (self.media_positions.len() < MEDIA_STATE_LIMIT
+                || self.media_positions.contains_key(url))
+        {
+            self.media_positions.insert(url.to_string(), position);
+        } else {
+            self.media_positions.remove(url);
+        }
+    }
+
+    fn remember_failure(&mut self, url: String, error: String) {
+        if self.media_failures.len() < MEDIA_STATE_LIMIT || self.media_failures.contains_key(&url) {
+            self.media_failures.insert(url, error);
+        }
+    }
+
+    pub(super) fn clear_media_session(&mut self) {
+        self.media_positions.clear();
+        self.media_failures.clear();
+    }
+
+    fn resume_audio(&self, url: &str, pipeline: &gst::Pipeline) {
+        if let Some(position) = self.media_positions.get(url) {
+            seek_audio_to(pipeline, *position);
+        }
+    }
+
+    fn resume_video(&self, url: &str, video: &gpui_video_player::Video) {
+        if let Some(position) = self.media_positions.get(url) {
+            let _ = video.seek(std::time::Duration::from_secs(*position), true);
+        }
+    }
+
     pub(super) fn clear_media(&mut self) {
         self.media_request_generation = self.media_request_generation.wrapping_add(1);
-        self.media_video = None;
-        self.media_video_loading = None;
+        if let Some((url, video)) = self.media_video.take() {
+            self.remember_video_position(&url, &video);
+        }
         if let Some(audio) = self.media_audio.take() {
+            if let Some(url) = self.media_audio_url.take() {
+                self.remember_audio_position(&url, &audio);
+            }
             let _ = audio.set_state(gst::State::Null);
         }
+        self.media_video_loading = None;
         self.media_error = None;
         self.media_fullscreen = false;
         super::trim_memory();
@@ -282,11 +361,14 @@ impl LoungeApp {
 
     pub(super) fn clear_inline_media(&mut self) {
         self.media_request_generation = self.media_request_generation.wrapping_add(1);
-        self.inline_video = None;
-        self.inline_video_loading = None;
+        if let Some(video) = self.inline_video.take() {
+            self.remember_video_position(&video.url, &video.video);
+        }
         if let Some(audio) = self.inline_audio.take() {
+            self.remember_audio_position(&audio.url, &audio.pipeline);
             let _ = audio.pipeline.set_state(gst::State::Null);
         }
+        self.inline_video_loading = None;
         super::trim_memory();
     }
 
@@ -340,6 +422,7 @@ impl LoungeApp {
         kind: MediaKind,
         cx: &mut Context<Self>,
     ) {
+        self.media_failures.remove(&url);
         if let Some(inline) = self.inline_video.as_mut()
             && inline.url == url
         {
@@ -366,18 +449,25 @@ impl LoungeApp {
             cx.notify();
             return;
         }
-        self.inline_video = None;
+        if let Some(video) = self.inline_video.take() {
+            self.remember_video_position(&video.url, &video.video);
+        }
+        if let Some(audio) = self.inline_audio.take() {
+            self.remember_audio_position(&audio.url, &audio.pipeline);
+            let _ = audio.pipeline.set_state(gst::State::Null);
+        }
         self.inline_video_loading = None;
         self.media_video_loading = None;
         self.media_request_generation = self.media_request_generation.wrapping_add(1);
         let generation = self.media_request_generation;
-        if let Some(audio) = self.inline_audio.take() {
-            let _ = audio.pipeline.set_state(gst::State::Null);
-        }
         if kind == MediaKind::Audio {
             match start_audio(&url) {
                 Ok(pipeline) => {
-                    pipeline.set_property("mute", self.audio_start_muted);
+                    pipeline.set_property("mute", self.config.media_muted);
+                    pipeline
+                        .set_property("volume", f64::from(self.config.media_volume.clamp(0., 1.)));
+                    self.resume_audio(&url, &pipeline);
+                    self.media_failures.remove(&url);
                     self.inline_audio = Some(InlineAudio {
                         message_id,
                         url,
@@ -385,7 +475,10 @@ impl LoungeApp {
                     });
                     self.start_audio_ticker(cx);
                 }
-                Err(error) => self.toast(format!("Could not play media: {error}")),
+                Err(error) => {
+                    self.remember_failure(url.clone(), error.clone());
+                    self.toast(format!("Could not play media: {error}"));
+                }
             }
             cx.notify();
             return;
@@ -409,13 +502,20 @@ impl LoungeApp {
                 match result {
                     Ok(video) => {
                         video.set_looping(true);
+                        video.set_muted(this.config.media_muted);
+                        video.set_volume(f64::from(this.config.media_volume.clamp(0., 1.)));
+                        this.resume_video(&target, &video);
                         this.inline_video = Some(InlineMedia {
                             message_id,
                             url: target,
                             video,
                         });
                     }
-                    Err(error) => this.toast(format!("Could not play media: {error}")),
+                    Err(error) => {
+                        this.media_failures
+                            .insert(target.clone(), error.to_string());
+                        this.toast(format!("Could not play media: {error}"));
+                    }
                 }
                 cx.notify();
             });
@@ -424,229 +524,50 @@ impl LoungeApp {
         cx.notify();
     }
 
-    fn render_audio_controls(
-        &self,
-        pipeline: &gst::Pipeline,
-        expand_url: Option<String>,
-        download_url: Option<String>,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let toggle = pipeline.clone();
-        let mute = pipeline.clone();
-        let paused = !audio_playing(pipeline);
-        let muted = audio_muted(pipeline);
-        let position = pipeline
-            .query_position::<gst::ClockTime>()
-            .map(|time| time.seconds())
-            .unwrap_or(0);
-        let duration = pipeline
-            .query_duration::<gst::ClockTime>()
-            .map(|time| time.seconds())
-            .unwrap_or(0);
-        let ratio = if duration > 0 {
-            (position as f64 / duration as f64).clamp(0., 1.) as f32
-        } else {
-            0.
-        };
-        let time = if duration > 0 {
-            format!(
-                "{} / {}",
-                format_clock(position.min(duration)),
-                format_clock(duration)
-            )
-        } else {
-            "0:00 / --:--".to_string()
-        };
-        let volume = pipeline.property::<f64>("volume").clamp(0., 1.) as f32;
-        let volume_bounds: std::rc::Rc<std::cell::RefCell<Option<Bounds<Pixels>>>> =
-            std::rc::Rc::new(std::cell::RefCell::new(None));
-        let volume_prepaint = volume_bounds.clone();
-        let volume_pipeline = pipeline.clone();
-        let volume_move_pipeline = pipeline.clone();
-        let volume_click_bounds = volume_bounds.clone();
-        let volume_move_bounds = volume_bounds.clone();
-        let track_bounds: std::rc::Rc<std::cell::RefCell<Option<Bounds<Pixels>>>> =
-            std::rc::Rc::new(std::cell::RefCell::new(None));
-        let prepaint_bounds = track_bounds.clone();
-        let seek = pipeline.clone();
-        let seek_move = seek.clone();
-        let seek_bounds = track_bounds.clone();
-        let seek_move_bounds = track_bounds.clone();
-        div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(
-                div()
-                    .h(px(9.))
-                    .w_full()
-                    .flex()
-                    .items_center()
-                    .on_children_prepainted(move |bounds, _, _| {
-                        *prepaint_bounds.borrow_mut() = bounds.first().cloned();
-                    })
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
-                            let Some(bounds) = *seek_bounds.borrow() else {
-                                return;
-                            };
-                            seek_audio(&seek, bounds, event.position.x);
-                            cx.notify();
-                        }),
-                    )
-                    .on_mouse_move(cx.listener(move |_, event: &gpui::MouseMoveEvent, _, cx| {
-                        if event.pressed_button != Some(gpui::MouseButton::Left) {
-                            return;
-                        }
-                        let Some(bounds) = *seek_move_bounds.borrow() else {
-                            return;
-                        };
-                        seek_audio(&seek_move, bounds, event.position.x);
-                        cx.notify();
-                    }))
-                    .child(
-                        div()
-                            .h(px(5.))
-                            .w_full()
-                            .rounded_full()
-                            .bg(self.theme.border)
-                            .child(
-                                div()
-                                    .h_full()
-                                    .w(relative(ratio))
-                                    .rounded_full()
-                                    .bg(self.theme.accent),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .text_size(px(10.))
-                    .text_color(self.theme.muted)
-                    .child(time)
-                    .child(
-                        div().flex().items_center().gap_1().child(
-                            div()
-                                .h(px(9.))
-                                .w(px(54.))
-                                .flex()
-                                .items_center()
-                                .cursor_pointer()
-                                .on_children_prepainted(move |bounds, _, _| {
-                                    *volume_prepaint.borrow_mut() = bounds.first().cloned();
-                                })
-                                .on_mouse_down(
-                                    gpui::MouseButton::Left,
-                                    cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
-                                        let Some(bounds) = *volume_click_bounds.borrow() else {
-                                            return;
-                                        };
-                                        set_audio_volume(
-                                            &volume_pipeline,
-                                            bounds,
-                                            event.position.x,
-                                        );
-                                        cx.notify();
-                                    }),
-                                )
-                                .on_mouse_move(cx.listener(
-                                    move |_, event: &gpui::MouseMoveEvent, _, cx| {
-                                        if event.pressed_button != Some(gpui::MouseButton::Left) {
-                                            return;
-                                        }
-                                        let Some(bounds) = *volume_move_bounds.borrow() else {
-                                            return;
-                                        };
-                                        set_audio_volume(
-                                            &volume_move_pipeline,
-                                            bounds,
-                                            event.position.x,
-                                        );
-                                        cx.notify();
-                                    },
-                                ))
-                                .child(
-                                    div()
-                                        .w_full()
-                                        .h(px(3.))
-                                        .rounded_full()
-                                        .bg(self.theme.border)
-                                        .child(
-                                            div()
-                                                .h_full()
-                                                .w(relative(volume))
-                                                .rounded_full()
-                                                .bg(self.theme.muted),
-                                        ),
-                                ),
-                        ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .gap_1()
-                    .child(self.media_icon_button(
-                        if paused { "play" } else { "pause" },
-                        if paused { "Play" } else { "Pause" },
-                        !paused,
-                        cx,
-                        move |_, _, cx| {
-                            let _ = toggle.set_state(if audio_playing(&toggle) {
-                                gst::State::Paused
-                            } else {
-                                gst::State::Playing
-                            });
-                            cx.notify();
-                        },
-                    ))
-                    .child(self.media_icon_button(
-                        if muted { "volume-x" } else { "volume-2" },
-                        if muted { "Unmute" } else { "Mute" },
-                        false,
-                        cx,
-                        move |this, _, cx| {
-                            let muted = !audio_muted(&mute);
-                            mute.set_property("mute", muted);
-                            this.audio_start_muted = muted;
-                            cx.notify();
-                        },
-                    ))
-                    .when_some(expand_url, |this, url| {
-                        this.child(self.media_icon_button(
-                            "expand",
-                            "Expand",
-                            false,
-                            cx,
-                            move |this, _, cx| this.open_lightbox(url.clone(), cx),
-                        ))
-                    })
-                    .when_some(download_url, |this, url| {
-                        this.child(self.media_icon_button(
-                            "download",
-                            "Download",
-                            false,
-                            cx,
-                            move |this, _, cx| this.download_media(url.clone(), cx),
-                        ))
-                    }),
-            )
-            .into_any_element()
-    }
-
     pub(super) fn render_inline_media(
         &self,
         message_id: i64,
         url: &str,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        if let Some(error) = self.media_failures.get(url) {
+            let retry_url = url.to_string();
+            let kind = media_kind(url).unwrap_or(MediaKind::Video);
+            return Some(
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .p_2()
+                    .rounded(px(5.))
+                    .bg(self.theme.panel)
+                    .border_1()
+                    .border_color(self.theme.error)
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(self.theme.error)
+                            .child("Could not play media."),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(self.theme.muted)
+                            .child(error.clone()),
+                    )
+                    .child(self.media_icon_button(
+                        "play",
+                        "Try again",
+                        false,
+                        cx,
+                        move |this, _, cx| {
+                            this.play_inline_media(message_id, retry_url.clone(), kind, cx)
+                        },
+                    ))
+                    .into_any_element(),
+            );
+        }
         if let Some(audio) = self
             .inline_audio
             .as_ref()
@@ -700,15 +621,15 @@ impl LoungeApp {
         let muted = video.muted();
         let (video_width, video_height) = video.size();
         let (display_width, display_height) = if video_width > 0 && video_height > 0 {
-            let scale = (420. / video_width as f32)
-                .min(320. / video_height as f32)
+            let scale = (MEDIA_PREVIEW_MAX_WIDTH / video_width as f32)
+                .min(MEDIA_PREVIEW_MAX_HEIGHT / video_height as f32)
                 .min(1.);
             (
                 px(video_width as f32 * scale),
                 px(video_height as f32 * scale),
             )
         } else {
-            (px(440.), px(248.))
+            (px(MEDIA_PREVIEW_MAX_WIDTH), px(MEDIA_PREVIEW_MAX_HEIGHT))
         };
         Some(
             div()
@@ -757,8 +678,11 @@ impl LoungeApp {
                             if muted { "Unmute" } else { "Mute" },
                             false,
                             cx,
-                            move |_, _, cx| {
-                                mute.set_muted(!mute.muted());
+                            move |this, _, cx| {
+                                let muted = !mute.muted();
+                                mute.set_muted(muted);
+                                this.config.media_muted = muted;
+                                this.config.save();
                                 cx.notify();
                             },
                         ))
@@ -908,8 +832,11 @@ impl LoungeApp {
                     if muted { "Unmute" } else { "Mute" },
                     false,
                     cx,
-                    move |_, _, cx| {
-                        mute_video.set_muted(!mute_video.muted());
+                    move |this, _, cx| {
+                        let muted = !mute_video.muted();
+                        mute_video.set_muted(muted);
+                        this.config.media_muted = muted;
+                        this.config.save();
                         cx.notify();
                     },
                 ))

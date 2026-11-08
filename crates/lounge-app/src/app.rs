@@ -17,9 +17,15 @@ use lounge_core::proto::{Message, MessageType, ServerEvent, User};
 use lounge_core::socket::{Auth, ClientConfig, ClientEvent, ClientHandle};
 use lounge_core::state::{ChannelState, ClientState, NetworkState};
 
-use crate::config::{AppConfig, StatusMessages};
+use crate::config::{AppConfig, NotificationMode, StatusMessages};
 use crate::text_input::{InputAction, InputColors, InputRole, TextInput};
 use crate::theme::Theme;
+
+const COMPOSER_MIN_HEIGHT: f32 = 51.;
+#[cfg(feature = "media")]
+pub(super) const MEDIA_PREVIEW_MAX_WIDTH: f32 = 440.;
+#[cfg(feature = "media")]
+pub(super) const MEDIA_PREVIEW_MAX_HEIGHT: f32 = 300.;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingsTab {
@@ -300,8 +306,6 @@ pub struct LoungeApp {
     #[cfg(feature = "media")]
     audio_ticker_generation: u64,
     #[cfg(feature = "media")]
-    audio_start_muted: bool,
-    #[cfg(feature = "media")]
     media_request_generation: u64,
     #[cfg(feature = "media")]
     inline_video_loading: Option<(i64, String)>,
@@ -311,6 +315,12 @@ pub struct LoungeApp {
     inline_video: Option<media::InlineMedia>,
     #[cfg(feature = "media")]
     media_audio: Option<gstreamer::Pipeline>,
+    #[cfg(feature = "media")]
+    media_audio_url: Option<String>,
+    #[cfg(feature = "media")]
+    media_positions: HashMap<String, u64>,
+    #[cfg(feature = "media")]
+    media_failures: HashMap<String, String>,
     #[cfg(feature = "media")]
     inline_audio: Option<media::InlineAudio>,
     #[cfg(feature = "media")]
@@ -337,6 +347,9 @@ pub struct LoungeApp {
     tray_handle: Option<tray_windows::TrayHandle>,
     settings_open: bool,
     settings_tab: SettingsTab,
+    update_checking: bool,
+    update_available: Option<String>,
+    update_message: Option<String>,
     network_modal_open: bool,
     search_open: bool,
     shortcuts_open: bool,
@@ -377,6 +390,7 @@ pub struct LoungeApp {
     selecting_text: bool,
     confirm_remove_network: Option<String>,
     root_focus: gpui::FocusHandle,
+    overlay_return_focus: Option<gpui::FocusHandle>,
     last_overlay_open: bool,
     fonts: Vec<String>,
     fonts_loading: bool,
@@ -562,11 +576,7 @@ impl LoungeApp {
 
         let (notification_action_tx, notification_action_rx) = futures::channel::mpsc::unbounded();
         #[cfg(target_os = "linux")]
-        let (tray_handle, tray_action_rx) = match config.show_tray_icon.then(tray::spawn).flatten()
-        {
-            Some((handle, receiver)) => (Some(handle), Some(receiver)),
-            None => (None, None),
-        };
+        let tray_handle = None;
         #[cfg(target_os = "windows")]
         let (tray_handle, tray_action_rx) =
             match config.show_tray_icon.then(tray_windows::spawn).flatten() {
@@ -636,8 +646,6 @@ impl LoungeApp {
             #[cfg(feature = "media")]
             audio_ticker_generation: 0,
             #[cfg(feature = "media")]
-            audio_start_muted: false,
-            #[cfg(feature = "media")]
             media_request_generation: 0,
             #[cfg(feature = "media")]
             inline_video_loading: None,
@@ -647,6 +655,12 @@ impl LoungeApp {
             inline_video: None,
             #[cfg(feature = "media")]
             media_audio: None,
+            #[cfg(feature = "media")]
+            media_audio_url: None,
+            #[cfg(feature = "media")]
+            media_positions: HashMap::new(),
+            #[cfg(feature = "media")]
+            media_failures: HashMap::new(),
             #[cfg(feature = "media")]
             inline_audio: None,
             #[cfg(feature = "media")]
@@ -673,6 +687,9 @@ impl LoungeApp {
             tray_handle,
             settings_open: false,
             settings_tab: SettingsTab::Appearance,
+            update_checking: false,
+            update_available: None,
+            update_message: None,
             network_modal_open: false,
             search_open: false,
             shortcuts_open: false,
@@ -713,6 +730,7 @@ impl LoungeApp {
             selecting_text: false,
             confirm_remove_network: None,
             root_focus,
+            overlay_return_focus: None,
             last_overlay_open: false,
             fonts: Vec::new(),
             fonts_loading: false,
@@ -744,8 +762,8 @@ impl LoungeApp {
         });
         app.watch_notifications(notification_action_rx, cx);
         #[cfg(target_os = "linux")]
-        if let Some(receiver) = tray_action_rx {
-            app.watch_tray(receiver, cx);
+        if app.config.show_tray_icon {
+            app.start_tray(cx);
         }
         #[cfg(target_os = "windows")]
         if let Some(receiver) = tray_action_rx {
@@ -753,6 +771,9 @@ impl LoungeApp {
         }
         if app.config.load_failed {
             app.toast("Config could not be parsed; using defaults and keeping a backup.");
+        }
+        if let Some(error) = app.config.token_error.clone() {
+            app.toast(format!("Could not access the system keyring: {error}"));
         }
         app.prefill_login(cx);
 

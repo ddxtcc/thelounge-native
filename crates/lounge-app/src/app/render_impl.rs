@@ -1,5 +1,93 @@
 use super::*;
 
+impl LoungeApp {
+    fn update_input_tab_stops(&self, overlay_open: bool, cx: &mut Context<Self>) {
+        let entries = [
+            (&self.inputs.composer, !overlay_open),
+            (&self.inputs.login_server, !overlay_open),
+            (&self.inputs.login_user, !overlay_open),
+            (&self.inputs.login_password, !overlay_open),
+            (
+                &self.inputs.network_name,
+                !overlay_open || self.network_modal_open,
+            ),
+            (
+                &self.inputs.network_host,
+                !overlay_open || self.network_modal_open,
+            ),
+            (
+                &self.inputs.network_port,
+                !overlay_open || self.network_modal_open,
+            ),
+            (
+                &self.inputs.network_nick,
+                !overlay_open || self.network_modal_open,
+            ),
+            (
+                &self.inputs.network_username,
+                !overlay_open || self.network_modal_open,
+            ),
+            (
+                &self.inputs.network_realname,
+                !overlay_open || self.network_modal_open,
+            ),
+            (
+                &self.inputs.network_password,
+                !overlay_open || self.network_modal_open,
+            ),
+            (&self.inputs.search, !overlay_open || self.search_open),
+            (
+                &self.inputs.setting_highlights,
+                !overlay_open || self.settings_open,
+            ),
+            (
+                &self.inputs.setting_highlight_exceptions,
+                !overlay_open || self.settings_open,
+            ),
+            (
+                &self.inputs.setting_away_message,
+                !overlay_open || self.settings_open,
+            ),
+            (
+                &self.inputs.emoji_search,
+                !overlay_open || self.emoji_picker_open,
+            ),
+            (
+                &self.inputs.font_search,
+                !overlay_open || self.font_picker.is_some(),
+            ),
+            (&self.inputs.users_filter, !overlay_open),
+            (
+                &self.inputs.palette,
+                !overlay_open || self.palette.is_some(),
+            ),
+            (
+                &self.inputs.password_old,
+                !overlay_open || self.security_open,
+            ),
+            (
+                &self.inputs.password_new,
+                !overlay_open || self.security_open,
+            ),
+            (
+                &self.inputs.password_verify,
+                !overlay_open || self.security_open,
+            ),
+            (
+                &self.inputs.theme_name,
+                !overlay_open || self.theme_editor.is_some(),
+            ),
+            (
+                &self.inputs.theme_hex,
+                !overlay_open || self.theme_editor.is_some(),
+            ),
+        ];
+        for (input, tab_stop) in entries {
+            input.update(cx, |input, _| input.set_tab_stop(tab_stop));
+        }
+    }
+}
+
 impl Render for LoungeApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.pending_show_window {
@@ -94,14 +182,18 @@ impl Render for LoungeApp {
             || self.lightbox.is_some()
             || self.message_context.is_some()
             || self.palette.is_some();
-        self.inputs
-            .composer
-            .update(cx, |input, _| input.set_tab_stop(!overlay_open));
-        if overlay_open && !self.last_overlay_open && self.focus_request.is_none() {
+        self.update_input_tab_stops(overlay_open, cx);
+        if overlay_open && !self.last_overlay_open {
+            self.overlay_return_focus = window.focused(cx);
             window.focus(&self.root_focus);
         }
         if !overlay_open && self.last_overlay_open {
-            self.pending_focus = true;
+            if let Some(handle) = self.overlay_return_focus.take() {
+                window.focus(&handle);
+                self.pending_focus = false;
+            } else {
+                self.pending_focus = true;
+            }
         }
         self.last_overlay_open = overlay_open;
 
@@ -130,6 +222,19 @@ impl Render for LoungeApp {
             .id("app-root")
             .track_focus(&self.root_focus)
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                if event.keystroke.key.eq_ignore_ascii_case("tab")
+                    && !event.keystroke.modifiers.control
+                    && !event.keystroke.modifiers.alt
+                    && !event.keystroke.modifiers.platform
+                {
+                    if event.keystroke.modifiers.shift {
+                        window.focus_prev();
+                    } else {
+                        window.focus_next();
+                    }
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.palette == Some(PaletteMode::Hotkey) {
                     let key = event.keystroke.key.to_lowercase();
                     if key == "escape" {

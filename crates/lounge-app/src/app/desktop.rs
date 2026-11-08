@@ -21,6 +21,26 @@ impl LoungeApp {
     }
 
     #[cfg(target_os = "linux")]
+    pub(super) fn start_tray(&mut self, cx: &mut Context<Self>) {
+        let task = cx.background_spawn(async { crate::app::tray::spawn() });
+        cx.spawn(async move |this, cx| {
+            let Some((handle, receiver)) = task.await else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.tray_handle = Some(handle);
+                let unread = this.state.total_unread();
+                if let Some(handle) = &this.tray_handle {
+                    handle.update(|tray| tray.unread = unread);
+                }
+                this.watch_tray(receiver, cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    #[cfg(target_os = "linux")]
     pub(super) fn watch_tray(
         &mut self,
         mut receiver: futures::channel::mpsc::UnboundedReceiver<tray::TrayAction>,

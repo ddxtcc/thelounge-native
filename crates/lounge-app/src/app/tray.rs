@@ -79,6 +79,7 @@ pub fn spawn() -> Option<(Handle<LoungeTray>, mpsc::UnboundedReceiver<TrayAction
         actions: tx,
         unread: 0,
     }
+    .assume_sni_available(true)
     .spawn()
     .ok()?;
     Some((handle, rx))

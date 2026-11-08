@@ -84,6 +84,8 @@ impl LoungeApp {
         let theme = self.theme;
         div()
             .id(id)
+            .tab_index(0)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .size(px(26.))
             .flex()
             .items_center()
@@ -248,6 +250,8 @@ impl LoungeApp {
                         this.child(
                             div()
                                 .id("lightbox-prev")
+                                .tab_index(0)
+                                .focus(|style| style.bg(theme.border).text_color(theme.text))
                                 .px_1()
                                 .text_size(px(11.))
                                 .text_color(theme.accent)
@@ -259,6 +263,8 @@ impl LoungeApp {
                         .child(
                             div()
                                 .id("lightbox-next")
+                                .tab_index(0)
+                                .focus(|style| style.bg(theme.border).text_color(theme.text))
                                 .px_1()
                                 .text_size(px(11.))
                                 .text_color(theme.accent)
@@ -271,6 +277,8 @@ impl LoungeApp {
                     .child(
                         div()
                             .id("lightbox-open")
+                            .tab_index(0)
+                            .focus(|style| style.bg(theme.border).text_color(theme.text))
                             .text_size(px(11.))
                             .text_color(theme.accent)
                             .cursor_pointer()
@@ -412,6 +420,8 @@ impl LoungeApp {
             .child(
                 div()
                     .id("create-network")
+                    .tab_index(0)
+                    .focus(|style| style.bg(theme.border).text_color(theme.text))
                     .mt_2()
                     .h(px(34.))
                     .flex()
@@ -662,6 +672,8 @@ impl LoungeApp {
         list = list.child(
             div()
                 .id("font-reset")
+                .tab_index(0)
+                .focus(|style| style.bg(theme.border).text_color(theme.text))
                 .flex()
                 .items_center()
                 .justify_between()
@@ -903,6 +915,8 @@ impl LoungeApp {
         };
         div()
             .id(ElementId::Name(format!("menu-{label}").into()))
+            .tab_index(0)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .flex()
             .items_center()
             .gap_2()

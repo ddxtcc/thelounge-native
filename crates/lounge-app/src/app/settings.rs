@@ -15,7 +15,7 @@ impl LoungeApp {
             SettingsTab::Messages => card.child(self.settings_messages(cx)),
             SettingsTab::General => card.child(self.settings_general(cx)),
             SettingsTab::Server => card.child(self.settings_server(cx)),
-            SettingsTab::About => card.child(self.settings_about()),
+            SettingsTab::About => card.child(self.settings_about(cx)),
         };
         card.into_any_element()
     }
@@ -34,6 +34,8 @@ impl LoungeApp {
             tabs = tabs.child(
                 div()
                     .id(ElementId::Name(format!("settings-tab-{label}").into()))
+                    .tab_index(0)
+                    .focus(|style| style.bg(theme.border).text_color(theme.text))
                     .px_3()
                     .py_1()
                     .rounded(px(5.))
@@ -289,15 +291,45 @@ impl LoungeApp {
                 cx,
                 |this| this.config.show_sidebar = !this.config.show_sidebar,
             ))
+            .child(self.setting_section("Notifications"))
             .child(self.setting_row_toggle(
                 "Desktop notifications",
                 self.config.notifications,
                 cx,
                 |this| this.config.notifications = !this.config.notifications,
+            ))
+            .child(self.setting_row_cycle(
+                "Notification mode",
+                self.config.notification_mode.label(),
+                cx,
+                |this| this.config.notification_mode = this.config.notification_mode.next(),
             ));
+        if let Some((_, channel)) = self.state.active_channel() {
+            let channel_id = channel.chan.id;
+            let channel_name = channel.chan.name.clone();
+            let override_mode = self.config.channel_notification_override(channel_id);
+            let value = override_mode
+                .map(|mode| mode.label().to_string())
+                .unwrap_or_else(|| format!("Global ({})", self.config.notification_mode.label()));
+            card = card.child(self.setting_row_cycle(
+                &format!("{channel_name} notifications"),
+                &value,
+                cx,
+                move |this| {
+                    let next = match this.config.channel_notification_override(channel_id) {
+                        None => Some(NotificationMode::Mentions),
+                        Some(NotificationMode::Mentions) => Some(NotificationMode::All),
+                        Some(NotificationMode::All) => Some(NotificationMode::DirectMessages),
+                        Some(NotificationMode::DirectMessages) => None,
+                    };
+                    this.config.set_channel_notification_mode(channel_id, next);
+                },
+            ));
+        }
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         {
             card = card
+                .child(self.setting_section("Desktop"))
                 .child(self.setting_row_value_button(
                     "Show tray icon",
                     if self.config.show_tray_icon {
@@ -368,12 +400,18 @@ impl LoungeApp {
         card.into_any_element()
     }
 
-    fn settings_about(&self) -> AnyElement {
+    fn settings_about(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        div()
+        let mut card = div()
             .flex()
             .flex_col()
             .gap_3()
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme.muted)
+                    .child(format!("Lounge Native {}", env!("CARGO_PKG_VERSION"))),
+            )
             .child(
                 div().text_size(px(12.)).text_color(theme.muted).child(
                     self.state
@@ -393,7 +431,66 @@ impl LoungeApp {
                         .unwrap_or_else(|| "Not connected".into()),
                 ),
             )
-            .into_any_element()
+            .child(self.setting_row_button(
+                "Check for updates",
+                if self.update_checking {
+                    "Checking..."
+                } else {
+                    "Check"
+                },
+                cx,
+                |this, cx| this.check_for_updates(cx),
+            ));
+        if let Some(version) = &self.update_available {
+            card = card
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(theme.success)
+                        .child(format!("Version {version} is available.")),
+                )
+                .child(
+                    self.setting_row_button("Latest release", "Open", cx, |_, _| {
+                        let _ = open::that(
+                            "https://github.com/ddxtcc/thelounge-native/releases/latest",
+                        );
+                    }),
+                );
+        } else if let Some(message) = &self.update_message {
+            card = card.child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme.muted)
+                    .child(message.clone()),
+            );
+        }
+        card.into_any_element()
+    }
+
+    pub(super) fn check_for_updates(&mut self, cx: &mut Context<Self>) {
+        if self.update_checking {
+            return;
+        }
+        self.update_checking = true;
+        self.update_available = None;
+        self.update_message = None;
+        cx.notify();
+        let task = cx.background_spawn(async { crate::update::latest_version() });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.update_checking = false;
+                match result {
+                    Ok(Some(version)) => this.update_available = Some(version),
+                    Ok(None) => this.update_message = Some("Lounge Native is up to date.".into()),
+                    Err(error) => {
+                        this.update_message = Some(format!("Update check failed: {error}"))
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     pub(super) fn import_theme(&mut self, cx: &mut Context<Self>) {
@@ -494,6 +591,8 @@ impl LoungeApp {
         let theme = self.theme;
         div()
             .id(ElementId::Name(format!("setting-{label}").into()))
+            .tab_index(0)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .flex()
             .items_center()
             .justify_between()
@@ -532,6 +631,8 @@ impl LoungeApp {
         let theme = self.theme;
         div()
             .id(ElementId::Name(format!("setting-{label}").into()))
+            .tab_index(0)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .flex()
             .items_center()
             .justify_between()
@@ -566,6 +667,9 @@ impl LoungeApp {
     ) -> AnyElement {
         let theme = self.theme;
         div()
+            .id(ElementId::Name(format!("value-{label}").into()))
+            .tab_index(0)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .flex()
             .items_center()
             .justify_between()
@@ -614,6 +718,9 @@ impl LoungeApp {
     ) -> AnyElement {
         let theme = self.theme;
         div()
+            .id(ElementId::Name(format!("action-{label}").into()))
+            .tab_index(0)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .flex()
             .items_center()
             .justify_between()

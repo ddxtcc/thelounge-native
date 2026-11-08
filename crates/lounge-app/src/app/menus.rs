@@ -550,6 +550,7 @@ impl LoungeApp {
         let uuid_edit = uuid.to_string();
         let uuid_connect = uuid.to_string();
         let uuid_disconnect = uuid.to_string();
+        let uuid_ignored = uuid.to_string();
         let uuid_remove = uuid.to_string();
         let uuid_cancel = uuid.to_string();
 
@@ -573,6 +574,11 @@ impl LoungeApp {
         .child(self.menu_button("Disconnect", cx, move |this, _, cx| {
             this.send_network_command(&uuid_disconnect, "/disconnect", cx)
         }))
+        .child(
+            self.menu_button("List ignored users", cx, move |this, _, cx| {
+                this.send_network_command(&uuid_ignored, "/ignorelist", cx)
+            }),
+        )
         .child(
             div()
                 .id("network-remove")
@@ -704,8 +710,20 @@ impl LoungeApp {
                 this.message_menu = None;
             }));
         }
+        if !nick.is_empty() {
+            let channel_id = menu.channel_id;
+            let ignore_nick = nick.clone();
+            card = card.child(self.menu_button("Ignore user", cx, move |this, _, cx| {
+                if let Some(conn) = &this.conn {
+                    conn.input(channel_id, format!("/ignore {ignore_nick}"), None);
+                }
+                this.message_menu = None;
+                this.toast(format!("Ignoring {ignore_nick}."));
+                cx.notify();
+            }));
+        }
         let card = card.into_any_element();
-        let (x, y) = menu_origin(window, position, 420., 300.);
+        let (x, y) = menu_origin(window, position, 420., 340.);
         div()
             .absolute()
             .left(x)
@@ -733,6 +751,7 @@ impl LoungeApp {
             ("Remove voice", "devoice"),
             ("Kick", "kick"),
             ("Ban", "ban"),
+            ("Ignore user", "ignore"),
         ];
         let mut card = self.menu_card(&nick, cx);
         card = card.child(self.menu_button("Mention", cx, move |this, _, cx| {
@@ -755,7 +774,7 @@ impl LoungeApp {
                     .child("Commands act on the active channel."),
             )
             .into_any_element();
-        let (x, y) = menu_origin(window, position, 420., 460.);
+        let (x, y) = menu_origin(window, position, 420., 500.);
         div()
             .absolute()
             .left(x)

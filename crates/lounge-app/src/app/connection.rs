@@ -1,6 +1,11 @@
 use super::*;
 
 impl LoungeApp {
+    fn forget_token(&mut self) {
+        let _ = crate::secure_token::delete_token(&self.config.server, &self.config.user);
+        self.config.token.clear();
+    }
+
     pub(super) fn attempt_login(&mut self, cx: &mut Context<Self>) {
         let server = self
             .inputs
@@ -32,8 +37,9 @@ impl LoungeApp {
 
         let account_changed = server != self.config.server || user != self.config.user;
         if account_changed {
-            self.config.token.clear();
+            self.forget_token();
             self.config.last_channel = None;
+            self.config.notification_overrides.clear();
             self.drafts.clear();
             self.histories.clear();
             self.seen_mentions.clear();
@@ -63,6 +69,7 @@ impl LoungeApp {
         #[cfg(feature = "media")]
         {
             self.clear_inline_media();
+            self.clear_media_session();
         }
         self.messages_at_bottom = true;
         self.scroll_to_bottom_pending = false;
@@ -122,7 +129,7 @@ impl LoungeApp {
             ClientEvent::Authenticated => {}
             ClientEvent::AuthFailed => {
                 self.status = ConnectionStatus::Disconnected;
-                self.config.token.clear();
+                self.forget_token();
                 self.config.save();
                 self.route = Route::Login;
                 self.login_error = Some("Authentication failed. Check your credentials.".into());
@@ -163,63 +170,72 @@ impl LoungeApp {
                     ServerEvent::ChangePassword(result) => Some(result.clone()),
                     _ => None,
                 };
-                if let ServerEvent::Message(message) = &event
-                    && message.msg.highlight
-                    && self.config.notifications
-                    && !self.window_active
-                    && self.state.active != Some(message.chan)
-                {
-                    let nick = message
-                        .msg
-                        .from
-                        .as_ref()
-                        .map(|from| from.nick.clone())
-                        .unwrap_or_default();
-                    let channel_name = self
-                        .state
-                        .find_channel(message.chan)
-                        .map(|(_, channel)| channel.chan.name.clone())
-                        .unwrap_or_default();
-                    let body = format::clean(&message.msg.text);
-                    let chan_id = message.chan;
-                    #[cfg(target_os = "linux")]
+                if let ServerEvent::Message(message) = &event {
+                    let channel = self.state.find_channel(message.chan);
+                    if self.config.notifications
+                        && !self.window_active
+                        && self.state.active != Some(message.chan)
+                        && notification_wanted(
+                            self.config.channel_notification_mode(message.chan),
+                            channel.is_some_and(|(_, channel)| channel.chan.muted),
+                            channel.is_some_and(|(_, channel)| channel.is_query()),
+                            message.msg.highlight,
+                            message.msg.is_self,
+                            message.msg.kind,
+                        )
                     {
-                        let actions = self.notification_action_tx.clone();
-                        std::thread::spawn(move || {
-                            let output = std::process::Command::new("notify-send")
-                                .arg("--wait")
-                                .arg("--expire-time=10000")
-                                .arg("--action=default=Open")
-                                .arg("--app-name=Lounge Native")
-                                .arg(format!("{nick} ({channel_name})"))
-                                .arg(body)
-                                .output();
-                            if let Ok(output) = output
-                                && String::from_utf8_lossy(&output.stdout).contains("default")
-                            {
-                                let _ = actions.unbounded_send(chan_id);
-                            }
-                        });
-                    }
-                    #[cfg(target_os = "windows")]
-                    {
-                        let actions = self.notification_action_tx.clone();
-                        let title = format!("{nick} ({channel_name})");
-                        std::thread::spawn(move || {
-                            use tauri_winrt_notification::Toast;
-                            let _ = Toast::new("Lounge.Native")
-                                .title(&title)
-                                .text1(&body)
-                                .on_activated(move |_| {
+                        let nick = message
+                            .msg
+                            .from
+                            .as_ref()
+                            .map(|from| from.nick.clone())
+                            .unwrap_or_default();
+                        let channel_name = self
+                            .state
+                            .find_channel(message.chan)
+                            .map(|(_, channel)| channel.chan.name.clone())
+                            .unwrap_or_default();
+                        let body = format::clean(&message.msg.text);
+                        let chan_id = message.chan;
+                        #[cfg(target_os = "linux")]
+                        {
+                            let actions = self.notification_action_tx.clone();
+                            std::thread::spawn(move || {
+                                let output = std::process::Command::new("notify-send")
+                                    .arg("--wait")
+                                    .arg("--expire-time=10000")
+                                    .arg("--action=default=Open")
+                                    .arg("--app-name=Lounge Native")
+                                    .arg(format!("{nick} ({channel_name})"))
+                                    .arg(body)
+                                    .output();
+                                if let Ok(output) = output
+                                    && String::from_utf8_lossy(&output.stdout).contains("default")
+                                {
                                     let _ = actions.unbounded_send(chan_id);
-                                    Ok(())
-                                })
-                                .show();
-                        });
-                    }
-                    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-                    {
-                        let _ = (body, chan_id, nick, channel_name);
+                                }
+                            });
+                        }
+                        #[cfg(target_os = "windows")]
+                        {
+                            let actions = self.notification_action_tx.clone();
+                            let title = format!("{nick} ({channel_name})");
+                            std::thread::spawn(move || {
+                                use tauri_winrt_notification::Toast;
+                                let _ = Toast::new("Lounge.Native")
+                                    .title(&title)
+                                    .text1(&body)
+                                    .on_activated(move |_| {
+                                        let _ = actions.unbounded_send(chan_id);
+                                        Ok(())
+                                    })
+                                    .show();
+                            });
+                        }
+                        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                        {
+                            let _ = (body, chan_id, nick, channel_name);
+                        }
                     }
                 }
                 self.state.apply(event);
@@ -241,7 +257,7 @@ impl LoungeApp {
                     self.prefill_network_edit(&info, cx);
                 }
                 if signed_out {
-                    self.config.token.clear();
+                    self.forget_token();
                     self.config.save();
                     self.route = Route::Login;
                     self.status = ConnectionStatus::Disconnected;
@@ -302,6 +318,13 @@ impl LoungeApp {
     pub(super) fn after_init(&mut self, old_active: Option<i64>, cx: &mut Context<Self>) {
         if let Some(token) = self.state.token.clone() {
             self.config.token = token;
+            if let Err(error) = crate::secure_token::store_token(
+                &self.config.server,
+                &self.config.user,
+                &self.config.token,
+            ) {
+                self.toast(format!("Could not save login token securely: {error}"));
+            }
         }
         if let Some(active) = self.state.active {
             self.config.last_channel = Some(active);
@@ -434,7 +457,7 @@ impl LoungeApp {
         self.conn_generation = self.conn_generation.wrapping_add(1);
         self.conn = None;
         self.reset_uploads();
-        self.config.token.clear();
+        self.forget_token();
         self.config.save();
         self.route = Route::Login;
         self.status = ConnectionStatus::Disconnected;
@@ -457,9 +480,103 @@ fn login_auth(user: String, password: String, token: &str, configured_user: &str
     }
 }
 
+fn notification_wanted(
+    mode: crate::config::NotificationMode,
+    muted: bool,
+    is_query: bool,
+    highlight: bool,
+    is_self: bool,
+    kind: MessageType,
+) -> bool {
+    if muted || is_self {
+        return false;
+    }
+    if !matches!(
+        kind,
+        MessageType::Message | MessageType::Action | MessageType::Notice
+    ) {
+        return false;
+    }
+    match mode {
+        crate::config::NotificationMode::Mentions => highlight,
+        crate::config::NotificationMode::All => true,
+        crate::config::NotificationMode::DirectMessages => is_query,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notifications_follow_mode_and_mute() {
+        use crate::config::NotificationMode;
+        let text = MessageType::Message;
+        assert!(!notification_wanted(
+            NotificationMode::Mentions,
+            false,
+            true,
+            false,
+            false,
+            text
+        ));
+        assert!(notification_wanted(
+            NotificationMode::Mentions,
+            false,
+            true,
+            true,
+            false,
+            text
+        ));
+        assert!(notification_wanted(
+            NotificationMode::All,
+            false,
+            false,
+            false,
+            false,
+            text
+        ));
+        assert!(notification_wanted(
+            NotificationMode::DirectMessages,
+            false,
+            true,
+            false,
+            false,
+            text
+        ));
+        assert!(!notification_wanted(
+            NotificationMode::DirectMessages,
+            false,
+            false,
+            true,
+            false,
+            text
+        ));
+        assert!(!notification_wanted(
+            NotificationMode::All,
+            true,
+            false,
+            false,
+            false,
+            text
+        ));
+        assert!(!notification_wanted(
+            NotificationMode::All,
+            false,
+            false,
+            false,
+            true,
+            text
+        ));
+        assert!(!notification_wanted(
+            NotificationMode::All,
+            false,
+            false,
+            false,
+            false,
+            MessageType::Join
+        ));
+    }
 
     #[test]
     fn login_prefers_stored_token_when_password_is_empty() {
