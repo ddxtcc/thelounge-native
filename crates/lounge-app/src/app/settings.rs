@@ -15,7 +15,7 @@ impl LoungeApp {
             SettingsTab::Messages => card.child(self.settings_messages(cx)),
             SettingsTab::General => card.child(self.settings_general(cx)),
             SettingsTab::Server => card.child(self.settings_server(cx)),
-            SettingsTab::About => card.child(self.settings_about()),
+            SettingsTab::About => card.child(self.settings_about(cx)),
         };
         card.into_any_element()
     }
@@ -399,12 +399,18 @@ impl LoungeApp {
         card.into_any_element()
     }
 
-    fn settings_about(&self) -> AnyElement {
+    fn settings_about(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
-        div()
+        let mut card = div()
             .flex()
             .flex_col()
             .gap_3()
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme.muted)
+                    .child(format!("Lounge Native {}", env!("CARGO_PKG_VERSION"))),
+            )
             .child(
                 div().text_size(px(12.)).text_color(theme.muted).child(
                     self.state
@@ -424,7 +430,66 @@ impl LoungeApp {
                         .unwrap_or_else(|| "Not connected".into()),
                 ),
             )
-            .into_any_element()
+            .child(self.setting_row_button(
+                "Check for updates",
+                if self.update_checking {
+                    "Checking..."
+                } else {
+                    "Check"
+                },
+                cx,
+                |this, cx| this.check_for_updates(cx),
+            ));
+        if let Some(version) = &self.update_available {
+            card = card
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(theme.success)
+                        .child(format!("Version {version} is available.")),
+                )
+                .child(
+                    self.setting_row_button("Latest release", "Open", cx, |_, _| {
+                        let _ = open::that(
+                            "https://github.com/ddxtcc/thelounge-native/releases/latest",
+                        );
+                    }),
+                );
+        } else if let Some(message) = &self.update_message {
+            card = card.child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(theme.muted)
+                    .child(message.clone()),
+            );
+        }
+        card.into_any_element()
+    }
+
+    pub(super) fn check_for_updates(&mut self, cx: &mut Context<Self>) {
+        if self.update_checking {
+            return;
+        }
+        self.update_checking = true;
+        self.update_available = None;
+        self.update_message = None;
+        cx.notify();
+        let task = cx.background_spawn(async { crate::update::latest_version() });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.update_checking = false;
+                match result {
+                    Ok(Some(version)) => this.update_available = Some(version),
+                    Ok(None) => this.update_message = Some("Lounge Native is up to date.".into()),
+                    Err(error) => {
+                        this.update_message = Some(format!("Update check failed: {error}"))
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     pub(super) fn import_theme(&mut self, cx: &mut Context<Self>) {

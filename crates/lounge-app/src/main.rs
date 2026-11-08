@@ -5,6 +5,7 @@ mod http_client;
 mod secure_token;
 mod text_input;
 mod theme;
+mod update;
 
 use std::borrow::Cow;
 use std::sync::Arc;

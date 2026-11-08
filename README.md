@@ -25,6 +25,14 @@ sh packaging/install.sh
 
 The installer writes to `$HOME/.local` by default. Set `PREFIX` or `XDG_DATA_HOME` to change the target. Release archives include the binary, `lounge-native.desktop`, `install.sh`, and hicolor icons; run `./install.sh` from the unpacked archive.
 
+Ubuntu 24.04, Debian trixie, and compatible distributions can install the Debian package instead:
+
+```sh
+sudo apt install ./lounge-native_0.9.0_amd64.deb
+```
+
+The package installs the binary, desktop entry, AppStream metadata, and hicolor icons under `/usr`. Update it by installing a newer package or rerunning `install.sh` from a newer archive. Settings > About > Check for updates compares the app against the latest GitHub release.
+
 ## Media playback
 
 The build requires Rust 1.96 or newer and GStreamer with its base, good, and bad
