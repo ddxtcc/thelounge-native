@@ -582,8 +582,8 @@ impl LoungeApp {
                     && video
                     && let Some(poster) = self.media_poster(&play_url, cx)
                 {
-                    let max_w: f32 = 440.;
-                    let max_h: f32 = 300.;
+                    let max_w = MEDIA_PREVIEW_MAX_WIDTH;
+                    let max_h = MEDIA_PREVIEW_MAX_HEIGHT;
                     let scale = (max_w / poster.width as f32)
                         .min(max_h / poster.height as f32)
                         .min(1.);
@@ -701,6 +701,9 @@ impl LoungeApp {
                     .flex()
                     .flex_col()
                     .gap_2();
+                if kind == super::media::MediaKind::Video {
+                    card = card.child(header);
+                }
                 if let Some(inline) = self.render_inline_media(row_id, &url, cx) {
                     card = card.child(inline);
                 } else if kind == super::media::MediaKind::Audio {
@@ -708,7 +711,6 @@ impl LoungeApp {
                 } else {
                     let play_url = url.clone();
                     card = card
-                        .child(header)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.play_inline_media(row_id, play_url.clone(), kind, cx);
                         }))
@@ -716,8 +718,8 @@ impl LoungeApp {
                     if kind == super::media::MediaKind::Video
                         && let Some(poster) = self.media_poster(&url, cx)
                     {
-                        let max_w: f32 = 440.;
-                        let max_h: f32 = 300.;
+                        let max_w = MEDIA_PREVIEW_MAX_WIDTH;
+                        let max_h = MEDIA_PREVIEW_MAX_HEIGHT;
                         let scale = (max_w / poster.width as f32)
                             .min(max_h / poster.height as f32)
                             .min(1.);

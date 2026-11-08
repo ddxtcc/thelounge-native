@@ -895,15 +895,15 @@ impl LoungeApp {
         let muted = video.muted();
         let (video_width, video_height) = video.size();
         let (display_width, display_height) = if video_width > 0 && video_height > 0 {
-            let scale = (420. / video_width as f32)
-                .min(320. / video_height as f32)
+            let scale = (MEDIA_PREVIEW_MAX_WIDTH / video_width as f32)
+                .min(MEDIA_PREVIEW_MAX_HEIGHT / video_height as f32)
                 .min(1.);
             (
                 px(video_width as f32 * scale),
                 px(video_height as f32 * scale),
             )
         } else {
-            (px(440.), px(248.))
+            (px(MEDIA_PREVIEW_MAX_WIDTH), px(MEDIA_PREVIEW_MAX_HEIGHT))
         };
         Some(
             div()
