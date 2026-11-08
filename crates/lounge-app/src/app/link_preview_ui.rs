@@ -41,6 +41,7 @@ impl LoungeApp {
             .id(ElementId::Name(id.to_string().into()))
             .w_full()
             .px_2()
+            .pt_1()
             .rounded(px(4.))
             .bg(theme.panel)
             .border_1()
