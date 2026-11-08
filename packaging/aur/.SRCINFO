@@ -1,6 +1,6 @@
 pkgbase = lounge-native
 	pkgdesc = Native IRC client for The Lounge
-	pkgver = 0.9.0
+	pkgver = 0.9.1
 	pkgrel = 1
 	url = https://github.com/ddxtcc/thelounge-native
 	install = lounge-native.install
@@ -30,7 +30,7 @@ pkgbase = lounge-native
 	depends = desktop-file-utils
 	optdepends = libnotify: desktop notifications
 	optdepends = xdg-utils: open links in the browser
-	source = lounge-native-0.9.0.tar.gz::https://github.com/ddxtcc/thelounge-native/archive/58111d10d32d8ea0ae61d1275328c5611558397f.tar.gz
+	source = lounge-native-0.9.1.tar.gz::https://github.com/ddxtcc/thelounge-native/archive/58111d10d32d8ea0ae61d1275328c5611558397f.tar.gz
 	sha256sums = 023abf2a9e4075d12e64278e3c85e5b2ce1c147b25e9b1452714ec28d9d001cd
 
 pkgname = lounge-native
