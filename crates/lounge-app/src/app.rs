@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use chrono::Local;
 use gpui::{
@@ -272,6 +272,7 @@ pub struct LoungeApp {
     state: ClientState,
     conn: Option<ClientHandle>,
     conn_generation: u64,
+    auth: Option<Auth>,
     status: ConnectionStatus,
     route: Route,
     login_error: Option<String>,
@@ -379,6 +380,8 @@ pub struct LoungeApp {
     uploads_in_flight: usize,
     active_upload: Option<ActiveUpload>,
     window_active: bool,
+    window_activation_observed: bool,
+    deactivated_at: Option<SystemTime>,
     focus_request: Option<InputRole>,
     focus_root_request: bool,
     emoji_picker_open: bool,
@@ -629,6 +632,7 @@ impl LoungeApp {
             state: ClientState::new(),
             conn: None,
             conn_generation: 0,
+            auth: None,
             status: ConnectionStatus::Disconnected,
             route: Route::Login,
             login_error: None,
@@ -736,6 +740,8 @@ impl LoungeApp {
             uploads_in_flight: 0,
             active_upload: None,
             window_active: true,
+            window_activation_observed: false,
+            deactivated_at: None,
             focus_request: None,
             focus_root_request: false,
             emoji_picker_open: false,
