@@ -8,7 +8,8 @@ use super::media_audio::{
 use super::media_download::download_media_file;
 pub(super) use super::media_kind::{MediaKind, media_kind};
 pub(super) use super::media_poster::Poster;
-use super::media_poster::generate_poster;
+pub(crate) use super::media_poster::extract_poster;
+use super::media_poster::generate_poster_external;
 use super::*;
 
 pub(super) struct InlineAudio {
@@ -276,6 +277,7 @@ impl LoungeApp {
         }
         self.media_error = None;
         self.media_fullscreen = false;
+        super::trim_memory();
     }
 
     pub(super) fn clear_inline_media(&mut self) {
@@ -285,6 +287,7 @@ impl LoungeApp {
         if let Some(audio) = self.inline_audio.take() {
             let _ = audio.pipeline.set_state(gst::State::Null);
         }
+        super::trim_memory();
     }
 
     pub(super) fn clear_media_posters(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -298,13 +301,17 @@ impl LoungeApp {
                 let _ = std::fs::remove_file(poster.path);
             }
         }
+        super::trim_memory();
     }
 
     pub(super) fn media_poster(&self, url: &str, cx: &mut Context<Self>) -> Option<Poster> {
+        if !self.config.video_thumbnails {
+            return None;
+        }
         if let Some(path) = self.media_posters.borrow().get(url) {
             return path.clone();
         }
-        if self.media_posters.borrow().len() >= 8 {
+        if self.media_posters.borrow().len() >= 4 {
             return None;
         }
         self.media_posters
@@ -314,7 +321,7 @@ impl LoungeApp {
         let key = target.clone();
         let task = cx
             .background_executor()
-            .spawn(async move { generate_poster(&target) });
+            .spawn(async move { generate_poster_external(&target) });
         cx.spawn(async move |this, cx| {
             let path = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -724,7 +731,7 @@ impl LoungeApp {
                         .child(
                             gpui_video_player::video(video)
                                 .id(ElementId::Name(format!("inline-video-{url}").into()))
-                                .buffer_capacity(30)
+                                .buffer_capacity(4)
                                 .size(display_width, display_height),
                         ),
                 )
@@ -875,7 +882,7 @@ impl LoungeApp {
                 .child(
                     gpui_video_player::video(video)
                         .id("lightbox-video")
-                        .buffer_capacity(30)
+                        .buffer_capacity(4)
                         .size(max_w, max_h),
                 ),
         );

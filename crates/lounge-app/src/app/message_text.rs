@@ -584,19 +584,6 @@ impl RunBuilder {
     }
 }
 
-pub(super) fn image_fallback(theme: Theme, label: &'static str) -> AnyElement {
-    div()
-        .w_full()
-        .h_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(11.))
-        .text_color(theme.muted)
-        .child(label)
-        .into_any_element()
-}
-
 pub(super) fn word_range(text: &str, index: usize) -> Range<usize> {
     let index = index.min(text.len());
     let is_word = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '-';

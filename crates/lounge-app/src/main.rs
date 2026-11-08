@@ -48,6 +48,14 @@ impl AssetSource for Assets {
 }
 
 fn main() {
+    #[cfg(feature = "media")]
+    if let Some(result) = poster_command() {
+        if let Err(error) = result {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     Application::new()
         .with_assets(Assets)
         .with_http_client(Arc::new(http_client::BlockingHttpClient))
@@ -101,4 +109,15 @@ fn main() {
             cx.on_window_closed(|cx| cx.quit()).detach();
             let _ = window;
         });
+}
+
+#[cfg(feature = "media")]
+fn poster_command() -> Option<Result<(), String>> {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() != Some("--poster") {
+        return None;
+    }
+    let url = args.next()?;
+    let destination = args.next()?;
+    Some(app::extract_poster(&url, &destination))
 }

@@ -1,6 +1,10 @@
 use image::{ImageBuffer, Rgba};
 use std::hash::{Hash, Hasher};
+use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use yuv::{YuvBiPlanarImage, YuvConversionMode, YuvRange, YuvStandardMatrix, yuv_nv12_to_bgra};
+
+static POSTER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 use super::*;
 
@@ -82,8 +86,45 @@ pub(super) fn generate_poster(url: &str) -> Option<Poster> {
     let buffer: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_raw(width, height, rgba)?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     url.hash(&mut hasher);
-    let path = std::env::temp_dir().join(format!("lounge-native-poster-{:x}.png", hasher.finish()));
+    let path = std::env::temp_dir().join(format!(
+        "lounge-native-poster-source-{:x}.png",
+        hasher.finish()
+    ));
     buffer.save(&path).ok()?;
+    Some(Poster {
+        path,
+        width,
+        height,
+    })
+}
+
+pub(crate) fn extract_poster(url: &str, destination: &str) -> Result<(), String> {
+    let poster = generate_poster(url).ok_or_else(|| "poster extraction failed".to_string())?;
+    let result = std::fs::copy(&poster.path, destination).map_err(|error| error.to_string());
+    let _ = std::fs::remove_file(&poster.path);
+    result.map(|_| ())
+}
+
+pub(super) fn generate_poster_external(url: &str) -> Option<Poster> {
+    let _guard = POSTER_LOCK.get_or_init(|| Mutex::new(())).lock().ok()?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    url.hash(&mut hasher);
+    let path = std::env::temp_dir().join(format!("lounge-native-poster-{:x}.png", hasher.finish()));
+    let executable = std::env::current_exe().ok()?;
+    let status = Command::new(executable)
+        .arg("--poster")
+        .arg(url)
+        .arg(&path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .ok()?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&path);
+        return None;
+    }
+    let (width, height) = image::image_dimensions(&path).ok()?;
     Some(Poster {
         path,
         width,

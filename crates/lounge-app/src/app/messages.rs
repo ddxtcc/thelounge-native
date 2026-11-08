@@ -1,7 +1,7 @@
 use super::message_list::{MessageRowsCache, Row, build_rows, nick_column_width};
 use super::message_text::{
-    build_message_text, image_fallback, is_status_message, select_runs, status_icon,
-    user_mode_prefix_in_message, word_range,
+    build_message_text, is_status_message, select_runs, status_icon, user_mode_prefix_in_message,
+    word_range,
 };
 use super::*;
 
@@ -492,7 +492,6 @@ impl LoungeApp {
                 preview_media_urls.insert(self.absolute_media_url(&preview.link));
             }
             if !playable && let Some(thumb) = thumb.clone() {
-                self.touch_image(&thumb);
                 let lightbox_url = thumb.clone();
                 previews = previews.child(
                     div()
@@ -506,14 +505,7 @@ impl LoungeApp {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.open_lightbox(lightbox_url.clone(), cx);
                         }))
-                        .child(
-                            gpui::img(thumb)
-                                .image_cache(&self.image_cache)
-                                .w_full()
-                                .max_h(px(320.))
-                                .object_fit(gpui::ObjectFit::Contain)
-                                .with_fallback(move || image_fallback(theme, "Image failed")),
-                        ),
+                        .child(self.preview_image(&thumb, 220., cx)),
                 );
                 continue;
             }
@@ -551,15 +543,17 @@ impl LoungeApp {
                         card = card.child(inline);
                         inline_active = true;
                     } else {
+                        let click_url = play_url.clone();
                         card = card.on_click(cx.listener(move |this, _, _, cx| {
-                            this.play_inline_media(row_id, play_url.clone(), kind, cx);
+                            this.play_inline_media(row_id, click_url.clone(), kind, cx);
                         }));
                     }
                 }
                 #[cfg(not(feature = "media"))]
                 {
+                    let click_url = play_url.clone();
                     card = card.on_click(cx.listener(move |this, _, _, cx| {
-                        this.play_media_or_open(play_url.clone(), cx);
+                        this.play_media_or_open(click_url.clone(), cx);
                     }));
                 }
                 if !inline_active {
@@ -570,50 +564,47 @@ impl LoungeApp {
                             .child(if video { "Play video" } else { "Play audio" }),
                     );
                 }
+                #[cfg(feature = "media")]
+                let has_thumb = thumb.is_some();
                 if !inline_active && let Some(thumb) = thumb {
-                    self.touch_image(&thumb);
                     card = card.child(
                         div()
                             .w(px(220.))
-                            .h(px(140.))
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(
-                                gpui::img(thumb)
-                                    .image_cache(&self.image_cache)
-                                    .w(px(220.))
-                                    .h(px(140.))
-                                    .object_fit(gpui::ObjectFit::Contain)
-                                    .with_fallback(move || image_fallback(theme, "Image failed"))
-                                    .rounded(px(4.)),
-                            ),
+                            .child(self.preview_image(&thumb, 220., cx)),
                     );
                 }
-            } else if let Some(thumb) = thumb {
-                self.touch_image(&thumb);
-                let lightbox_url = thumb.clone();
-                card = card
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_lightbox(lightbox_url.clone(), cx);
-                    }))
-                    .child(
-                        div()
-                            .w(px(220.))
-                            .h(px(140.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                gpui::img(thumb)
-                                    .image_cache(&self.image_cache)
-                                    .w(px(220.))
-                                    .h(px(140.))
-                                    .object_fit(gpui::ObjectFit::Contain)
-                                    .with_fallback(move || image_fallback(theme, "Image failed"))
-                                    .rounded(px(4.)),
-                            ),
+                #[cfg(feature = "media")]
+                if !inline_active
+                    && !has_thumb
+                    && video
+                    && let Some(poster) = self.media_poster(&play_url, cx)
+                {
+                    let max_w: f32 = 440.;
+                    let max_h: f32 = 300.;
+                    let scale = (max_w / poster.width as f32)
+                        .min(max_h / poster.height as f32)
+                        .min(1.);
+                    card = card.child(
+                        div().w_full().flex().justify_center().child(
+                            div()
+                                .w(px(poster.width as f32 * scale))
+                                .h(px(poster.height as f32 * scale))
+                                .rounded(px(4.))
+                                .overflow_hidden()
+                                .bg(theme.sidebar)
+                                .child(
+                                    gpui::img(poster.path)
+                                        .image_cache(&self.image_cache)
+                                        .w_full()
+                                        .h_full()
+                                        .object_fit(gpui::ObjectFit::Contain),
+                                ),
+                        ),
                     );
+                }
             } else {
                 card = card.on_click(cx.listener(move |_, _, _, _| {
                     let _ = open::that(url.clone());
@@ -640,17 +631,7 @@ impl LoungeApp {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.open_lightbox(lightbox_url.clone(), cx);
                         }))
-                        .child(
-                            gpui::img(url.clone())
-                                .image_cache(&self.image_cache)
-                                .w_full()
-                                .max_h(px(320.))
-                                .object_fit(gpui::ObjectFit::Contain)
-                                .with_fallback(move || {
-                                    image_fallback(theme, "Image failed to load")
-                                })
-                                .rounded(px(6.)),
-                        ),
+                        .child(self.preview_image(url, 460., cx)),
                 );
             }
         }
