@@ -2,7 +2,7 @@
 pkgname=lounge-native
 pkgver=0.9.0
 pkgrel=1
-_commit=4ec38b1e6eb1a71e4fb32736034b7a17321510b8
+_commit=c8f93bf2372cae19d50dc0a0a4f7d2fcfee29301
 pkgdesc="Native IRC client for The Lounge"
 arch=('x86_64' 'aarch64')
 url="https://github.com/ddxtcc/thelounge-native"
@@ -37,7 +37,7 @@ optdepends=(
     'xdg-utils: open links in the browser'
 )
 source=("$pkgname-$pkgver.tar.gz::https://github.com/ddxtcc/thelounge-native/archive/$_commit.tar.gz")
-sha256sums=('a519de80aee16ec6ba742cd5eb8d91967b2d604f6af24b5d7668ac4ab4162af7')
+sha256sums=('05c931a6125fd5ce849e1ec624e4c75048a189103c09a01ce91a525ab30d6936')
 install="$pkgname.install"
 
 build() {
