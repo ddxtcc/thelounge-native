@@ -450,6 +450,11 @@ impl LoungeApp {
                         cx.notify();
                     }
                 }
+                PaletteCommand::ListIgnored => {
+                    if let Some(uuid) = self.active_network_uuid() {
+                        self.send_network_command(&uuid, "/ignorelist", cx);
+                    }
+                }
                 PaletteCommand::ToggleMute => {
                     if let Some(target) = self.state.active {
                         let muted = self
@@ -730,6 +735,11 @@ fn command_defs() -> &'static [(&'static str, PaletteCommand)] {
             "Ban user",
             PaletteCommand::UserAction(PaletteUserAction::Ban),
         ),
+        (
+            "Ignore user",
+            PaletteCommand::UserAction(PaletteUserAction::Ignore),
+        ),
+        ("List ignored users", PaletteCommand::ListIgnored),
         ("Search messages", PaletteCommand::Search),
         ("Recent mentions", PaletteCommand::Mentions),
         ("Emoji picker", PaletteCommand::Emoji),

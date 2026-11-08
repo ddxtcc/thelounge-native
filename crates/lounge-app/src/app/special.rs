@@ -38,7 +38,11 @@ impl LoungeApp {
                 ];
             }
             "list_ignored" => {
-                headers = vec![("Hostmask", None), ("Ignored at", Some(px(230.)))];
+                headers = vec![
+                    ("Hostmask", None),
+                    ("Ignored at", Some(px(230.))),
+                    ("", Some(px(90.))),
+                ];
             }
             "list_channels" => {
                 headers = vec![
@@ -120,18 +124,41 @@ impl LoungeApp {
                             );
                     }
                     "list_ignored" => {
+                        let hostmask = json_string(&row, "hostmask");
+                        let unignore = hostmask.clone();
+                        let target = channel.chan.id;
                         cells = cells
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w(px(0.))
-                                    .child(json_string(&row, "hostmask")),
-                            )
+                            .child(div().flex_1().min_w(px(0.)).child(hostmask))
                             .child(
                                 div()
                                     .w(px(230.))
                                     .text_color(theme.muted)
                                     .child(special_time(row.get("when"))),
+                            )
+                            .child(
+                                div().w(px(90.)).flex().justify_end().child(
+                                    div()
+                                        .id(ElementId::Name(format!("unignore-{unignore}").into()))
+                                        .px_2()
+                                        .py(px(1.))
+                                        .rounded(px(4.))
+                                        .bg(theme.hover)
+                                        .text_size(px(11.))
+                                        .cursor_pointer()
+                                        .hover(|style| style.bg(theme.border))
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            if let Some(conn) = &this.conn {
+                                                conn.input(
+                                                    target,
+                                                    format!("/unignore {unignore}"),
+                                                    None,
+                                                );
+                                                conn.input(target, "/ignorelist", None);
+                                            }
+                                            cx.notify();
+                                        }))
+                                        .child("Unignore"),
+                                ),
                             );
                     }
                     "list_channels" => {
