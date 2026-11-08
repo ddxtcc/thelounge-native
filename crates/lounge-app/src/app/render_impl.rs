@@ -331,10 +331,7 @@ impl Render for LoungeApp {
                 }
                 let secondary =
                     event.keystroke.modifiers.control || event.keystroke.modifiers.platform;
-                let chat_ready = this.route == Route::Chat
-                    && !this.last_overlay_open
-                    && !this.sidebar_overlay
-                    && !this.users_overlay;
+                let chat_ready = this.route == Route::Chat && !this.last_overlay_open;
                 if secondary && !event.keystroke.modifiers.alt {
                     let key = event.keystroke.key.to_lowercase();
                     if key == "p" {

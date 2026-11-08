@@ -2,6 +2,9 @@ use super::*;
 
 impl LoungeApp {
     pub(super) fn open_settings(&mut self, cx: &mut Context<Self>) {
+        self.sidebar_overlay = false;
+        self.users_overlay = false;
+        self.nav_mode = false;
         self.settings_open = true;
         let highlights = self
             .state
