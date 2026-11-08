@@ -286,10 +286,15 @@ impl LoungeApp {
         );
         let icon_buttons = self.config.icon_buttons || compact_header;
         let topic = format::clean(&channel.chan.topic);
-        let topic_label = if topic.is_empty() {
-            "Set a topic...".to_string()
+        let topic_editable = channel.is_channel();
+        let topic_label = if topic_editable {
+            if topic.is_empty() {
+                "Set a topic...".to_string()
+            } else {
+                topic
+            }
         } else {
-            topic
+            channel_secondary_label(channel)
         };
         let user_count = channel.users.len();
         let users_shown = if self.narrow {
@@ -342,15 +347,17 @@ impl LoungeApp {
                             .text_size(px(12.))
                             .text_color(theme.muted)
                             .truncate()
-                            .cursor_pointer()
-                            .hover(|style| style.text_color(theme.text))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.inputs
-                                    .composer
-                                    .update(cx, |input, cx| input.set_content("/topic ", cx));
-                                this.focus_composer(window, cx);
-                                cx.notify();
-                            }))
+                            .when(topic_editable, |this| {
+                                this.cursor_pointer()
+                                    .hover(|style| style.text_color(theme.text))
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.inputs.composer.update(cx, |input, cx| {
+                                            input.set_content("/topic ", cx)
+                                        });
+                                        this.focus_composer(window, cx);
+                                        cx.notify();
+                                    }))
+                            })
                             .child(gpui::StyledText::new(topic_label).into_any_element()),
                     ),
             )
@@ -583,6 +590,7 @@ impl LoungeApp {
 
         let mut footer = div()
             .flex_shrink_0()
+            .min_h(px(COMPOSER_MIN_HEIGHT))
             .border_t_1()
             .border_color(theme.border)
             .p_2()
@@ -742,6 +750,26 @@ impl LoungeApp {
     }
 }
 
+fn channel_secondary_label(channel: &ChannelState) -> String {
+    if channel.is_lobby() {
+        return "Network".into();
+    }
+    if channel.is_query() {
+        if channel.chan.name.eq_ignore_ascii_case("*status") {
+            return "Status".into();
+        }
+        return "Private message".into();
+    }
+    match channel.chan.special.as_deref() {
+        Some("list_bans") => "Ban list".into(),
+        Some("list_invites") => "Invite list".into(),
+        Some("list_channels") => "Channel list".into(),
+        Some("list_ignored") => "Ignored users".into(),
+        Some(_) => "Special channel".into(),
+        None => "Channel".into(),
+    }
+}
+
 fn compact_header(
     viewport_width: Pixels,
     narrow: bool,
@@ -764,8 +792,28 @@ fn compact_header(
 
 #[cfg(test)]
 mod tests {
-    use super::compact_header;
+    use super::{channel_secondary_label, compact_header};
     use gpui::px;
+    use lounge_core::proto::ChanType;
+    use lounge_core::state::ChannelState;
+
+    #[test]
+    fn non_channel_headers_describe_the_view() {
+        let mut channel = ChannelState::default();
+        channel.chan.kind = ChanType::Query;
+        channel.chan.name = "alice".into();
+        assert_eq!(channel_secondary_label(&channel), "Private message");
+
+        channel.chan.name = "*status".into();
+        assert_eq!(channel_secondary_label(&channel), "Status");
+
+        channel.chan.kind = ChanType::Lobby;
+        assert_eq!(channel_secondary_label(&channel), "Network");
+
+        channel.chan.kind = ChanType::Special;
+        channel.chan.special = Some("list_ignored".into());
+        assert_eq!(channel_secondary_label(&channel), "Ignored users");
+    }
 
     #[test]
     fn compact_header_uses_chat_width() {

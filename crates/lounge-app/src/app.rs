@@ -21,6 +21,8 @@ use crate::config::{AppConfig, NotificationMode, StatusMessages};
 use crate::text_input::{InputAction, InputColors, InputRole, TextInput};
 use crate::theme::Theme;
 
+const COMPOSER_MIN_HEIGHT: f32 = 50.;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingsTab {
     Appearance,
