@@ -25,7 +25,7 @@ git clone ssh://aur@aur.archlinux.org/lounge-native.git
 cp PKGBUILD lounge-native.install .SRCINFO lounge-native/
 cd lounge-native
 git add PKGBUILD lounge-native.install .SRCINFO
-git commit -m "upgpkg: lounge-native 0.9.1-1"
+git commit -m "upgpkg: lounge-native 0.9.2-1"
 git push
 ```
 

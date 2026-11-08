@@ -306,6 +306,69 @@ impl LoungeApp {
         }
     }
 
+    fn jump_nav_channel(&mut self, end: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(network) = self.state.networks.get(self.nav_network) else {
+            return false;
+        };
+        let Some(channel) = network.channels.get(if end {
+            network.channels.len().saturating_sub(1)
+        } else {
+            0
+        }) else {
+            return false;
+        };
+        let id = channel.chan.id;
+        self.switch_channel_quiet(id, window, cx);
+        self.pending_focus = false;
+        self.focus_navigation(window, cx);
+        true
+    }
+
+    fn open_selected_context_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        match self.nav_section {
+            NavSection::Networks => {
+                let Some(network) = self.state.networks.get(self.nav_network) else {
+                    return false;
+                };
+                let uuid = network.uuid.clone();
+                self.open_network_menu(&uuid, cx);
+                true
+            }
+            NavSection::Channels => {
+                let Some((network, channel)) = self.state.active_channel() else {
+                    return false;
+                };
+                let menu = ChannelMenu {
+                    chan_id: channel.chan.id,
+                    network_uuid: network.uuid.clone(),
+                    name: channel.chan.name.clone(),
+                    is_query: channel.is_query(),
+                    muted: channel.chan.muted,
+                    position: window.mouse_position(),
+                };
+                self.open_channel_menu(menu, cx);
+                true
+            }
+            NavSection::Users => {
+                let Some((network, channel)) = self.state.active_channel() else {
+                    return false;
+                };
+                let network_uuid = network.uuid.clone();
+                let chan_id = channel.chan.id;
+                let users = self.visible_users(cx);
+                let Some(nick) = users
+                    .get(self.nav_user.min(users.len().saturating_sub(1)))
+                    .cloned()
+                else {
+                    return false;
+                };
+                self.open_user_menu(&nick, &network_uuid, chan_id, window.mouse_position(), cx);
+                true
+            }
+            NavSection::Main => false,
+        }
+    }
+
     pub(super) fn handle_navigation_key(
         &mut self,
         key: &str,
@@ -323,6 +386,11 @@ impl LoungeApp {
         }
         if window.focused(cx).as_ref() != Some(&self.root_focus) {
             return false;
+        }
+        if ((key == "f10" && shift) || matches!(key.as_str(), "menu" | "contextmenu" | "apps"))
+            && self.open_selected_context_menu(window, cx)
+        {
+            return true;
         }
         if key == "escape" {
             if self.nav_section != NavSection::Main {
@@ -344,6 +412,14 @@ impl LoungeApp {
                     self.scroll_messages_by(px(-48.), cx);
                     true
                 }
+                "home" => {
+                    self.scroll_messages_home(cx);
+                    true
+                }
+                "end" => {
+                    self.scroll_messages_end(cx);
+                    true
+                }
                 "left" | "h" => self.cycle_navigable_channel(-1, window, cx),
                 "right" | "l" => self.cycle_navigable_channel(1, window, cx),
                 "enter" => {
@@ -356,6 +432,11 @@ impl LoungeApp {
             NavSection::Networks => match key.as_str() {
                 "up" | "k" => self.move_nav_network(-1, window, cx),
                 "down" | "j" => self.move_nav_network(1, window, cx),
+                "home" => self.move_nav_network(-(self.nav_network as i32), window, cx),
+                "end" => {
+                    let last = self.state.networks.len().saturating_sub(1) as i32;
+                    self.move_nav_network(last - self.nav_network as i32, window, cx)
+                }
                 "left" | "h" => self.toggle_network_collapsed(false, window, cx),
                 "right" | "l" => self.toggle_network_collapsed(true, window, cx),
                 "enter" => {
@@ -369,6 +450,8 @@ impl LoungeApp {
             NavSection::Channels => match key.as_str() {
                 "up" | "k" => self.move_nav_channel(-1, window, cx),
                 "down" | "j" => self.move_nav_channel(1, window, cx),
+                "home" => self.jump_nav_channel(false, window, cx),
+                "end" => self.jump_nav_channel(true, window, cx),
                 "left" | "h" => self.move_nav_network(-1, window, cx),
                 "right" | "l" => self.move_nav_network(1, window, cx),
                 "enter" => {
@@ -381,6 +464,26 @@ impl LoungeApp {
             NavSection::Users => match key.as_str() {
                 "up" | "k" => self.move_nav_user(-1, cx),
                 "down" | "j" => self.move_nav_user(1, cx),
+                "home" => {
+                    let users = self.visible_users(cx);
+                    if users.is_empty() {
+                        false
+                    } else {
+                        self.nav_user = 0;
+                        cx.notify();
+                        true
+                    }
+                }
+                "end" => {
+                    let users = self.visible_users(cx);
+                    if users.is_empty() {
+                        false
+                    } else {
+                        self.nav_user = users.len() - 1;
+                        cx.notify();
+                        true
+                    }
+                }
                 "enter" => {
                     let users = self.visible_users(cx);
                     let nick = users
