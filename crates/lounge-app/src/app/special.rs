@@ -243,6 +243,14 @@ impl LoungeApp {
                                 .set(this.special_limit.get().saturating_add(step));
                             cx.notify();
                         }))
+                        .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                            if activation_key(event) {
+                                this.special_limit
+                                    .set(this.special_limit.get().saturating_add(step));
+                                cx.notify();
+                                cx.stop_propagation();
+                            }
+                        }))
                         .child(format!("Show {step} more")),
                 ),
             );

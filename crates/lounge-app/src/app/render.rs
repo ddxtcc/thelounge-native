@@ -84,6 +84,8 @@ impl LoungeApp {
         card = card.child(
             div()
                 .id("connect-button")
+                .tab_index(0)
+                .focus(|style| style.bg(theme.border).text_color(theme.text))
                 .mt_2()
                 .h(px(36.))
                 .flex()
@@ -96,6 +98,12 @@ impl LoungeApp {
                 .cursor_pointer()
                 .hover(|style| style.opacity(0.9))
                 .on_click(cx.listener(|this, _, _window, cx| this.attempt_login(cx)))
+                .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                    if activation_key(event) {
+                        this.attempt_login(cx);
+                        cx.stop_propagation();
+                    }
+                }))
                 .child("Connect"),
         );
 
@@ -549,6 +557,8 @@ impl LoungeApp {
         } else {
             div().child(label.to_string()).into_any_element()
         };
+        let action = std::rc::Rc::new(on_click);
+        let click_action = action.clone();
         div()
             .id(ElementId::Name(format!("head-{label}").into()))
             .tab_index(0)
@@ -566,7 +576,15 @@ impl LoungeApp {
                 this.text_color(theme.muted)
                     .hover(|style| style.bg(theme.hover))
             })
-            .on_click(cx.listener(move |this, _, window, cx| on_click(this, window, cx)))
+            .on_click(cx.listener(move |this, _, window, cx| click_action(this, window, cx)))
+            .on_key_down(
+                cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                    if activation_key(event) {
+                        action(this, window, cx);
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .tooltip(move |_, cx| cx.new(|_| Tooltip::new(tooltip.clone(), theme)).into())
             .child(content)
             .into_any_element()
@@ -709,6 +727,12 @@ impl LoungeApp {
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover).text_color(theme.text))
             .on_click(cx.listener(|this, _, _, cx| this.open_emoji_picker(cx)))
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if activation_key(event) {
+                    this.open_emoji_picker(cx);
+                    cx.stop_propagation();
+                }
+            }))
             .tooltip(move |_, cx| cx.new(|_| Tooltip::new("Insert emoji", theme)).into())
             .child(if self.config.icon_buttons {
                 "☺"
@@ -734,6 +758,12 @@ impl LoungeApp {
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.hover).text_color(theme.text))
                 .on_click(cx.listener(|this, _, _, cx| this.prompt_for_upload(cx)))
+                .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                    if activation_key(event) {
+                        this.prompt_for_upload(cx);
+                        cx.stop_propagation();
+                    }
+                }))
                 .tooltip(move |_, cx| cx.new(|_| Tooltip::new("Upload file", theme)).into())
                 .child(if self.config.icon_buttons {
                     "📎"

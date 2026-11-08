@@ -21,6 +21,14 @@ use crate::config::{AppConfig, NotificationMode, StatusMessages};
 use crate::text_input::{InputAction, InputColors, InputRole, TextInput};
 use crate::theme::Theme;
 
+pub(super) fn activation_key(event: &gpui::KeyDownEvent) -> bool {
+    let key = event.keystroke.key.to_lowercase();
+    matches!(key.as_str(), "enter" | "return" | "space" | " ")
+        && !event.keystroke.modifiers.control
+        && !event.keystroke.modifiers.alt
+        && !event.keystroke.modifiers.platform
+}
+
 const COMPOSER_MIN_HEIGHT: f32 = 51.;
 #[cfg(feature = "media")]
 pub(super) const MEDIA_PREVIEW_MAX_WIDTH: f32 = 440.;

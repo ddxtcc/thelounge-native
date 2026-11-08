@@ -100,6 +100,12 @@ impl LoungeApp {
                 this.close_overlays(cx);
                 cx.stop_propagation();
             }))
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if activation_key(event) {
+                    this.close_overlays(cx);
+                    cx.stop_propagation();
+                }
+            }))
             .tooltip(move |_, cx| cx.new(|_| Tooltip::new("Close", theme)).into())
             .child("×")
             .into_any_element()
@@ -258,6 +264,14 @@ impl LoungeApp {
                                 .cursor_pointer()
                                 .hover(|style| style.underline())
                                 .on_click(cx.listener(|this, _, _, cx| this.move_lightbox(-1, cx)))
+                                .on_key_down(cx.listener(
+                                    |this, event: &gpui::KeyDownEvent, _, cx| {
+                                        if activation_key(event) {
+                                            this.move_lightbox(-1, cx);
+                                            cx.stop_propagation();
+                                        }
+                                    },
+                                ))
                                 .child("Previous"),
                         )
                         .child(
@@ -271,10 +285,19 @@ impl LoungeApp {
                                 .cursor_pointer()
                                 .hover(|style| style.underline())
                                 .on_click(cx.listener(|this, _, _, cx| this.move_lightbox(1, cx)))
+                                .on_key_down(cx.listener(
+                                    |this, event: &gpui::KeyDownEvent, _, cx| {
+                                        if activation_key(event) {
+                                            this.move_lightbox(1, cx);
+                                            cx.stop_propagation();
+                                        }
+                                    },
+                                ))
                                 .child("Next"),
                         )
                     })
-                    .child(
+                    .child({
+                        let click_url = open_url.clone();
                         div()
                             .id("lightbox-open")
                             .tab_index(0)
@@ -284,10 +307,19 @@ impl LoungeApp {
                             .cursor_pointer()
                             .hover(|style| style.underline())
                             .on_click(cx.listener(move |_, _, _, _| {
-                                let _ = open::that(open_url.clone());
+                                let _ = open::that(click_url.clone());
                             }))
-                            .child("Open in browser"),
-                    ),
+                            .on_key_down({
+                                let open_url = open_url.clone();
+                                cx.listener(move |_, event: &gpui::KeyDownEvent, _, cx| {
+                                    if activation_key(event) {
+                                        let _ = open::that(open_url.clone());
+                                        cx.stop_propagation();
+                                    }
+                                })
+                            })
+                            .child("Open in browser")
+                    }),
             )
             .into_any_element()
     }
@@ -433,6 +465,12 @@ impl LoungeApp {
                     .font_weight(FontWeight::SEMIBOLD)
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| this.submit_network(cx)))
+                    .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                        if activation_key(event) {
+                            this.submit_network(cx);
+                            cx.stop_propagation();
+                        }
+                    }))
                     .child(if editing { "Save" } else { "Connect" }),
             );
         card.into_any_element()
@@ -447,6 +485,8 @@ impl LoungeApp {
             ("Ctrl+Tab / Ctrl+PageDown", "Next channel"),
             ("Ctrl+Shift+Tab / Ctrl+PageUp", "Previous channel"),
             ("Up / Down", "Previous / next input history"),
+            ("Home / End", "First / last item"),
+            ("Shift+F10", "Open context menu"),
             ("Ctrl+Shift+V", "Paste image from clipboard"),
             ("Ctrl+C", "Copy text selection"),
             ("Ctrl+Shift+L", "Show or hide the window"),

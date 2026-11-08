@@ -933,6 +933,8 @@ impl LoungeApp {
             .child(
                 div()
                     .id("change-password")
+                    .tab_index(0)
+                    .focus(|style| style.bg(theme.border).text_color(theme.text))
                     .px_3()
                     .py(px(5.))
                     .rounded(px(5.))
@@ -941,6 +943,12 @@ impl LoungeApp {
                     .text_size(px(12.))
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| this.change_password(cx)))
+                    .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                        if activation_key(event) {
+                            this.change_password(cx);
+                            cx.stop_propagation();
+                        }
+                    }))
                     .child("Change password"),
             )
             .into_any_element()
@@ -967,6 +975,8 @@ impl LoungeApp {
                     .child(
                         div()
                             .id("refresh-sessions")
+                            .tab_index(0)
+                            .focus(|style| style.bg(theme.border).text_color(theme.text))
                             .px_2()
                             .py(px(2.))
                             .rounded(px(4.))
@@ -978,6 +988,15 @@ impl LoungeApp {
                                     conn.emit("sessions:get", None);
                                 }
                                 cx.notify();
+                            }))
+                            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                                if activation_key(event) {
+                                    if let Some(conn) = &this.conn {
+                                        conn.emit("sessions:get", None);
+                                    }
+                                    cx.notify();
+                                    cx.stop_propagation();
+                                }
                             }))
                             .child("Refresh"),
                     ),
@@ -1017,6 +1036,8 @@ impl LoungeApp {
                     .child(
                         div()
                             .id(ElementId::Name(format!("session-{token}").into()))
+                            .tab_index(0)
+                            .focus(|style| style.bg(theme.border).text_color(theme.text))
                             .px_2()
                             .py(px(2.))
                             .rounded(px(4.))
@@ -1026,9 +1047,23 @@ impl LoungeApp {
                             .text_color(theme.muted)
                             .cursor_pointer()
                             .hover(|style| style.text_color(theme.error))
-                            .on_click(cx.listener(move |this, _, _, _| {
-                                if let Some(conn) = &this.conn {
-                                    conn.emit("sign-out", Some(serde_json::json!(token)));
+                            .on_click(cx.listener({
+                                let token = token.clone();
+                                move |this, _, _, _| {
+                                    if let Some(conn) = &this.conn {
+                                        conn.emit("sign-out", Some(serde_json::json!(token)));
+                                    }
+                                }
+                            }))
+                            .on_key_down(cx.listener({
+                                let token = token.clone();
+                                move |this, event: &gpui::KeyDownEvent, _, cx| {
+                                    if activation_key(event) {
+                                        if let Some(conn) = &this.conn {
+                                            conn.emit("sign-out", Some(serde_json::json!(token)));
+                                        }
+                                        cx.stop_propagation();
+                                    }
                                 }
                             }))
                             .child("Sign out"),

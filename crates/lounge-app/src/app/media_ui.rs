@@ -21,6 +21,8 @@ impl LoungeApp {
         let tooltip = tooltip.to_string();
         let color = if active { theme.accent } else { theme.muted };
         let icon = icon.to_string();
+        let on_click = std::rc::Rc::new(on_click);
+        let click_action = on_click.clone();
         div()
             .id(ElementId::Name(format!("media-{icon}-{tooltip}").into()))
             .tab_index(0)
@@ -35,9 +37,17 @@ impl LoungeApp {
             .when(active, |this| this.bg(theme.accent_dim))
             .when(!active, |this| this.hover(|style| style.bg(theme.hover)))
             .on_click(cx.listener(move |this, _, window, cx| {
-                on_click(this, window, cx);
+                click_action(this, window, cx);
                 cx.stop_propagation();
             }))
+            .on_key_down(
+                cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                    if activation_key(event) {
+                        on_click(this, window, cx);
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .tooltip(move |_, cx| cx.new(|_| Tooltip::new(tooltip.clone(), theme)).into())
             .child(
                 gpui::svg()
