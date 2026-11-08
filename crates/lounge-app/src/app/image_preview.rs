@@ -122,15 +122,23 @@ impl LoungeApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         match self.request_preview(url, cx) {
-            PreviewState::Ready(path) => div()
-                .w(px(size))
-                .child(
-                    gpui::img(path)
-                        .image_cache(&self.image_cache)
-                        .w_full()
-                        .object_fit(gpui::ObjectFit::Contain),
-                )
-                .into_any_element(),
+            PreviewState::Ready(path) => {
+                let height = image::image_dimensions(&path)
+                    .ok()
+                    .map(|(width, height)| (size * height as f32 / width as f32).min(size))
+                    .unwrap_or(size);
+                div()
+                    .w(px(size))
+                    .h(px(height))
+                    .child(
+                        gpui::img(path)
+                            .image_cache(&self.image_cache)
+                            .w_full()
+                            .h_full()
+                            .object_fit(gpui::ObjectFit::Contain),
+                    )
+                    .into_any_element()
+            }
             PreviewState::Failed => self.preview_thumbnail_placeholder(size, "Unavailable"),
             PreviewState::Loading => self.preview_thumbnail_placeholder(size, "Loading..."),
         }
