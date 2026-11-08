@@ -33,6 +33,15 @@ sudo apt install ./lounge-native_0.9.0_amd64.deb
 
 The package installs the binary, desktop entry, AppStream metadata, and hicolor icons under `/usr`. Update it by installing a newer package or rerunning `install.sh` from a newer archive. Settings > About > Check for updates compares the app against the latest GitHub release.
 
+Arch Linux users can build the package in `packaging/aur`:
+
+```sh
+cd packaging/aur
+makepkg -si
+```
+
+The directory also includes a `build-repo.sh` helper for publishing a signed pacman repository.
+
 ## Media playback
 
 The build requires Rust 1.96 or newer and GStreamer with its base, good, and bad

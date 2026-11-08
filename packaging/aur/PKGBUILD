@@ -1,0 +1,56 @@
+# Maintainer: Lounge Native contributors <noreply@example.com>
+pkgname=lounge-native
+pkgver=0.9.0
+pkgrel=1
+_commit=e7601a9ecbca60ad41d5732bbf4eb067385369f0
+pkgdesc="Native IRC client for The Lounge"
+arch=('x86_64' 'aarch64')
+url="https://github.com/ddxtcc/thelounge-native"
+license=('MIT')
+depends=(
+    glibc
+    gcc-libs
+    gstreamer
+    gst-plugins-base
+    gst-plugins-good
+    gst-plugins-bad
+    libx11
+    libxcb
+    libxkbcommon
+    libxkbcommon-x11
+    wayland
+    vulkan-icd-loader
+    fontconfig
+    freetype2
+    hicolor-icon-theme
+    desktop-file-utils
+)
+makedepends=(
+    rust
+    pkgconf
+    clang
+    cmake
+    vulkan-headers
+)
+optdepends=(
+    'libnotify: desktop notifications'
+    'xdg-utils: open links in the browser'
+)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/ddxtcc/thelounge-native/archive/$_commit.tar.gz")
+sha256sums=('df33f95425cdb2a05e3f4fe253e5715cddeac7679f6037ef8ce766cf3d44cf64')
+install="$pkgname.install"
+
+build() {
+    cd "thelounge-native-$_commit"
+    cargo build --release --locked -p lounge-native
+}
+
+package() {
+    cd "thelounge-native-$_commit"
+    install -Dm755 target/release/lounge-native "$pkgdir/usr/bin/$pkgname"
+    install -Dm644 packaging/lounge-native.desktop "$pkgdir/usr/share/applications/$pkgname.desktop"
+    install -Dm644 packaging/linux/lounge-native.metainfo.xml "$pkgdir/usr/share/metainfo/$pkgname.metainfo.xml"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 LICENSE "$pkgdir/usr/share/doc/$pkgname/LICENSE"
+    cp -R assets/icons/hicolor "$pkgdir/usr/share/icons/"
+}
