@@ -403,6 +403,7 @@ pub struct LoungeApp {
     theme_editor: Option<theme_editor::ThemeEditor>,
     preview_overrides: HashMap<i64, bool>,
     image_previews: RefCell<HashMap<String, image_preview::PreviewState>>,
+    pub(crate) link_previews: RefCell<HashMap<String, crate::link_preview::PreviewState>>,
     recent_commands: Vec<PaletteCommand>,
     pending_channel_switch: Option<i64>,
     pending_show_window: bool,
@@ -418,6 +419,7 @@ mod connection;
 mod desktop;
 mod image_cache;
 mod image_preview;
+mod link_preview_ui;
 #[cfg(feature = "media")]
 mod media;
 #[cfg(feature = "media")]
@@ -454,6 +456,10 @@ mod tray_windows;
 mod uploads;
 
 impl LoungeApp {
+    pub(crate) fn previews_enabled(&self) -> bool {
+        self.config.show_previews
+    }
+
     pub fn new(cx: &mut Context<Self>) -> Self {
         #[cfg(all(feature = "media", any(target_os = "windows", target_os = "macos")))]
         media::configure_gstreamer();
@@ -744,6 +750,7 @@ impl LoungeApp {
             theme_editor: None,
             preview_overrides: HashMap::new(),
             image_previews: RefCell::new(HashMap::new()),
+            link_previews: RefCell::new(HashMap::new()),
             recent_commands: Vec::new(),
             pending_channel_switch: None,
             pending_show_window: false,

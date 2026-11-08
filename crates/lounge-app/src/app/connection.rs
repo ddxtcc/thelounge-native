@@ -66,6 +66,7 @@ impl LoungeApp {
         self.messages_list_keys.clear();
         self.message_rows_cache = None;
         self.preview_overrides.clear();
+        self.clear_link_previews();
         #[cfg(feature = "media")]
         {
             self.clear_inline_media();

@@ -38,6 +38,7 @@ yuv = { version = "0.8", optional = true }
 libc.workspace = true
 lounge-core.workspace = true
 open = "5"
+scraper = "0.29"
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

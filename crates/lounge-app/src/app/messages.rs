@@ -213,12 +213,31 @@ impl LoungeApp {
                 .unwrap_or(false),
         };
         let show_attachments = preview_visible;
+        let local_link_urls: Vec<String> = if show_attachments && self.config.show_previews {
+            let mut seen = HashSet::new();
+            format::find_links(&message.text)
+                .into_iter()
+                .map(|link| link.url)
+                .filter(|url| crate::link_preview::is_previewable_link(url))
+                .filter(|url| {
+                    !message.previews.iter().any(|preview| {
+                        !preview.head.is_empty()
+                            && preview.link == *url
+                            && preview.shown != Some(false)
+                    })
+                })
+                .filter(|url| seen.insert(url.clone()))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let link_preview_count = if self.config.show_previews {
             message
                 .previews
                 .iter()
                 .filter(|preview| !preview.head.is_empty() && preview.kind != "image")
                 .count()
+                + local_link_urls.len()
         } else {
             0
         };
@@ -611,6 +630,12 @@ impl LoungeApp {
                 }));
             }
             previews = previews.child(card);
+        }
+
+        for url in &local_link_urls {
+            if let Some(preview) = self.local_link_preview(url, cx) {
+                previews = previews.child(self.render_local_link_preview(&preview, cx));
+            }
         }
 
         let mut inline = div().flex().flex_col().gap_2();

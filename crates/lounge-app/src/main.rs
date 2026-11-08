@@ -2,6 +2,7 @@ mod app;
 mod config;
 mod emoji;
 mod http_client;
+mod link_preview;
 mod secure_token;
 mod text_input;
 mod theme;
