@@ -5,16 +5,12 @@ pub(super) enum NavSection {
     Main,
     Networks,
     Channels,
+    Users,
 }
-
-const SECTIONS: [NavSection; 3] = [NavSection::Main, NavSection::Networks, NavSection::Channels];
 
 impl LoungeApp {
     fn navigation_available(&self) -> bool {
-        self.route == Route::Chat
-            && !self.last_overlay_open
-            && !self.sidebar_overlay
-            && !self.users_overlay
+        self.route == Route::Chat && !self.last_overlay_open
     }
 
     fn sync_nav_network(&mut self) {
@@ -35,15 +31,79 @@ impl LoungeApp {
         cx.notify();
     }
 
+    fn navigation_sections(&self) -> Vec<NavSection> {
+        let mut sections = vec![NavSection::Main];
+        if self.narrow || self.config.show_sidebar {
+            sections.push(NavSection::Networks);
+            sections.push(NavSection::Channels);
+        }
+        if self
+            .state
+            .active_channel()
+            .is_some_and(|(_, channel)| channel.is_channel())
+            && (self.narrow || self.config.show_user_list)
+        {
+            sections.push(NavSection::Users);
+        }
+        sections
+    }
+
+    fn visible_users(&self, cx: &mut Context<Self>) -> Vec<String> {
+        let filter = self.inputs.users_filter.read(cx).content().to_lowercase();
+        self.state
+            .active_channel()
+            .map(|(_, channel)| {
+                channel
+                    .users
+                    .iter()
+                    .filter(|user| {
+                        filter.is_empty()
+                            || user.nick.to_lowercase().contains(&filter)
+                            || user.away.to_lowercase().contains(&filter)
+                            || (user.is_bot && "bot".contains(&filter))
+                    })
+                    .map(|user| user.nick.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn set_section_overlays(&mut self) {
+        if !self.narrow {
+            return;
+        }
+        self.sidebar_overlay = matches!(
+            self.nav_section,
+            NavSection::Networks | NavSection::Channels
+        );
+        self.users_overlay = self.nav_section == NavSection::Users;
+    }
+
     fn cycle_navigation(&mut self, delta: i32, window: &mut Window, cx: &mut Context<Self>) {
-        let current = SECTIONS
+        let sections = self.navigation_sections();
+        let current = sections
             .iter()
             .position(|section| *section == self.nav_section)
             .unwrap_or(0) as i32;
-        let next = (current + delta).rem_euclid(SECTIONS.len() as i32) as usize;
-        self.nav_section = SECTIONS[next];
+        let next = (current + delta).rem_euclid(sections.len() as i32) as usize;
+        self.nav_section = sections[next];
         self.sync_nav_network();
+        if self.nav_section == NavSection::Users {
+            self.nav_user = 0;
+        }
+        self.set_section_overlays();
         self.focus_navigation(window, cx);
+    }
+
+    fn move_nav_user(&mut self, delta: i32, cx: &mut Context<Self>) -> bool {
+        let users = self.visible_users(cx);
+        if users.is_empty() {
+            return false;
+        }
+        let next = (self.nav_user as i32 + delta).rem_euclid(users.len() as i32) as usize;
+        self.nav_user = next;
+        cx.notify();
+        true
     }
 
     fn move_nav_network(
@@ -127,6 +187,84 @@ impl LoungeApp {
         true
     }
 
+    pub(super) fn handle_overlay_key(
+        &mut self,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.last_overlay_open {
+            return false;
+        }
+        let key = key.to_lowercase();
+        if self.settings_open {
+            let tabs = [
+                SettingsTab::Appearance,
+                SettingsTab::Messages,
+                SettingsTab::General,
+                SettingsTab::Server,
+                SettingsTab::About,
+            ];
+            let current = tabs
+                .iter()
+                .position(|tab| *tab == self.settings_tab)
+                .unwrap_or(0) as i32;
+            match key.as_str() {
+                "left" | "h" => {
+                    self.settings_tab = tabs[(current - 1).rem_euclid(tabs.len() as i32) as usize];
+                    cx.notify();
+                    return true;
+                }
+                "right" | "l" => {
+                    self.settings_tab = tabs[(current + 1).rem_euclid(tabs.len() as i32) as usize];
+                    cx.notify();
+                    return true;
+                }
+                "up" | "k" => {
+                    window.focus_prev();
+                    return true;
+                }
+                "down" | "j" => {
+                    window.focus_next();
+                    return true;
+                }
+                _ => {}
+            }
+            return false;
+        }
+        if self.lightbox.is_some() {
+            match key.as_str() {
+                "left" | "h" => {
+                    self.move_lightbox(-1, cx);
+                    return true;
+                }
+                "right" | "l" => {
+                    self.move_lightbox(1, cx);
+                    return true;
+                }
+                _ => return false,
+            }
+        }
+        if self.palette.is_some()
+            || self.mentions_open
+            || self.emoji_picker_open
+            || self.search_open
+        {
+            return false;
+        }
+        match key.as_str() {
+            "up" | "k" | "left" | "h" => {
+                window.focus_prev();
+                true
+            }
+            "down" | "j" | "right" | "l" => {
+                window.focus_next();
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn handle_navigation_key(
         &mut self,
         key: &str,
@@ -148,6 +286,8 @@ impl LoungeApp {
         if key == "escape" {
             if self.nav_section != NavSection::Main {
                 self.nav_section = NavSection::Main;
+                self.sidebar_overlay = false;
+                self.users_overlay = false;
                 self.focus_navigation(window, cx);
                 return true;
             }
@@ -200,6 +340,26 @@ impl LoungeApp {
                 "enter" => {
                     self.focus_composer(window, cx);
                     true
+                }
+                _ => false,
+            },
+            NavSection::Users => match key.as_str() {
+                "up" | "k" => self.move_nav_user(-1, cx),
+                "down" | "j" => self.move_nav_user(1, cx),
+                "enter" => {
+                    let users = self.visible_users(cx);
+                    let nick = users
+                        .get(self.nav_user.min(users.len().saturating_sub(1)))
+                        .cloned();
+                    if let Some(nick) = nick {
+                        if self.narrow {
+                            self.users_overlay = false;
+                        }
+                        self.insert_nick(&nick, cx);
+                        true
+                    } else {
+                        false
+                    }
                 }
                 _ => false,
             },

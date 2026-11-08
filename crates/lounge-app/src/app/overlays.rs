@@ -123,7 +123,7 @@ impl LoungeApp {
         cx.notify();
     }
 
-    fn move_lightbox(&mut self, delta: isize, cx: &mut Context<Self>) {
+    pub(super) fn move_lightbox(&mut self, delta: isize, cx: &mut Context<Self>) {
         let urls = self.channel_image_urls();
         let Some(index) = self.lightbox_index else {
             return;

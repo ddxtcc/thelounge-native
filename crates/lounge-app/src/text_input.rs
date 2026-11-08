@@ -177,7 +177,7 @@ impl TextInput {
             masked,
             multiline,
             tab_completion: multiline,
-            section_navigation: false,
+            section_navigation: true,
             max_lines: if multiline { 10 } else { 1 },
             revision: 0,
             selected_range: 0..0,
@@ -235,10 +235,6 @@ impl TextInput {
 
     pub fn set_colors(&mut self, colors: InputColors) {
         self.colors = colors;
-    }
-
-    pub fn set_section_navigation(&mut self, enabled: bool) {
-        self.section_navigation = enabled;
     }
 
     pub fn set_tab_stop(&mut self, tab_stop: bool) {

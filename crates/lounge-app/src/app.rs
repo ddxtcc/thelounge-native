@@ -294,6 +294,7 @@ pub struct LoungeApp {
     narrow: bool,
     nav_section: keyboard::NavSection,
     nav_network: usize,
+    nav_user: usize,
     sidebar_overlay: bool,
     users_overlay: bool,
     lightbox: Option<String>,
@@ -486,7 +487,6 @@ impl LoungeApp {
             };
 
         let composer = make("Message...", true, false, cx);
-        composer.update(cx, |input, _| input.set_section_navigation(true));
         let login_server = make("https://lounge.example.com", false, false, cx);
         let login_user = make("Username", false, false, cx);
         let login_password = make("Password", false, true, cx);
@@ -645,6 +645,7 @@ impl LoungeApp {
             narrow: false,
             nav_section: keyboard::NavSection::Main,
             nav_network: 0,
+            nav_user: 0,
             sidebar_overlay: false,
             users_overlay: false,
             lightbox: None,

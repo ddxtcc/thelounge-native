@@ -501,8 +501,10 @@ impl LoungeApp {
                     .child("No matching users."),
             );
         }
-        for user in users {
+        for (user_index, user) in users.into_iter().enumerate() {
             let nick = user.nick.clone();
+            let nav_focused = self.nav_section == super::keyboard::NavSection::Users
+                && user_index == self.nav_user;
             let mode = user_mode_prefix(user, network);
             let color = if self.config.colored_nicks {
                 theme.nick_color(&user.nick)
@@ -525,6 +527,11 @@ impl LoungeApp {
                     .rounded(px(3.))
                     .cursor_pointer()
                     .hover(|style| style.bg(theme.hover))
+                    .when(nav_focused, |this| {
+                        this.bg(theme.accent_dim)
+                            .border_1()
+                            .border_color(theme.accent)
+                    })
                     .on_click(cx.listener({
                         let nick = nick.clone();
                         move |this, _, _, cx| this.insert_nick(&nick, cx)

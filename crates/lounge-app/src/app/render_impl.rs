@@ -231,6 +231,14 @@ impl Render for LoungeApp {
                     cx.stop_propagation();
                     return;
                 }
+                if !event.keystroke.modifiers.control
+                    && !event.keystroke.modifiers.alt
+                    && !event.keystroke.modifiers.platform
+                    && this.handle_overlay_key(&key, window, cx)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
                 if key == "tab"
                     && !event.keystroke.modifiers.control
                     && !event.keystroke.modifiers.alt
@@ -293,12 +301,12 @@ impl Render for LoungeApp {
                     && !event.keystroke.modifiers.platform
                 {
                     match event.keystroke.key.to_lowercase().as_str() {
-                        "up" => {
+                        "up" | "k" => {
                             this.move_mentions(-1, cx);
                             cx.stop_propagation();
                             return;
                         }
-                        "down" => {
+                        "down" | "j" => {
                             this.move_mentions(1, cx);
                             cx.stop_propagation();
                             return;
