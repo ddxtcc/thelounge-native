@@ -444,7 +444,14 @@ impl LoungeApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let ids = self.channel_ids();
+        let ids: Vec<i64> = self
+            .state
+            .networks
+            .iter()
+            .flat_map(|network| network.channels.iter())
+            .filter(|channel| channel.chan.special.as_deref() != Some("list_channels"))
+            .map(|channel| channel.chan.id)
+            .collect();
         if ids.is_empty() {
             return;
         }
