@@ -124,13 +124,12 @@ impl LoungeApp {
         match self.request_preview(url, cx) {
             PreviewState::Ready(path) => div()
                 .w(px(size))
-                .h(px(size))
                 .child(
                     gpui::img(path)
                         .image_cache(&self.image_cache)
                         .w_full()
-                        .h_full()
-                        .object_fit(gpui::ObjectFit::Cover),
+                        .max_h(px(96.))
+                        .object_fit(gpui::ObjectFit::Contain),
                 )
                 .into_any_element(),
             PreviewState::Failed => self.preview_thumbnail_placeholder(size, "Unavailable"),
@@ -141,7 +140,7 @@ impl LoungeApp {
     fn preview_thumbnail_placeholder(&self, size: f32, label: &str) -> AnyElement {
         div()
             .w(px(size))
-            .h(px(size))
+            .h(px(size * 0.75))
             .flex()
             .items_center()
             .justify_center()

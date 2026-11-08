@@ -59,14 +59,9 @@ impl LoungeApp {
             card = card.child(
                 div()
                     .w(px(84.))
-                    .h(px(84.))
                     .flex_shrink_0()
                     .rounded(px(4.))
                     .overflow_hidden()
-                    .bg(theme.sidebar)
-                    .flex()
-                    .items_center()
-                    .justify_center()
                     .child(self.preview_thumbnail(&thumb, 84., cx)),
             );
         }
