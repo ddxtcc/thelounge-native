@@ -56,9 +56,18 @@ impl LoungeApp {
         if len == 0 {
             return false;
         }
-        let next = (self.nav_network as i32 + delta).rem_euclid(len as i32) as usize;
-        self.nav_network = next;
-        let Some(channel) = self.state.networks[next].channels.first() else {
+        let next = self.nav_network as i32 + delta;
+        if next < 0 || next >= len as i32 {
+            if delta > 0 {
+                self.nav_section = NavSection::Channels;
+                self.sync_nav_network();
+                self.focus_navigation(window, cx);
+                return true;
+            }
+            return false;
+        }
+        self.nav_network = next as usize;
+        let Some(channel) = self.state.networks[next as usize].channels.first() else {
             self.focus_navigation(window, cx);
             return true;
         };
