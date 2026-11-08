@@ -229,21 +229,22 @@ impl Render for LoungeApp {
         self.window_active = window.is_window_active();
         if !self.window_activation_observed {
             self.window_activation_observed = true;
-            cx.observe_window_activation(window, |this, window, cx| {
-                let active = window.is_window_active();
-                if active {
-                    if this.deactivated_at.take().is_some_and(|at| {
-                        SystemTime::now().duration_since(at).unwrap_or_default()
-                            >= Duration::from_secs(5)
-                    }) {
-                        this.refresh_connection(cx);
-                    }
-                } else {
-                    this.deactivated_at = Some(SystemTime::now());
-                }
-                this.window_active = active;
+            cx.observe_window_activation(window, |this, window, _cx| {
+                this.window_active = window.is_window_active();
             })
             .detach();
+        }
+        let frame_now = (Instant::now(), SystemTime::now());
+        let monotonic_gap = frame_now.0.duration_since(self.last_frame.0);
+        let wall_gap = frame_now
+            .1
+            .duration_since(self.last_frame.1)
+            .unwrap_or_default();
+        self.last_frame = frame_now;
+        if self.route == Route::Chat
+            && wall_gap.saturating_sub(monotonic_gap) >= Duration::from_secs(2)
+        {
+            self.refresh_connection(cx);
         }
         let theme = self.theme;
         let mut root = div()
