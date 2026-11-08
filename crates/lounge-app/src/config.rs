@@ -17,6 +17,39 @@ pub enum PreviewMode {
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationMode {
+    #[default]
+    Mentions,
+    All,
+    DirectMessages,
+}
+
+impl NotificationMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Mentions => "Mentions & highlights",
+            Self::All => "All messages",
+            Self::DirectMessages => "Direct messages",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Mentions => Self::All,
+            Self::All => Self::DirectMessages,
+            Self::DirectMessages => Self::Mentions,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NotificationOverride {
+    pub channel: i64,
+    pub mode: NotificationMode,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum StatusMessages {
     #[default]
@@ -67,6 +100,8 @@ pub struct AppConfig {
     pub status_messages: StatusMessages,
     pub show_user_list: bool,
     pub notifications: bool,
+    pub notification_mode: NotificationMode,
+    pub notification_overrides: Vec<NotificationOverride>,
     pub icon_buttons: bool,
     pub show_tray_icon: bool,
     pub enable_global_hotkey: bool,
@@ -115,6 +150,8 @@ impl Default for AppConfig {
             status_messages: StatusMessages::Condensed,
             show_user_list: true,
             notifications: true,
+            notification_mode: NotificationMode::Mentions,
+            notification_overrides: Vec::new(),
             icon_buttons: true,
             show_tray_icon: true,
             enable_global_hotkey: true,
@@ -163,6 +200,32 @@ impl AppConfig {
                 }
             },
             Err(_) => Self::default(),
+        }
+    }
+
+    pub fn channel_notification_mode(&self, channel: i64) -> NotificationMode {
+        self.notification_overrides
+            .iter()
+            .rev()
+            .find(|entry| entry.channel == channel)
+            .map(|entry| entry.mode)
+            .unwrap_or(self.notification_mode)
+    }
+
+    pub fn channel_notification_override(&self, channel: i64) -> Option<NotificationMode> {
+        self.notification_overrides
+            .iter()
+            .rev()
+            .find(|entry| entry.channel == channel)
+            .map(|entry| entry.mode)
+    }
+
+    pub fn set_channel_notification_mode(&mut self, channel: i64, mode: Option<NotificationMode>) {
+        self.notification_overrides
+            .retain(|entry| entry.channel != channel);
+        if let Some(mode) = mode {
+            self.notification_overrides
+                .push(NotificationOverride { channel, mode });
         }
     }
 
@@ -247,6 +310,29 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_notification_overrides_shadow_global_mode() {
+        let mut config = AppConfig {
+            notification_mode: NotificationMode::All,
+            ..Default::default()
+        };
+        assert_eq!(config.channel_notification_mode(7), NotificationMode::All);
+        config.set_channel_notification_mode(7, Some(NotificationMode::Mentions));
+        assert_eq!(
+            config.channel_notification_mode(7),
+            NotificationMode::Mentions
+        );
+        config.set_channel_notification_mode(7, None);
+        assert_eq!(config.channel_notification_mode(7), NotificationMode::All);
+    }
+
+    #[test]
+    fn legacy_config_defaults_to_mention_notifications() {
+        let config: AppConfig = toml::from_str("notifications = true").unwrap();
+        assert_eq!(config.notification_mode, NotificationMode::Mentions);
+        assert!(config.notification_overrides.is_empty());
+    }
 
     #[test]
     fn token_is_not_serialized_to_disk() {

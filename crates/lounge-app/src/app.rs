@@ -17,7 +17,7 @@ use lounge_core::proto::{Message, MessageType, ServerEvent, User};
 use lounge_core::socket::{Auth, ClientConfig, ClientEvent, ClientHandle};
 use lounge_core::state::{ChannelState, ClientState, NetworkState};
 
-use crate::config::{AppConfig, StatusMessages};
+use crate::config::{AppConfig, NotificationMode, StatusMessages};
 use crate::text_input::{InputAction, InputColors, InputRole, TextInput};
 use crate::theme::Theme;
 

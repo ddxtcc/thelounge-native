@@ -289,12 +289,41 @@ impl LoungeApp {
                 cx,
                 |this| this.config.show_sidebar = !this.config.show_sidebar,
             ))
+            .child(self.setting_section("Notifications"))
             .child(self.setting_row_toggle(
                 "Desktop notifications",
                 self.config.notifications,
                 cx,
                 |this| this.config.notifications = !this.config.notifications,
+            ))
+            .child(self.setting_row_cycle(
+                "Notification mode",
+                self.config.notification_mode.label(),
+                cx,
+                |this| this.config.notification_mode = this.config.notification_mode.next(),
             ));
+        if let Some((_, channel)) = self.state.active_channel() {
+            let channel_id = channel.chan.id;
+            let channel_name = channel.chan.name.clone();
+            let override_mode = self.config.channel_notification_override(channel_id);
+            let value = override_mode
+                .map(|mode| mode.label().to_string())
+                .unwrap_or_else(|| format!("Global ({})", self.config.notification_mode.label()));
+            card = card.child(self.setting_row_cycle(
+                &format!("{channel_name} notifications"),
+                &value,
+                cx,
+                move |this| {
+                    let next = match this.config.channel_notification_override(channel_id) {
+                        None => Some(NotificationMode::Mentions),
+                        Some(NotificationMode::Mentions) => Some(NotificationMode::All),
+                        Some(NotificationMode::All) => Some(NotificationMode::DirectMessages),
+                        Some(NotificationMode::DirectMessages) => None,
+                    };
+                    this.config.set_channel_notification_mode(channel_id, next);
+                },
+            ));
+        }
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         {
             card = card
