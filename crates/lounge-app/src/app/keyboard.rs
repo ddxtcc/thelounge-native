@@ -25,6 +25,7 @@ impl LoungeApp {
     }
 
     fn focus_navigation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.nav_mode = true;
         self.pending_focus = false;
         self.focus_request = None;
         window.focus(&self.root_focus);
@@ -314,6 +315,7 @@ impl LoungeApp {
                     true
                 }
                 "enter" => {
+                    self.nav_mode = false;
                     self.focus_composer(window, cx);
                     true
                 }
@@ -338,6 +340,7 @@ impl LoungeApp {
                 "left" | "h" => self.move_nav_network(-1, window, cx),
                 "right" | "l" => self.move_nav_network(1, window, cx),
                 "enter" => {
+                    self.nav_mode = false;
                     self.focus_composer(window, cx);
                     true
                 }
@@ -352,6 +355,7 @@ impl LoungeApp {
                         .get(self.nav_user.min(users.len().saturating_sub(1)))
                         .cloned();
                     if let Some(nick) = nick {
+                        self.nav_mode = false;
                         if self.narrow {
                             self.users_overlay = false;
                         }

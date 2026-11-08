@@ -183,6 +183,9 @@ impl Render for LoungeApp {
             || self.message_context.is_some()
             || self.palette.is_some();
         self.update_input_tab_stops(overlay_open, cx);
+        if overlay_open {
+            self.nav_mode = false;
+        }
         if overlay_open && !self.last_overlay_open {
             self.overlay_return_focus = window.focused(cx);
             window.focus(&self.root_focus);
@@ -214,6 +217,13 @@ impl Render for LoungeApp {
                 let handle = self.inputs.login_server.read(cx).focus_handle(cx);
                 window.focus(&handle);
             }
+        }
+
+        if self.nav_mode && !overlay_open && self.route == Route::Chat {
+            self.pending_focus = false;
+            self.focus_request = None;
+            self.focus_root_request = false;
+            window.focus(&self.root_focus);
         }
 
         self.window_active = window.is_window_active();
@@ -458,6 +468,12 @@ impl Render for LoungeApp {
             }))
             .relative()
             .size_full()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
+                    this.nav_mode = false;
+                }),
+            )
             .bg(theme.bg)
             .text_color(theme.text)
             .text_size(px(self.config.font_size))
