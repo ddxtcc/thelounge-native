@@ -20,8 +20,10 @@ impl LoungeApp {
         let on_accent = theme.on_accent;
         let mut list = div().flex().flex_col().gap_1().p_2().w_full();
 
-        for network in &self.state.networks {
+        for (network_index, network) in self.state.networks.iter().enumerate() {
             let uuid = network.uuid.clone();
+            let nav_focused = self.nav_section == super::keyboard::NavSection::Networks
+                && network_index == self.nav_network;
             let collapsed = self.collapsed_networks.contains(&uuid);
             let unread: u32 = network
                 .channels
@@ -52,6 +54,11 @@ impl LoungeApp {
                     .rounded(px(5.))
                     .cursor_pointer()
                     .hover(|style| style.bg(theme.hover))
+                    .when(nav_focused, |this| {
+                        this.bg(theme.accent_dim)
+                            .border_1()
+                            .border_color(theme.accent)
+                    })
                     .on_drag(drag, move |drag: &SortDrag, position, _, cx| {
                         LoungeApp::drag_preview(drag, position, theme, cx)
                     })
@@ -124,6 +131,8 @@ impl LoungeApp {
             for channel in &network.channels {
                 let id = channel.chan.id;
                 let selected = self.state.active == Some(id);
+                let nav_focused =
+                    self.nav_section == super::keyboard::NavSection::Channels && selected;
                 let name = if channel.is_lobby() {
                     network.name.clone()
                 } else {
@@ -166,6 +175,9 @@ impl LoungeApp {
                         .rounded(px(5.))
                         .cursor_pointer()
                         .when(selected, |this| this.bg(theme.accent_dim))
+                        .when(nav_focused, |this| {
+                            this.border_1().border_color(theme.accent)
+                        })
                         .when(!selected, |this| this.hover(|style| style.bg(theme.hover)))
                         .when(sortable, |this| {
                             this.on_drag(drag, move |drag: &SortDrag, position, _, cx| {

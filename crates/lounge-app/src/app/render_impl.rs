@@ -222,7 +222,16 @@ impl Render for LoungeApp {
             .id("app-root")
             .track_focus(&self.root_focus)
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                if event.keystroke.key.eq_ignore_ascii_case("tab")
+                let key = event.keystroke.key.to_lowercase();
+                if !event.keystroke.modifiers.control
+                    && !event.keystroke.modifiers.alt
+                    && !event.keystroke.modifiers.platform
+                    && this.handle_navigation_key(&key, event.keystroke.modifiers.shift, window, cx)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
+                if key == "tab"
                     && !event.keystroke.modifiers.control
                     && !event.keystroke.modifiers.alt
                     && !event.keystroke.modifiers.platform

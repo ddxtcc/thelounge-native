@@ -125,6 +125,10 @@ impl LoungeApp {
             .w_full()
             .min_h(px(0.))
             .relative()
+            .when(
+                self.nav_section == super::keyboard::NavSection::Main,
+                |this| this.border_t_1().border_color(theme.accent),
+            )
             .on_children_prepainted(move |bounds, _, cx| {
                 if let Some(bounds) = bounds.first()
                     && let Some(this) = bounds_weak.upgrade()

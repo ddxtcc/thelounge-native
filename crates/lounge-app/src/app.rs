@@ -292,6 +292,8 @@ pub struct LoungeApp {
     collapsed_networks: HashSet<String>,
     expanded_condensed: HashSet<i64>,
     narrow: bool,
+    nav_section: keyboard::NavSection,
+    nav_network: usize,
     sidebar_overlay: bool,
     users_overlay: bool,
     lightbox: Option<String>,
@@ -419,6 +421,7 @@ mod connection;
 mod desktop;
 mod image_cache;
 mod image_preview;
+mod keyboard;
 mod link_preview_ui;
 #[cfg(feature = "media")]
 mod media;
@@ -483,6 +486,7 @@ impl LoungeApp {
             };
 
         let composer = make("Message...", true, false, cx);
+        composer.update(cx, |input, _| input.set_section_navigation(true));
         let login_server = make("https://lounge.example.com", false, false, cx);
         let login_user = make("Username", false, false, cx);
         let login_password = make("Password", false, true, cx);
@@ -639,6 +643,8 @@ impl LoungeApp {
             collapsed_networks: HashSet::new(),
             expanded_condensed: HashSet::new(),
             narrow: false,
+            nav_section: keyboard::NavSection::Main,
+            nav_network: 0,
             sidebar_overlay: false,
             users_overlay: false,
             lightbox: None,
