@@ -244,7 +244,7 @@ impl Render for LoungeApp {
                 if !event.keystroke.modifiers.control
                     && !event.keystroke.modifiers.alt
                     && !event.keystroke.modifiers.platform
-                    && this.handle_overlay_key(&key, window, cx)
+                    && this.handle_overlay_key(&key, event.keystroke.modifiers.shift, window, cx)
                 {
                     cx.stop_propagation();
                     return;
