@@ -42,7 +42,10 @@ pub struct SavedHistory {
 pub struct AppConfig {
     pub server: String,
     pub user: String,
+    #[serde(default, skip_serializing)]
     pub token: String,
+    #[serde(skip)]
+    pub token_error: Option<String>,
     pub last_channel: Option<i64>,
     pub theme: String,
     pub font_family: String,
@@ -90,6 +93,7 @@ impl Default for AppConfig {
             server: String::new(),
             user: String::new(),
             token: String::new(),
+            token_error: None,
             last_channel: None,
             theme: "dark".into(),
             font_family: ".SystemUIFont".into(),
@@ -147,6 +151,7 @@ impl AppConfig {
                 Ok(mut config) => {
                     config.migrate_themes();
                     config.migrate_previews();
+                    config.migrate_token();
                     config
                 }
                 Err(_) => {
@@ -158,6 +163,27 @@ impl AppConfig {
                 }
             },
             Err(_) => Self::default(),
+        }
+    }
+
+    fn migrate_token(&mut self) {
+        if self.server.is_empty() || self.user.is_empty() {
+            return;
+        }
+        if !self.token.is_empty() {
+            match crate::secure_token::store_token(&self.server, &self.user, &self.token) {
+                Ok(()) => self.save(),
+                Err(error) => {
+                    self.token_error = Some(error);
+                    self.save();
+                }
+            }
+            return;
+        }
+        match crate::secure_token::load_token(&self.server, &self.user) {
+            Ok(Some(token)) => self.token = token,
+            Ok(None) => {}
+            Err(error) => self.token_error = Some(error),
         }
     }
 
@@ -221,6 +247,16 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_is_not_serialized_to_disk() {
+        let config = AppConfig {
+            token: "secret-token".into(),
+            ..Default::default()
+        };
+        let text = toml::to_string_pretty(&config).unwrap();
+        assert!(!text.contains("secret-token"));
+    }
 
     #[test]
     fn legacy_hidden_images_migrate_to_preview_mode() {

@@ -1,6 +1,11 @@
 use super::*;
 
 impl LoungeApp {
+    fn forget_token(&mut self) {
+        let _ = crate::secure_token::delete_token(&self.config.server, &self.config.user);
+        self.config.token.clear();
+    }
+
     pub(super) fn attempt_login(&mut self, cx: &mut Context<Self>) {
         let server = self
             .inputs
@@ -32,7 +37,7 @@ impl LoungeApp {
 
         let account_changed = server != self.config.server || user != self.config.user;
         if account_changed {
-            self.config.token.clear();
+            self.forget_token();
             self.config.last_channel = None;
             self.drafts.clear();
             self.histories.clear();
@@ -122,7 +127,7 @@ impl LoungeApp {
             ClientEvent::Authenticated => {}
             ClientEvent::AuthFailed => {
                 self.status = ConnectionStatus::Disconnected;
-                self.config.token.clear();
+                self.forget_token();
                 self.config.save();
                 self.route = Route::Login;
                 self.login_error = Some("Authentication failed. Check your credentials.".into());
@@ -241,7 +246,7 @@ impl LoungeApp {
                     self.prefill_network_edit(&info, cx);
                 }
                 if signed_out {
-                    self.config.token.clear();
+                    self.forget_token();
                     self.config.save();
                     self.route = Route::Login;
                     self.status = ConnectionStatus::Disconnected;
@@ -302,6 +307,13 @@ impl LoungeApp {
     pub(super) fn after_init(&mut self, old_active: Option<i64>, cx: &mut Context<Self>) {
         if let Some(token) = self.state.token.clone() {
             self.config.token = token;
+            if let Err(error) = crate::secure_token::store_token(
+                &self.config.server,
+                &self.config.user,
+                &self.config.token,
+            ) {
+                self.toast(format!("Could not save login token securely: {error}"));
+            }
         }
         if let Some(active) = self.state.active {
             self.config.last_channel = Some(active);
@@ -434,7 +446,7 @@ impl LoungeApp {
         self.conn_generation = self.conn_generation.wrapping_add(1);
         self.conn = None;
         self.reset_uploads();
-        self.config.token.clear();
+        self.forget_token();
         self.config.save();
         self.route = Route::Login;
         self.status = ConnectionStatus::Disconnected;

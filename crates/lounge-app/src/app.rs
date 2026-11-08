@@ -562,11 +562,7 @@ impl LoungeApp {
 
         let (notification_action_tx, notification_action_rx) = futures::channel::mpsc::unbounded();
         #[cfg(target_os = "linux")]
-        let (tray_handle, tray_action_rx) = match config.show_tray_icon.then(tray::spawn).flatten()
-        {
-            Some((handle, receiver)) => (Some(handle), Some(receiver)),
-            None => (None, None),
-        };
+        let tray_handle = None;
         #[cfg(target_os = "windows")]
         let (tray_handle, tray_action_rx) =
             match config.show_tray_icon.then(tray_windows::spawn).flatten() {
@@ -744,8 +740,8 @@ impl LoungeApp {
         });
         app.watch_notifications(notification_action_rx, cx);
         #[cfg(target_os = "linux")]
-        if let Some(receiver) = tray_action_rx {
-            app.watch_tray(receiver, cx);
+        if app.config.show_tray_icon {
+            app.start_tray(cx);
         }
         #[cfg(target_os = "windows")]
         if let Some(receiver) = tray_action_rx {
@@ -753,6 +749,9 @@ impl LoungeApp {
         }
         if app.config.load_failed {
             app.toast("Config could not be parsed; using defaults and keeping a backup.");
+        }
+        if let Some(error) = app.config.token_error.clone() {
+            app.toast(format!("Could not access the system keyring: {error}"));
         }
         app.prefill_login(cx);
 
