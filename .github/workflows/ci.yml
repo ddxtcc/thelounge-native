@@ -38,7 +38,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev wayland-protocols libvulkan-dev libfontconfig1-dev libfreetype6-dev libx11-dev libxcb1-dev binutils clang libclang-dev cmake libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev wayland-protocols libvulkan-dev libfontconfig1-dev libfreetype6-dev libx11-dev libxcb1-dev binutils patchelf zsync appstream squashfs-tools desktop-file-utils file clang libclang-dev cmake libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy -p lounge-native --all-targets --locked --no-default-features -- -D warnings
@@ -81,7 +81,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev wayland-protocols libvulkan-dev libfontconfig1-dev libfreetype6-dev libx11-dev libxcb1-dev binutils clang libclang-dev cmake libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev wayland-protocols libvulkan-dev libfontconfig1-dev libfreetype6-dev libx11-dev libxcb1-dev binutils patchelf zsync appstream squashfs-tools desktop-file-utils file clang libclang-dev cmake libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
       - name: Install pkg-config
         if: runner.os == 'Windows'
         shell: pwsh
@@ -185,6 +185,7 @@ jobs:
           bash packaging/linux/build-deb.sh dist/lounge-native "dist/lounge-native_${VERSION}_amd64.deb"
           dpkg-deb --info "dist/lounge-native_${VERSION}_amd64.deb" >/dev/null
           dpkg-deb --contents "dist/lounge-native_${VERSION}_amd64.deb" >/dev/null
+          TOOLS_DIR="$RUNNER_TEMP/appimage-tools" bash packaging/appimage/build-appimage.sh dist/lounge-native "dist/lounge-native_${VERSION}_x86_64.AppImage"
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -255,8 +256,11 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: runner.os == 'Linux'
         with:
-          name: lounge-native-linux-deb
-          path: dist/*.deb
+          name: lounge-native-linux-packages
+          path: |
+            dist/*.deb
+            dist/*.AppImage
+            dist/*.AppImage.zsync
           if-no-files-found: error
           retention-days: 30
 
@@ -280,6 +284,7 @@ jobs:
           test -s dist/lounge-native-x86_64-unknown-linux-gnu.tar.gz
           test -s dist/lounge-native-x86_64-pc-windows-msvc.zip
           ls dist/*.deb >/dev/null
+          ls dist/*.AppImage >/dev/null
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}

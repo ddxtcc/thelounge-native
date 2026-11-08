@@ -33,6 +33,13 @@ sudo apt install ./lounge-native_0.9.0_amd64.deb
 
 The package installs the binary, desktop entry, AppStream metadata, and hicolor icons under `/usr`. Update it by installing a newer package or rerunning `install.sh` from a newer archive. Settings > About > Check for updates compares the app against the latest GitHub release.
 
+A portable AppImage is also published with each release:
+
+```sh
+chmod +x lounge-native_0.9.0_x86_64.AppImage
+./lounge-native_0.9.0_x86_64.AppImage
+```
+
 Arch Linux users can build the package in `packaging/aur`:
 
 ```sh

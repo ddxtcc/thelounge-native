@@ -31,7 +31,7 @@ install -Dm755 "$binary" "$stage/usr/bin/lounge-native"
 install -Dm644 "$root/packaging/lounge-native.desktop" \
     "$stage/usr/share/applications/lounge-native.desktop"
 install -Dm644 "$root/packaging/linux/lounge-native.metainfo.xml" \
-    "$stage/usr/share/metainfo/lounge-native.metainfo.xml"
+    "$stage/usr/share/metainfo/dev.lounge.native.metainfo.xml"
 install -Dm644 "$root/README.md" "$stage/usr/share/doc/lounge-native/README.md"
 install -Dm644 "$root/LICENSE" "$stage/usr/share/doc/lounge-native/LICENSE"
 cp -R "$root/assets/icons/hicolor/." "$stage/usr/share/icons/hicolor/"

@@ -4,3 +4,4 @@ Cargo.lock.bak
 /dist
 *.tar.gz
 /original-repo
+/.appimage-tools
