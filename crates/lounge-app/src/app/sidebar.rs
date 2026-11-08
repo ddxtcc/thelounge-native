@@ -31,6 +31,7 @@ impl LoungeApp {
                 .map(|channel| channel.chan.unread + channel.chan.highlight)
                 .sum();
             let uuid_click = uuid.clone();
+            let uuid_key = uuid.clone();
             let network_label = network.name.clone();
             let drag = SortDrag {
                 kind: SortKind::Network,
@@ -71,6 +72,15 @@ impl LoungeApp {
                         }
                         cx.notify();
                     }))
+                    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                        if activation_key(event) {
+                            if !this.collapsed_networks.remove(&uuid_key) {
+                                this.collapsed_networks.insert(uuid_key.clone());
+                            }
+                            cx.notify();
+                            cx.stop_propagation();
+                        }
+                    }))
                     .on_mouse_down(
                         MouseButton::Right,
                         cx.listener({
@@ -101,7 +111,9 @@ impl LoungeApp {
                     .when(unread > 0, |this| {
                         this.child(unread_badge(unread, false, theme))
                     })
-                    .child(
+                    .child({
+                        let uuid = uuid.clone();
+                        let uuid_key = uuid.clone();
                         div()
                             .id(ElementId::Name(format!("net-menu-{uuid}").into()))
                             .tab_index(0)
@@ -117,11 +129,19 @@ impl LoungeApp {
                                 cx.stop_propagation();
                                 this.open_network_menu(&uuid, cx);
                             }))
+                            .on_key_down(cx.listener(
+                                move |this, event: &gpui::KeyDownEvent, _, cx| {
+                                    if activation_key(event) {
+                                        cx.stop_propagation();
+                                        this.open_network_menu(&uuid_key, cx);
+                                    }
+                                },
+                            ))
                             .tooltip(move |_, cx| {
                                 cx.new(|_| Tooltip::new("Network actions", theme)).into()
                             })
-                            .child("..."),
-                    ),
+                            .child("...")
+                    }),
             );
 
             if collapsed {
@@ -222,6 +242,14 @@ impl LoungeApp {
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.switch_channel(id, window, cx);
                         }))
+                        .on_key_down(cx.listener(
+                            move |this, event: &gpui::KeyDownEvent, window, cx| {
+                                if activation_key(event) {
+                                    this.switch_channel(id, window, cx);
+                                    cx.stop_propagation();
+                                }
+                            },
+                        ))
                         .child(
                             div()
                                 .w(px(12.))
@@ -352,6 +380,12 @@ impl LoungeApp {
                             .hover(|style| style.bg(theme.hover))
                             .child("+")
                             .on_click(cx.listener(|this, _, _, cx| this.open_network_modal(cx)))
+                            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                                if activation_key(event) {
+                                    this.open_network_modal(cx);
+                                    cx.stop_propagation();
+                                }
+                            }))
                             .tooltip(move |_, cx| {
                                 cx.new(|_| Tooltip::new("Add network", theme)).into()
                             }),
@@ -446,6 +480,8 @@ impl LoungeApp {
     ) -> AnyElement {
         let theme = self.theme;
         let tooltip = tooltip.to_string();
+        let on_click = std::rc::Rc::new(on_click);
+        let click_action = on_click.clone();
         div()
             .id(ElementId::Name(format!("side-{label}").into()))
             .tab_index(0)
@@ -458,7 +494,15 @@ impl LoungeApp {
             .text_color(theme.muted)
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover).text_color(theme.text))
-            .on_click(cx.listener(move |this, _, window, cx| on_click(this, window, cx)))
+            .on_click(cx.listener(move |this, _, window, cx| click_action(this, window, cx)))
+            .on_key_down(
+                cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                    if activation_key(event) {
+                        on_click(this, window, cx);
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .tooltip(move |_, cx| cx.new(|_| Tooltip::new(tooltip.clone(), theme)).into())
             .child(label.to_string())
             .into_any_element()
@@ -534,6 +578,15 @@ impl LoungeApp {
                     .on_click(cx.listener({
                         let nick = nick.clone();
                         move |this, _, _, cx| this.insert_nick(&nick, cx)
+                    }))
+                    .on_key_down(cx.listener({
+                        let nick = nick.clone();
+                        move |this, event: &gpui::KeyDownEvent, _, cx| {
+                            if activation_key(event) {
+                                this.insert_nick(&nick, cx);
+                                cx.stop_propagation();
+                            }
+                        }
                     }))
                     .on_mouse_down(
                         MouseButton::Right,
