@@ -369,7 +369,6 @@ impl LoungeApp {
     }
 
     fn sidebar_footer(&self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = self.theme;
         let icon_buttons = self.config.icon_buttons;
         let mut footer = div().p_2().min_h(px(COMPOSER_MIN_HEIGHT));
         footer = if icon_buttons {
