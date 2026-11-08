@@ -35,6 +35,7 @@ impl LoungeApp {
                 div()
                     .id(ElementId::Name(format!("settings-tab-{label}").into()))
                     .tab_index(0)
+                    .tab_stop(false)
                     .focus(|style| style.bg(theme.border).text_color(theme.text))
                     .px_3()
                     .py_1()

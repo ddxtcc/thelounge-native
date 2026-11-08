@@ -84,7 +84,7 @@ impl LoungeApp {
         let theme = self.theme;
         div()
             .id(id)
-            .tab_index(0)
+            .tab_index(100)
             .focus(|style| style.bg(theme.border).text_color(theme.text))
             .size(px(26.))
             .flex()
