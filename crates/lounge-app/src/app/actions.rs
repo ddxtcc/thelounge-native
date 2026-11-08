@@ -751,6 +751,20 @@ impl LoungeApp {
         cx.notify();
     }
 
+    pub(super) fn scroll_messages_home(&mut self, cx: &mut Context<Self>) {
+        self.messages_list.scroll_to(ListOffset {
+            item_ix: 0,
+            offset_in_item: px(0.),
+        });
+        self.refresh_at_bottom();
+        cx.notify();
+    }
+
+    pub(super) fn scroll_messages_end(&mut self, cx: &mut Context<Self>) {
+        self.scroll_to_bottom_pending = true;
+        cx.notify();
+    }
+
     pub(super) fn scroll_messages_page(&mut self, direction: f32, cx: &mut Context<Self>) {
         let height = self
             .messages_bounds
