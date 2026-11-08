@@ -69,6 +69,31 @@ pub(super) fn seek_audio(pipeline: &gst::Pipeline, bounds: Bounds<Pixels>, x: Pi
     let _ = pipeline.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, target);
 }
 
+pub(super) fn seek_audio_to(pipeline: &gst::Pipeline, seconds: u64) {
+    let _ = pipeline.seek_simple(
+        gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+        gst::ClockTime::from_seconds(seconds),
+    );
+}
+
+pub(super) fn seek_audio_relative(pipeline: &gst::Pipeline, seconds: i64) {
+    let Some(position) = pipeline.query_position::<gst::ClockTime>() else {
+        return;
+    };
+    let duration = pipeline
+        .query_duration::<gst::ClockTime>()
+        .map(|duration| duration.seconds())
+        .unwrap_or(u64::MAX);
+    let target = i64::try_from(position.seconds())
+        .unwrap_or(i64::MAX)
+        .saturating_add(seconds)
+        .max(0) as u64;
+    let _ = pipeline.seek_simple(
+        gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+        gst::ClockTime::from_seconds(target.min(duration)),
+    );
+}
+
 pub(super) fn set_audio_volume(pipeline: &gst::Pipeline, bounds: Bounds<Pixels>, x: Pixels) {
     let Some(fraction) = fraction_at(bounds, x) else {
         return;

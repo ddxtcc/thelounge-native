@@ -54,6 +54,7 @@ impl LoungeApp {
             self.media_video = Some((inline.url, inline.video));
         } else if let Some(inline) = self.inline_audio.take() {
             self.lightbox = Some(inline.url.clone());
+            self.media_audio_url = Some(inline.url);
             self.media_audio = Some(inline.pipeline);
         }
         self.media_fullscreen = self.media_video.is_some() || self.media_audio.is_some();

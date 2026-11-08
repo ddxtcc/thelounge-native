@@ -314,6 +314,12 @@ pub struct LoungeApp {
     #[cfg(feature = "media")]
     media_audio: Option<gstreamer::Pipeline>,
     #[cfg(feature = "media")]
+    media_audio_url: Option<String>,
+    #[cfg(feature = "media")]
+    media_positions: HashMap<String, u64>,
+    #[cfg(feature = "media")]
+    media_failures: HashMap<String, String>,
+    #[cfg(feature = "media")]
     inline_audio: Option<media::InlineAudio>,
     #[cfg(feature = "media")]
     media_posters: RefCell<HashMap<String, Option<media::Poster>>>,
@@ -651,6 +657,12 @@ impl LoungeApp {
             inline_video: None,
             #[cfg(feature = "media")]
             media_audio: None,
+            #[cfg(feature = "media")]
+            media_audio_url: None,
+            #[cfg(feature = "media")]
+            media_positions: HashMap::new(),
+            #[cfg(feature = "media")]
+            media_failures: HashMap::new(),
             #[cfg(feature = "media")]
             inline_audio: None,
             #[cfg(feature = "media")]
