@@ -697,6 +697,8 @@ impl LoungeApp {
             list = list.child(
                 div()
                     .id(ElementId::Name(format!("font-{font}").into()))
+                    .tab_index(0)
+                    .focus(|style| style.bg(theme.border).text_color(theme.text))
                     .flex()
                     .items_center()
                     .justify_between()

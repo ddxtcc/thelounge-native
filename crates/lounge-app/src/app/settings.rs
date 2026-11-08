@@ -546,6 +546,8 @@ impl LoungeApp {
             row = row.child(
                 div()
                     .id(ElementId::Name(format!("theme-{id}").into()))
+                    .tab_index(0)
+                    .focus(|style| style.bg(theme.border).text_color(theme.text))
                     .px_3()
                     .py_2()
                     .rounded(px(6.))
@@ -769,6 +771,8 @@ impl LoungeApp {
                     .child(
                         div()
                             .id(ElementId::Name(format!("minus-{label}").into()))
+                            .tab_index(0)
+                            .focus(|style| style.bg(theme.border).text_color(theme.text))
                             .px_2()
                             .rounded(px(4.))
                             .bg(theme.hover)
@@ -786,6 +790,8 @@ impl LoungeApp {
                     .child(
                         div()
                             .id(ElementId::Name(format!("plus-{label}").into()))
+                            .tab_index(0)
+                            .focus(|style| style.bg(theme.border).text_color(theme.text))
                             .px_2()
                             .rounded(px(4.))
                             .bg(theme.hover)
