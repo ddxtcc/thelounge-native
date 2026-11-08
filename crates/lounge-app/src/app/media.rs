@@ -1,17 +1,15 @@
 use gstreamer as gst;
 use gstreamer::prelude::*;
 
-use super::media_audio::{
-    audio_event, audio_muted, audio_playing, finish_audio, format_clock, seek_audio,
-    seek_audio_relative, seek_audio_to, set_audio_volume, start_audio,
-};
+use super::media_audio::{audio_event, audio_playing, finish_audio, seek_audio_to, start_audio};
 use super::media_download::download_media_file;
 pub(super) use super::media_kind::{MediaKind, media_kind};
 pub(super) use super::media_poster::Poster;
 pub(crate) use super::media_poster::extract_poster;
 use super::media_poster::generate_poster_external;
-use super::tooltip::Tooltip;
 use super::*;
+
+const MEDIA_STATE_LIMIT: usize = 64;
 
 pub(super) struct InlineAudio {
     pub message_id: i64,
@@ -155,7 +153,7 @@ impl LoungeApp {
                 }
                 Err(error) => {
                     if let Some(audio) = self.inline_audio.take() {
-                        self.media_failures.insert(audio.url.clone(), error.clone());
+                        self.remember_failure(audio.url.clone(), error.clone());
                         let _ = audio.pipeline.set_state(gst::State::Null);
                     }
                     self.toast(format!("Media playback failed: {error}"));
@@ -177,7 +175,7 @@ impl LoungeApp {
                 Err(error) => {
                     if let Some(audio) = self.media_audio.take() {
                         if let Some(url) = self.media_audio_url.take() {
-                            self.media_failures.insert(url, error.clone());
+                            self.remember_failure(url, error.clone());
                         }
                         let _ = audio.set_state(gst::State::Null);
                     }
@@ -302,22 +300,34 @@ impl LoungeApp {
 
     fn remember_audio_position(&mut self, url: &str, pipeline: &gst::Pipeline) {
         if let Some(position) = pipeline.query_position::<gst::ClockTime>() {
-            if position.seconds() > 0 {
-                self.media_positions
-                    .insert(url.to_string(), position.seconds());
-            } else {
-                self.media_positions.remove(url);
-            }
+            self.remember_position(url, position.seconds());
         }
     }
 
     fn remember_video_position(&mut self, url: &str, video: &gpui_video_player::Video) {
-        let position = video.position().as_secs();
-        if position > 0 {
+        self.remember_position(url, video.position().as_secs());
+    }
+
+    fn remember_position(&mut self, url: &str, position: u64) {
+        if position > 0
+            && (self.media_positions.len() < MEDIA_STATE_LIMIT
+                || self.media_positions.contains_key(url))
+        {
             self.media_positions.insert(url.to_string(), position);
         } else {
             self.media_positions.remove(url);
         }
+    }
+
+    fn remember_failure(&mut self, url: String, error: String) {
+        if self.media_failures.len() < MEDIA_STATE_LIMIT || self.media_failures.contains_key(&url) {
+            self.media_failures.insert(url, error);
+        }
+    }
+
+    pub(super) fn clear_media_session(&mut self) {
+        self.media_positions.clear();
+        self.media_failures.clear();
     }
 
     fn resume_audio(&self, url: &str, pipeline: &gst::Pipeline) {
@@ -466,7 +476,7 @@ impl LoungeApp {
                     self.start_audio_ticker(cx);
                 }
                 Err(error) => {
-                    self.media_failures.insert(url.clone(), error.clone());
+                    self.remember_failure(url.clone(), error.clone());
                     self.toast(format!("Could not play media: {error}"));
                 }
             }
@@ -512,290 +522,6 @@ impl LoungeApp {
         })
         .detach();
         cx.notify();
-    }
-
-    fn render_audio_controls(
-        &self,
-        pipeline: &gst::Pipeline,
-        expand_url: Option<String>,
-        download_url: Option<String>,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = self.theme;
-        let media_key = pipeline.as_ptr() as usize;
-        let toggle = pipeline.clone();
-        let mute = pipeline.clone();
-        let paused = !audio_playing(pipeline);
-        let muted = audio_muted(pipeline);
-        let position = pipeline
-            .query_position::<gst::ClockTime>()
-            .map(|time| time.seconds())
-            .unwrap_or(0);
-        let duration = pipeline
-            .query_duration::<gst::ClockTime>()
-            .map(|time| time.seconds())
-            .unwrap_or(0);
-        let ratio = if duration > 0 {
-            (position as f64 / duration as f64).clamp(0., 1.) as f32
-        } else {
-            0.
-        };
-        let time = if duration > 0 {
-            format!(
-                "{} / {}",
-                format_clock(position.min(duration)),
-                format_clock(duration)
-            )
-        } else {
-            "0:00 / --:--".to_string()
-        };
-        let volume = pipeline.property::<f64>("volume").clamp(0., 1.) as f32;
-        let volume_bounds: std::rc::Rc<std::cell::RefCell<Option<Bounds<Pixels>>>> =
-            std::rc::Rc::new(std::cell::RefCell::new(None));
-        let volume_prepaint = volume_bounds.clone();
-        let volume_pipeline = pipeline.clone();
-        let volume_move_pipeline = pipeline.clone();
-        let volume_save = pipeline.clone();
-        let volume_key = pipeline.clone();
-        let volume_click_bounds = volume_bounds.clone();
-        let volume_move_bounds = volume_bounds.clone();
-        let track_bounds: std::rc::Rc<std::cell::RefCell<Option<Bounds<Pixels>>>> =
-            std::rc::Rc::new(std::cell::RefCell::new(None));
-        let prepaint_bounds = track_bounds.clone();
-        let seek = pipeline.clone();
-        let seek_key = seek.clone();
-        let seek_move = seek.clone();
-        let seek_bounds = track_bounds.clone();
-        let seek_move_bounds = track_bounds.clone();
-        div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(
-                div()
-                    .h(px(9.))
-                    .w_full()
-                    .flex()
-                    .items_center()
-                    .on_children_prepainted(move |bounds, _, _| {
-                        *prepaint_bounds.borrow_mut() = bounds.first().cloned();
-                    })
-                    .id(ElementId::Name(format!("media-seek-{media_key}").into()))
-                    .tab_index(0)
-                    .tab_stop(!self.last_overlay_open || self.lightbox.is_some())
-                    .focus(|style| style.bg(theme.border).text_color(theme.text))
-                    .tooltip(move |_, cx| cx.new(|_| Tooltip::new("Seek", theme)).into())
-                    .on_key_down(cx.listener(move |_, event: &gpui::KeyDownEvent, _, cx| {
-                        let key = event.keystroke.key.to_lowercase();
-                        let delta = if key == "left" {
-                            -5
-                        } else if key == "right" {
-                            5
-                        } else {
-                            0
-                        };
-                        if delta != 0 {
-                            seek_audio_relative(&seek_key, delta);
-                            cx.stop_propagation();
-                            cx.notify();
-                        }
-                    }))
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
-                            let Some(bounds) = *seek_bounds.borrow() else {
-                                return;
-                            };
-                            seek_audio(&seek, bounds, event.position.x);
-                            cx.notify();
-                        }),
-                    )
-                    .on_mouse_move(cx.listener(move |_, event: &gpui::MouseMoveEvent, _, cx| {
-                        if event.pressed_button != Some(gpui::MouseButton::Left) {
-                            return;
-                        }
-                        let Some(bounds) = *seek_move_bounds.borrow() else {
-                            return;
-                        };
-                        seek_audio(&seek_move, bounds, event.position.x);
-                        cx.notify();
-                    }))
-                    .child(
-                        div()
-                            .h(px(5.))
-                            .w_full()
-                            .rounded_full()
-                            .bg(self.theme.border)
-                            .child(
-                                div()
-                                    .h_full()
-                                    .w(relative(ratio))
-                                    .rounded_full()
-                                    .bg(self.theme.accent),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .text_size(px(10.))
-                    .text_color(self.theme.muted)
-                    .child(time)
-                    .child(
-                        div().flex().items_center().gap_1().child(
-                            div()
-                                .h(px(9.))
-                                .w(px(54.))
-                                .flex()
-                                .items_center()
-                                .cursor_pointer()
-                                .on_children_prepainted(move |bounds, _, _| {
-                                    *volume_prepaint.borrow_mut() = bounds.first().cloned();
-                                })
-                                .id(ElementId::Name(format!("media-volume-{media_key}").into()))
-                                .tab_index(0)
-                                .tab_stop(!self.last_overlay_open || self.lightbox.is_some())
-                                .focus(|style| style.bg(theme.border).text_color(theme.text))
-                                .tooltip(move |_, cx| {
-                                    cx.new(|_| Tooltip::new("Volume", theme)).into()
-                                })
-                                .on_key_down(cx.listener(
-                                    move |this, event: &gpui::KeyDownEvent, _, cx| {
-                                        let key = event.keystroke.key.to_lowercase();
-                                        let delta = if key == "left" {
-                                            -0.05
-                                        } else if key == "right" {
-                                            0.05
-                                        } else {
-                                            0.
-                                        };
-                                        if delta != 0. {
-                                            let volume = (volume_key.property::<f64>("volume")
-                                                + delta)
-                                                .clamp(0., 1.);
-                                            volume_key.set_property("volume", volume);
-                                            this.config.media_volume = volume as f32;
-                                            this.config.save();
-                                            cx.stop_propagation();
-                                            cx.notify();
-                                        }
-                                    },
-                                ))
-                                .on_mouse_down(
-                                    gpui::MouseButton::Left,
-                                    cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
-                                        let Some(bounds) = *volume_click_bounds.borrow() else {
-                                            return;
-                                        };
-                                        set_audio_volume(
-                                            &volume_pipeline,
-                                            bounds,
-                                            event.position.x,
-                                        );
-                                        cx.notify();
-                                    }),
-                                )
-                                .on_mouse_move(cx.listener(
-                                    move |_, event: &gpui::MouseMoveEvent, _, cx| {
-                                        if event.pressed_button != Some(gpui::MouseButton::Left) {
-                                            return;
-                                        }
-                                        let Some(bounds) = *volume_move_bounds.borrow() else {
-                                            return;
-                                        };
-                                        set_audio_volume(
-                                            &volume_move_pipeline,
-                                            bounds,
-                                            event.position.x,
-                                        );
-                                        cx.notify();
-                                    },
-                                ))
-                                .on_mouse_up(
-                                    gpui::MouseButton::Left,
-                                    cx.listener(move |this, _, _, cx| {
-                                        let volume =
-                                            volume_save.property::<f64>("volume").clamp(0., 1.)
-                                                as f32;
-                                        this.config.media_volume = volume;
-                                        this.config.save();
-                                        cx.notify();
-                                    }),
-                                )
-                                .child(
-                                    div()
-                                        .w_full()
-                                        .h(px(3.))
-                                        .rounded_full()
-                                        .bg(self.theme.border)
-                                        .child(
-                                            div()
-                                                .h_full()
-                                                .w(relative(volume))
-                                                .rounded_full()
-                                                .bg(self.theme.muted),
-                                        ),
-                                ),
-                        ),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .gap_1()
-                    .child(self.media_icon_button(
-                        if paused { "play" } else { "pause" },
-                        if paused { "Play" } else { "Pause" },
-                        !paused,
-                        cx,
-                        move |_, _, cx| {
-                            let _ = toggle.set_state(if audio_playing(&toggle) {
-                                gst::State::Paused
-                            } else {
-                                gst::State::Playing
-                            });
-                            cx.notify();
-                        },
-                    ))
-                    .child(self.media_icon_button(
-                        if muted { "volume-x" } else { "volume-2" },
-                        if muted { "Unmute" } else { "Mute" },
-                        false,
-                        cx,
-                        move |this, _, cx| {
-                            let muted = !audio_muted(&mute);
-                            mute.set_property("mute", muted);
-                            this.audio_start_muted = muted;
-                            this.config.media_muted = muted;
-                            this.config.save();
-                            cx.notify();
-                        },
-                    ))
-                    .when_some(expand_url, |this, url| {
-                        this.child(self.media_icon_button(
-                            "expand",
-                            "Expand",
-                            false,
-                            cx,
-                            move |this, _, cx| this.open_lightbox(url.clone(), cx),
-                        ))
-                    })
-                    .when_some(download_url, |this, url| {
-                        this.child(self.media_icon_button(
-                            "download",
-                            "Download",
-                            false,
-                            cx,
-                            move |this, _, cx| this.download_media(url.clone(), cx),
-                        ))
-                    }),
-            )
-            .into_any_element()
     }
 
     pub(super) fn render_inline_media(
@@ -955,7 +681,6 @@ impl LoungeApp {
                             move |this, _, cx| {
                                 let muted = !mute.muted();
                                 mute.set_muted(muted);
-                                this.audio_start_muted = muted;
                                 this.config.media_muted = muted;
                                 this.config.save();
                                 cx.notify();
@@ -1110,7 +835,6 @@ impl LoungeApp {
                     move |this, _, cx| {
                         let muted = !mute_video.muted();
                         mute_video.set_muted(muted);
-                        this.audio_start_muted = muted;
                         this.config.media_muted = muted;
                         this.config.save();
                         cx.notify();

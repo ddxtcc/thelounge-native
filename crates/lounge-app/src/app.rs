@@ -306,8 +306,6 @@ pub struct LoungeApp {
     #[cfg(feature = "media")]
     audio_ticker_generation: u64,
     #[cfg(feature = "media")]
-    audio_start_muted: bool,
-    #[cfg(feature = "media")]
     media_request_generation: u64,
     #[cfg(feature = "media")]
     inline_video_loading: Option<(i64, String)>,
@@ -459,8 +457,6 @@ impl LoungeApp {
         #[cfg(all(feature = "media", any(target_os = "windows", target_os = "macos")))]
         media::configure_gstreamer();
         let config = AppConfig::load();
-        #[cfg(feature = "media")]
-        let media_muted = config.media_muted;
         let theme = Theme::from_config(&config.theme, &config.saved_themes);
         let root_focus = cx.focus_handle();
         let colors = theme.input_colors();
@@ -649,8 +645,6 @@ impl LoungeApp {
             media_fullscreen: false,
             #[cfg(feature = "media")]
             audio_ticker_generation: 0,
-            #[cfg(feature = "media")]
-            audio_start_muted: media_muted,
             #[cfg(feature = "media")]
             media_request_generation: 0,
             #[cfg(feature = "media")]

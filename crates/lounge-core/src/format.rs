@@ -277,7 +277,6 @@ fn trim_trailing(url: &str) -> &str {
         ) {
             break;
         }
-        // Keep balanced closing brackets: `(https://example.com)` should drop
         if matches!(last, ')' | ']' | '}') {
             let (open, close) = match last {
                 ')' => ('(', ')'),

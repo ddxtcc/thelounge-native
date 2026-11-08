@@ -329,6 +329,7 @@ impl LoungeApp {
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         {
             card = card
+                .child(self.setting_section("Desktop"))
                 .child(self.setting_row_value_button(
                     "Show tray icon",
                     if self.config.show_tray_icon {
