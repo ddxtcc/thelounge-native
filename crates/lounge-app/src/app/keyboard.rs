@@ -188,6 +188,35 @@ impl LoungeApp {
         true
     }
 
+    fn cycle_navigable_channel(
+        &mut self,
+        delta: i32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let ids: Vec<i64> = self
+            .state
+            .networks
+            .iter()
+            .flat_map(|network| network.channels.iter())
+            .filter(|channel| channel.chan.special.as_deref() != Some("list_channels"))
+            .map(|channel| channel.chan.id)
+            .collect();
+        if ids.is_empty() {
+            return false;
+        }
+        let current = self
+            .state
+            .active
+            .and_then(|active| ids.iter().position(|id| *id == active))
+            .unwrap_or(0) as i32;
+        let next = (current + delta).rem_euclid(ids.len() as i32) as usize;
+        self.switch_channel_quiet(ids[next], window, cx);
+        self.pending_focus = false;
+        self.focus_navigation(window, cx);
+        true
+    }
+
     pub(super) fn handle_overlay_key(
         &mut self,
         key: &str,
@@ -304,16 +333,8 @@ impl LoungeApp {
                     self.scroll_messages_by(px(-48.), cx);
                     true
                 }
-                "left" | "h" => {
-                    self.cycle_channel(-1, window, cx);
-                    self.focus_navigation(window, cx);
-                    true
-                }
-                "right" | "l" => {
-                    self.cycle_channel(1, window, cx);
-                    self.focus_navigation(window, cx);
-                    true
-                }
+                "left" | "h" => self.cycle_navigable_channel(-1, window, cx),
+                "right" | "l" => self.cycle_navigable_channel(1, window, cx),
                 "enter" => {
                     self.nav_mode = false;
                     self.focus_composer(window, cx);
