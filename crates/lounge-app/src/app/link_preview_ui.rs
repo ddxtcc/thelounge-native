@@ -67,7 +67,7 @@ impl LoungeApp {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(self.preview_image(&thumb, 84., cx)),
+                    .child(self.preview_thumbnail(&thumb, 84., cx)),
             );
         }
         card.child(text).into_any_element()
