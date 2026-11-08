@@ -183,6 +183,9 @@ impl Render for LoungeApp {
             || self.message_context.is_some()
             || self.palette.is_some();
         self.update_input_tab_stops(overlay_open, cx);
+        if overlay_open {
+            self.nav_mode = false;
+        }
         if overlay_open && !self.last_overlay_open {
             self.overlay_return_focus = window.focused(cx);
             window.focus(&self.root_focus);
@@ -216,13 +219,55 @@ impl Render for LoungeApp {
             }
         }
 
+        if self.nav_mode && !overlay_open && self.route == Route::Chat {
+            self.pending_focus = false;
+            self.focus_request = None;
+            self.focus_root_request = false;
+            window.focus(&self.root_focus);
+        }
+
         self.window_active = window.is_window_active();
+        if !self.window_activation_observed {
+            self.window_activation_observed = true;
+            cx.observe_window_activation(window, |this, window, cx| {
+                let active = window.is_window_active();
+                if active {
+                    if this.deactivated_at.take().is_some_and(|at| {
+                        SystemTime::now().duration_since(at).unwrap_or_default()
+                            >= Duration::from_secs(5)
+                    }) {
+                        this.refresh_connection(cx);
+                    }
+                } else {
+                    this.deactivated_at = Some(SystemTime::now());
+                }
+                this.window_active = active;
+            })
+            .detach();
+        }
         let theme = self.theme;
         let mut root = div()
             .id("app-root")
             .track_focus(&self.root_focus)
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                if event.keystroke.key.eq_ignore_ascii_case("tab")
+                let key = event.keystroke.key.to_lowercase();
+                if !event.keystroke.modifiers.control
+                    && !event.keystroke.modifiers.alt
+                    && !event.keystroke.modifiers.platform
+                    && this.handle_navigation_key(&key, event.keystroke.modifiers.shift, window, cx)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
+                if !event.keystroke.modifiers.control
+                    && !event.keystroke.modifiers.alt
+                    && !event.keystroke.modifiers.platform
+                    && this.handle_overlay_key(&key, event.keystroke.modifiers.shift, window, cx)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
+                if key == "tab"
                     && !event.keystroke.modifiers.control
                     && !event.keystroke.modifiers.alt
                     && !event.keystroke.modifiers.platform
@@ -284,12 +329,12 @@ impl Render for LoungeApp {
                     && !event.keystroke.modifiers.platform
                 {
                     match event.keystroke.key.to_lowercase().as_str() {
-                        "up" => {
+                        "up" | "k" => {
                             this.move_mentions(-1, cx);
                             cx.stop_propagation();
                             return;
                         }
-                        "down" => {
+                        "down" | "j" => {
                             this.move_mentions(1, cx);
                             cx.stop_propagation();
                             return;
@@ -304,10 +349,7 @@ impl Render for LoungeApp {
                 }
                 let secondary =
                     event.keystroke.modifiers.control || event.keystroke.modifiers.platform;
-                let chat_ready = this.route == Route::Chat
-                    && !this.last_overlay_open
-                    && !this.sidebar_overlay
-                    && !this.users_overlay;
+                let chat_ready = this.route == Route::Chat && !this.last_overlay_open;
                 if secondary && !event.keystroke.modifiers.alt {
                     let key = event.keystroke.key.to_lowercase();
                     if key == "p" {
@@ -441,6 +483,12 @@ impl Render for LoungeApp {
             }))
             .relative()
             .size_full()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
+                    this.nav_mode = false;
+                }),
+            )
             .bg(theme.bg)
             .text_color(theme.text)
             .text_size(px(self.config.font_size))
@@ -480,6 +528,10 @@ impl Render for LoungeApp {
         }
         if overlay_needed {
             root = root.child(self.render_modals(window, cx));
+        }
+        if self.settings_refocus && self.settings_open {
+            self.settings_refocus = false;
+            window.focus(&self.settings_first_focus);
         }
 
         if let Some(toast) = &self.toast {

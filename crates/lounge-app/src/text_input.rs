@@ -138,6 +138,7 @@ pub struct TextInput {
     masked: bool,
     multiline: bool,
     tab_completion: bool,
+    section_navigation: bool,
     max_lines: usize,
     pub revision: u64,
     selected_range: Range<usize>,
@@ -176,6 +177,7 @@ impl TextInput {
             masked,
             multiline,
             tab_completion: multiline,
+            section_navigation: true,
             max_lines: if multiline { 10 } else { 1 },
             revision: 0,
             selected_range: 0..0,
@@ -570,6 +572,14 @@ impl TextInput {
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.section_navigation
+            && event.keystroke.key.eq_ignore_ascii_case("tab")
+            && !event.keystroke.modifiers.control
+            && !event.keystroke.modifiers.alt
+            && !event.keystroke.modifiers.platform
+        {
+            return;
+        }
         if event.keystroke.key.eq_ignore_ascii_case("tab")
             && !event.keystroke.modifiers.control
             && !event.keystroke.modifiers.platform

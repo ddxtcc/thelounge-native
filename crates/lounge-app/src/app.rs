@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use chrono::Local;
 use gpui::{
@@ -272,6 +272,7 @@ pub struct LoungeApp {
     state: ClientState,
     conn: Option<ClientHandle>,
     conn_generation: u64,
+    auth: Option<Auth>,
     status: ConnectionStatus,
     route: Route,
     login_error: Option<String>,
@@ -292,6 +293,12 @@ pub struct LoungeApp {
     collapsed_networks: HashSet<String>,
     expanded_condensed: HashSet<i64>,
     narrow: bool,
+    nav_section: keyboard::NavSection,
+    nav_network: usize,
+    nav_user: usize,
+    nav_mode: bool,
+    special_channel: std::cell::Cell<Option<i64>>,
+    special_limit: std::cell::Cell<usize>,
     sidebar_overlay: bool,
     users_overlay: bool,
     lightbox: Option<String>,
@@ -373,6 +380,8 @@ pub struct LoungeApp {
     uploads_in_flight: usize,
     active_upload: Option<ActiveUpload>,
     window_active: bool,
+    window_activation_observed: bool,
+    deactivated_at: Option<SystemTime>,
     focus_request: Option<InputRole>,
     focus_root_request: bool,
     emoji_picker_open: bool,
@@ -390,6 +399,8 @@ pub struct LoungeApp {
     selecting_text: bool,
     confirm_remove_network: Option<String>,
     root_focus: gpui::FocusHandle,
+    settings_first_focus: gpui::FocusHandle,
+    settings_refocus: bool,
     overlay_return_focus: Option<gpui::FocusHandle>,
     last_overlay_open: bool,
     fonts: Vec<String>,
@@ -403,6 +414,7 @@ pub struct LoungeApp {
     theme_editor: Option<theme_editor::ThemeEditor>,
     preview_overrides: HashMap<i64, bool>,
     image_previews: RefCell<HashMap<String, image_preview::PreviewState>>,
+    pub(crate) link_previews: RefCell<HashMap<String, crate::link_preview::PreviewState>>,
     recent_commands: Vec<PaletteCommand>,
     pending_channel_switch: Option<i64>,
     pending_show_window: bool,
@@ -418,6 +430,8 @@ mod connection;
 mod desktop;
 mod image_cache;
 mod image_preview;
+mod keyboard;
+mod link_preview_ui;
 #[cfg(feature = "media")]
 mod media;
 #[cfg(feature = "media")]
@@ -454,12 +468,17 @@ mod tray_windows;
 mod uploads;
 
 impl LoungeApp {
+    pub(crate) fn previews_enabled(&self) -> bool {
+        self.config.show_previews
+    }
+
     pub fn new(cx: &mut Context<Self>) -> Self {
         #[cfg(all(feature = "media", any(target_os = "windows", target_os = "macos")))]
         media::configure_gstreamer();
         let config = AppConfig::load();
         let theme = Theme::from_config(&config.theme, &config.saved_themes);
         let root_focus = cx.focus_handle();
+        let settings_first_focus = cx.focus_handle();
         let colors = theme.input_colors();
         let font = config.font_size;
         let line = (font * config.line_height).max(20.0);
@@ -613,6 +632,7 @@ impl LoungeApp {
             state: ClientState::new(),
             conn: None,
             conn_generation: 0,
+            auth: None,
             status: ConnectionStatus::Disconnected,
             route: Route::Login,
             login_error: None,
@@ -633,6 +653,12 @@ impl LoungeApp {
             collapsed_networks: HashSet::new(),
             expanded_condensed: HashSet::new(),
             narrow: false,
+            nav_section: keyboard::NavSection::Main,
+            nav_network: 0,
+            nav_user: 0,
+            nav_mode: false,
+            special_channel: std::cell::Cell::new(None),
+            special_limit: std::cell::Cell::new(100),
             sidebar_overlay: false,
             users_overlay: false,
             lightbox: None,
@@ -714,6 +740,8 @@ impl LoungeApp {
             uploads_in_flight: 0,
             active_upload: None,
             window_active: true,
+            window_activation_observed: false,
+            deactivated_at: None,
             focus_request: None,
             focus_root_request: false,
             emoji_picker_open: false,
@@ -731,6 +759,8 @@ impl LoungeApp {
             selecting_text: false,
             confirm_remove_network: None,
             root_focus,
+            settings_first_focus,
+            settings_refocus: false,
             overlay_return_focus: None,
             last_overlay_open: false,
             fonts: Vec::new(),
@@ -744,6 +774,7 @@ impl LoungeApp {
             theme_editor: None,
             preview_overrides: HashMap::new(),
             image_previews: RefCell::new(HashMap::new()),
+            link_previews: RefCell::new(HashMap::new()),
             recent_commands: Vec::new(),
             pending_channel_switch: None,
             pending_show_window: false,

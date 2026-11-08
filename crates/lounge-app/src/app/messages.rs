@@ -125,6 +125,10 @@ impl LoungeApp {
             .w_full()
             .min_h(px(0.))
             .relative()
+            .when(
+                self.nav_section == super::keyboard::NavSection::Main,
+                |this| this.border_t_1().border_color(theme.accent),
+            )
             .on_children_prepainted(move |bounds, _, cx| {
                 if let Some(bounds) = bounds.first()
                     && let Some(this) = bounds_weak.upgrade()
@@ -213,12 +217,31 @@ impl LoungeApp {
                 .unwrap_or(false),
         };
         let show_attachments = preview_visible;
+        let local_link_urls: Vec<String> = if show_attachments && self.config.show_previews {
+            let mut seen = HashSet::new();
+            format::find_links(&message.text)
+                .into_iter()
+                .map(|link| link.url)
+                .filter(|url| crate::link_preview::is_previewable_link(url))
+                .filter(|url| {
+                    !message.previews.iter().any(|preview| {
+                        !preview.head.is_empty()
+                            && preview.link == *url
+                            && preview.shown != Some(false)
+                    })
+                })
+                .filter(|url| seen.insert(url.clone()))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let link_preview_count = if self.config.show_previews {
             message
                 .previews
                 .iter()
                 .filter(|preview| !preview.head.is_empty() && preview.kind != "image")
                 .count()
+                + local_link_urls.len()
         } else {
             0
         };
@@ -491,22 +514,12 @@ impl LoungeApp {
                 preview_media_urls.insert(play_url.clone());
                 preview_media_urls.insert(self.absolute_media_url(&preview.link));
             }
-            if !playable && let Some(thumb) = thumb.clone() {
-                let lightbox_url = thumb.clone();
-                previews = previews.child(
-                    div()
-                        .id(ElementId::Name(
-                            format!("preview-image-{}-{}", message.id, preview.link).into(),
-                        ))
-                        .w(px(220.))
-                        .rounded(px(4.))
-                        .overflow_hidden()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.open_lightbox(lightbox_url.clone(), cx);
-                        }))
-                        .child(self.preview_image(&thumb, 220., cx)),
-                );
+            if !playable {
+                previews = previews.child(self.render_link_preview_card(
+                    &format!("preview-{}-{}", message.id, preview.link),
+                    preview,
+                    cx,
+                ));
                 continue;
             }
             let mut card = div()
@@ -611,6 +624,16 @@ impl LoungeApp {
                 }));
             }
             previews = previews.child(card);
+        }
+
+        for url in &local_link_urls {
+            if let Some(preview) = self.local_link_preview(url, cx) {
+                previews = previews.child(self.render_link_preview_card(
+                    &format!("local-preview-{}-{}", message.id, preview.link),
+                    &preview,
+                    cx,
+                ));
+            }
         }
 
         let mut inline = div().flex().flex_col().gap_2();
@@ -936,11 +959,15 @@ impl LoungeApp {
                 .as_ref()
                 .map(|from| from.nick.clone())
                 .unwrap_or_default();
-            let mode = message
-                .from
-                .as_ref()
-                .and_then(|from| user_mode_prefix_in_message(from, network))
-                .unwrap_or_default();
+            let mode = if self.config.show_user_modes {
+                message
+                    .from
+                    .as_ref()
+                    .and_then(|from| user_mode_prefix_in_message(from, network))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
             let color = if self.config.colored_nicks && !nick.is_empty() {
                 theme.nick_color(&nick)
             } else {

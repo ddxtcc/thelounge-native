@@ -34,11 +34,15 @@ pub(super) fn build_message_text(
         .as_ref()
         .map(|from| from.nick.clone())
         .unwrap_or_default();
-    let mode = message
-        .from
-        .as_ref()
-        .and_then(|from| user_mode_prefix_in_message(from, network))
-        .unwrap_or_default();
+    let mode = if config.show_user_modes {
+        message
+            .from
+            .as_ref()
+            .and_then(|from| user_mode_prefix_in_message(from, network))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
 
     let status_like = is_status_message(message.kind);
     let muted = if status_like {

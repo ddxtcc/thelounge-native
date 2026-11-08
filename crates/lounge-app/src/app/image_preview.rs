@@ -60,37 +60,12 @@ pub(super) fn load_thumbnail(url: &str) -> Result<PathBuf, String> {
 }
 
 impl LoungeApp {
-    pub(super) fn preview_image(
-        &self,
-        url: &str,
-        max_width: f32,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let state = self.image_previews.borrow().get(url).cloned();
-        match state {
-            Some(PreviewState::Ready(path)) => {
-                return div()
-                    .w_full()
-                    .max_w(px(max_width))
-                    .child(
-                        gpui::img(path)
-                            .image_cache(&self.image_cache)
-                            .w_full()
-                            .max_h(px(320.))
-                            .object_fit(gpui::ObjectFit::Contain),
-                    )
-                    .into_any_element();
-            }
-            Some(PreviewState::Failed) => {
-                return self.preview_placeholder(max_width, "Image preview unavailable");
-            }
-            Some(PreviewState::Loading) => {
-                return self.preview_placeholder(max_width, "Loading image...");
-            }
-            None => {}
+    fn request_preview(&self, url: &str, cx: &mut Context<Self>) -> PreviewState {
+        if let Some(state) = self.image_previews.borrow().get(url).cloned() {
+            return state;
         }
         if self.image_previews.borrow().len() >= PREVIEW_LIMIT {
-            return self.preview_placeholder(max_width, "Image preview unavailable");
+            return PreviewState::Failed;
         }
         self.image_previews
             .borrow_mut()
@@ -112,7 +87,74 @@ impl LoungeApp {
             });
         })
         .detach();
-        self.preview_placeholder(max_width, "Loading image...")
+        PreviewState::Loading
+    }
+
+    pub(super) fn preview_image(
+        &self,
+        url: &str,
+        max_width: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match self.request_preview(url, cx) {
+            PreviewState::Ready(path) => div()
+                .w_full()
+                .max_w(px(max_width))
+                .child(
+                    gpui::img(path)
+                        .image_cache(&self.image_cache)
+                        .w_full()
+                        .max_h(px(320.))
+                        .object_fit(gpui::ObjectFit::Contain),
+                )
+                .into_any_element(),
+            PreviewState::Failed => {
+                self.preview_placeholder(max_width, "Image preview unavailable")
+            }
+            PreviewState::Loading => self.preview_placeholder(max_width, "Loading image..."),
+        }
+    }
+
+    pub(super) fn preview_thumbnail(
+        &self,
+        url: &str,
+        size: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match self.request_preview(url, cx) {
+            PreviewState::Ready(path) => {
+                let height = image::image_dimensions(&path)
+                    .ok()
+                    .map(|(width, height)| (size * height as f32 / width as f32).min(size))
+                    .unwrap_or(size);
+                div()
+                    .w(px(size))
+                    .h(px(height))
+                    .child(
+                        gpui::img(path)
+                            .image_cache(&self.image_cache)
+                            .w_full()
+                            .h_full()
+                            .object_fit(gpui::ObjectFit::Contain),
+                    )
+                    .into_any_element()
+            }
+            PreviewState::Failed => self.preview_thumbnail_placeholder(size, "Unavailable"),
+            PreviewState::Loading => self.preview_thumbnail_placeholder(size, "Loading..."),
+        }
+    }
+
+    fn preview_thumbnail_placeholder(&self, size: f32, label: &str) -> AnyElement {
+        div()
+            .w(px(size))
+            .h(px(size * 9. / 16.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(10.))
+            .text_color(self.theme.muted)
+            .child(label.to_string())
+            .into_any_element()
     }
 
     fn preview_placeholder(&self, max_width: f32, label: &str) -> AnyElement {

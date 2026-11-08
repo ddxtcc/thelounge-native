@@ -144,8 +144,11 @@ impl LoungeApp {
                     if action.destructive() && user.nick.eq_ignore_ascii_case(&network.nick) {
                         continue;
                     }
-                    let prefix =
-                        super::sidebar::user_mode_prefix(user, network).unwrap_or_default();
+                    let prefix = if self.config.show_user_modes {
+                        super::sidebar::user_mode_prefix(user, network).unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
                     let label = format!("{prefix}{}", user.nick);
                     if label.to_lowercase().contains(&query) {
                         entries.push((

@@ -1,5 +1,13 @@
 use super::*;
 
+fn settings_activation(event: &gpui::KeyDownEvent) -> bool {
+    let key = event.keystroke.key.to_lowercase();
+    matches!(key.as_str(), "enter" | "return" | "space" | " ")
+        && !event.keystroke.modifiers.control
+        && !event.keystroke.modifiers.alt
+        && !event.keystroke.modifiers.platform
+}
+
 impl LoungeApp {
     pub(super) fn render_settings(
         &mut self,
@@ -10,14 +18,21 @@ impl LoungeApp {
         let height = (viewport_height - px(80.)).clamp(px(360.), px(620.));
         let mut card = self.modal_card("Settings", cx).fixed_height(height);
         card = card.child(self.settings_tabs(cx));
-        card = match self.settings_tab {
-            SettingsTab::Appearance => card.child(self.settings_appearance(cx)),
-            SettingsTab::Messages => card.child(self.settings_messages(cx)),
-            SettingsTab::General => card.child(self.settings_general(cx)),
-            SettingsTab::Server => card.child(self.settings_server(cx)),
-            SettingsTab::About => card.child(self.settings_about(cx)),
+        let content = div().flex().flex_col().child(
+            div()
+                .track_focus(&self.settings_first_focus)
+                .tab_index(0)
+                .tab_stop(false)
+                .h(px(0.)),
+        );
+        let content = match self.settings_tab {
+            SettingsTab::Appearance => content.child(self.settings_appearance(cx)),
+            SettingsTab::Messages => content.child(self.settings_messages(cx)),
+            SettingsTab::General => content.child(self.settings_general(cx)),
+            SettingsTab::Server => content.child(self.settings_server(cx)),
+            SettingsTab::About => content.child(self.settings_about(cx)),
         };
-        card.into_any_element()
+        card.child(content).into_any_element()
     }
 
     fn settings_tabs(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -34,8 +49,6 @@ impl LoungeApp {
             tabs = tabs.child(
                 div()
                     .id(ElementId::Name(format!("settings-tab-{label}").into()))
-                    .tab_index(0)
-                    .focus(|style| style.bg(theme.border).text_color(theme.text))
                     .px_3()
                     .py_1()
                     .rounded(px(5.))
@@ -50,6 +63,7 @@ impl LoungeApp {
                     })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.settings_tab = tab;
+                        this.settings_refocus = true;
                         cx.notify();
                     }))
                     .child(label),
@@ -161,6 +175,12 @@ impl LoungeApp {
                 self.config.colored_nicks,
                 cx,
                 |this| this.config.colored_nicks = !this.config.colored_nicks,
+            ))
+            .child(self.setting_row_toggle(
+                "Show user modes (@, +)",
+                self.config.show_user_modes,
+                cx,
+                |this| this.config.show_user_modes = !this.config.show_user_modes,
             ))
             .child(
                 self.setting_row_toggle("Icon buttons", self.config.icon_buttons, cx, |this| {
@@ -543,9 +563,12 @@ impl LoungeApp {
         );
         for (id, label) in themes {
             let active = self.config.theme == id;
+            let click_id = id.clone();
             row = row.child(
                 div()
                     .id(ElementId::Name(format!("theme-{id}").into()))
+                    .tab_index(0)
+                    .focus(|style| style.bg(theme.hover).text_color(theme.accent))
                     .px_3()
                     .py_2()
                     .rounded(px(6.))
@@ -561,10 +584,19 @@ impl LoungeApp {
                     .cursor_pointer()
                     .hover(|style| style.border_color(theme.accent))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.config.theme = id.clone();
+                        this.config.theme = click_id.clone();
                         this.apply_theme(cx);
                         this.config.save();
                         cx.notify();
+                    }))
+                    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                        if settings_activation(event) {
+                            this.config.theme = id.clone();
+                            this.apply_theme(cx);
+                            this.config.save();
+                            cx.notify();
+                            cx.stop_propagation();
+                        }
                     }))
                     .child(label.to_string()),
             );
@@ -589,10 +621,12 @@ impl LoungeApp {
         toggle: impl Fn(&mut Self) + 'static,
     ) -> AnyElement {
         let theme = self.theme;
+        let toggle = std::rc::Rc::new(toggle);
+        let click_toggle = toggle.clone();
         div()
             .id(ElementId::Name(format!("setting-{label}").into()))
             .tab_index(0)
-            .focus(|style| style.bg(theme.border).text_color(theme.text))
+            .focus(|style| style.bg(theme.hover).text_color(theme.accent))
             .flex()
             .items_center()
             .justify_between()
@@ -602,10 +636,19 @@ impl LoungeApp {
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover))
             .on_click(cx.listener(move |this, _, _, cx| {
-                toggle(this);
+                click_toggle(this);
                 this.config.save();
                 this.apply_theme(cx);
                 cx.notify();
+            }))
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                if settings_activation(event) {
+                    toggle(this);
+                    this.config.save();
+                    this.apply_theme(cx);
+                    cx.notify();
+                    cx.stop_propagation();
+                }
             }))
             .child(label.to_string())
             .child(
@@ -629,10 +672,12 @@ impl LoungeApp {
         cycle: impl Fn(&mut Self) + 'static,
     ) -> AnyElement {
         let theme = self.theme;
+        let cycle = std::rc::Rc::new(cycle);
+        let click_cycle = cycle.clone();
         div()
             .id(ElementId::Name(format!("setting-{label}").into()))
             .tab_index(0)
-            .focus(|style| style.bg(theme.border).text_color(theme.text))
+            .focus(|style| style.bg(theme.hover).text_color(theme.accent))
             .flex()
             .items_center()
             .justify_between()
@@ -642,10 +687,19 @@ impl LoungeApp {
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover))
             .on_click(cx.listener(move |this, _, _, cx| {
-                cycle(this);
+                click_cycle(this);
                 this.config.save();
                 this.apply_theme(cx);
                 cx.notify();
+            }))
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                if settings_activation(event) {
+                    cycle(this);
+                    this.config.save();
+                    this.apply_theme(cx);
+                    cx.notify();
+                    cx.stop_propagation();
+                }
             }))
             .child(label.to_string())
             .child(
@@ -666,16 +720,24 @@ impl LoungeApp {
         action: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) -> AnyElement {
         let theme = self.theme;
+        let action = std::rc::Rc::new(action);
+        let click_action = action.clone();
         div()
             .id(ElementId::Name(format!("value-{label}").into()))
             .tab_index(0)
-            .focus(|style| style.bg(theme.border).text_color(theme.text))
+            .focus(|style| style.bg(theme.hover).text_color(theme.accent))
             .flex()
             .items_center()
             .justify_between()
             .px_2()
             .py(px(7.))
             .rounded(px(5.))
+            .on_key_down(cx.listener(move |this, event, window, cx| {
+                if settings_activation(event) {
+                    action(this, window, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .child(label.to_string())
             .child(
                 div()
@@ -700,9 +762,9 @@ impl LoungeApp {
                             .text_size(px(12.))
                             .cursor_pointer()
                             .hover(|style| style.bg(theme.border))
-                            .on_click(
-                                cx.listener(move |this, _, window, cx| action(this, window, cx)),
-                            )
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                click_action(this, window, cx)
+                            }))
                             .child(button.to_string()),
                     ),
             )
@@ -717,16 +779,24 @@ impl LoungeApp {
         action: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> AnyElement {
         let theme = self.theme;
+        let action = std::rc::Rc::new(action);
+        let click_action = action.clone();
         div()
             .id(ElementId::Name(format!("action-{label}").into()))
             .tab_index(0)
-            .focus(|style| style.bg(theme.border).text_color(theme.text))
+            .focus(|style| style.bg(theme.hover).text_color(theme.accent))
             .flex()
             .items_center()
             .justify_between()
             .px_2()
             .py(px(7.))
             .rounded(px(5.))
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                if settings_activation(event) {
+                    action(this, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .child(label.to_string())
             .child(
                 div()
@@ -738,7 +808,7 @@ impl LoungeApp {
                     .text_size(px(12.))
                     .cursor_pointer()
                     .hover(|style| style.bg(theme.border))
-                    .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
+                    .on_click(cx.listener(move |this, _, _, cx| click_action(this, cx)))
                     .child(button.to_string()),
             )
             .into_any_element()
@@ -753,13 +823,33 @@ impl LoungeApp {
         right: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> AnyElement {
         let theme = self.theme;
+        let left = std::rc::Rc::new(left);
+        let click_left = left.clone();
+        let right = std::rc::Rc::new(right);
+        let click_right = right.clone();
         div()
+            .id(ElementId::Name(format!("action-{label}").into()))
+            .tab_index(0)
+            .focus(|style| style.bg(theme.hover).text_color(theme.accent))
             .flex()
             .items_center()
             .justify_between()
             .px_2()
             .py(px(7.))
             .rounded(px(5.))
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                let key = event.keystroke.key.to_lowercase();
+                if matches!(key.as_str(), "left" | "h") {
+                    left(this, cx);
+                    cx.stop_propagation();
+                } else if matches!(
+                    key.as_str(),
+                    "right" | "l" | "enter" | "return" | "space" | " "
+                ) {
+                    right(this, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .child(label.to_string())
             .child(
                 div()
@@ -773,7 +863,7 @@ impl LoungeApp {
                             .rounded(px(4.))
                             .bg(theme.hover)
                             .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, _, cx| left(this, cx)))
+                            .on_click(cx.listener(move |this, _, _, cx| click_left(this, cx)))
                             .child("-"),
                     )
                     .child(
@@ -790,7 +880,7 @@ impl LoungeApp {
                             .rounded(px(4.))
                             .bg(theme.hover)
                             .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, _, cx| right(this, cx)))
+                            .on_click(cx.listener(move |this, _, _, cx| click_right(this, cx)))
                             .child("+"),
                     ),
             )

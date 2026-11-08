@@ -66,6 +66,7 @@ impl LoungeApp {
         self.messages_list_keys.clear();
         self.message_rows_cache = None;
         self.preview_overrides.clear();
+        self.clear_link_previews();
         #[cfg(feature = "media")]
         {
             self.clear_inline_media();
@@ -84,12 +85,13 @@ impl LoungeApp {
 
         let (handle, mut events) = lounge_core::socket::connect(ClientConfig {
             base_url: server,
-            auth,
+            auth: auth.clone(),
             initial_last_message: -1,
             initial_open_channel: self.config.last_channel,
             has_config: false,
         });
         self.conn = Some(handle);
+        self.auth = Some(auth);
         cx.spawn(async move |this, cx| {
             while let Some(event) = events.recv().await {
                 let keep_going = this
@@ -104,6 +106,44 @@ impl LoungeApp {
         })
         .detach();
         self.pending_focus = true;
+        cx.notify();
+    }
+
+    pub(super) fn refresh_connection(&mut self, cx: &mut Context<Self>) {
+        if self.route != Route::Chat || self.config.server.is_empty() {
+            return;
+        }
+        let Some(auth) = self.auth.clone() else {
+            return;
+        };
+        if let Some(conn) = self.conn.take() {
+            conn.close();
+        }
+        self.conn_generation = self.conn_generation.wrapping_add(1);
+        let generation = self.conn_generation;
+        self.status = ConnectionStatus::Connecting;
+        let (handle, events) = lounge_core::socket::connect(ClientConfig {
+            base_url: self.config.server.clone(),
+            auth,
+            initial_last_message: self.state.max_msg_id,
+            initial_open_channel: self.state.active,
+            has_config: false,
+        });
+        self.conn = Some(handle);
+        let mut events = events;
+        cx.spawn(async move |this, cx| {
+            while let Some(event) = events.recv().await {
+                let keep_going = this
+                    .update(cx, |this, cx| {
+                        this.handle_client_event(generation, event, cx)
+                    })
+                    .unwrap_or(false);
+                if !keep_going {
+                    break;
+                }
+            }
+        })
+        .detach();
         cx.notify();
     }
 
@@ -129,6 +169,7 @@ impl LoungeApp {
             ClientEvent::Authenticated => {}
             ClientEvent::AuthFailed => {
                 self.status = ConnectionStatus::Disconnected;
+                self.auth = None;
                 self.forget_token();
                 self.config.save();
                 self.route = Route::Login;
@@ -257,6 +298,7 @@ impl LoungeApp {
                     self.prefill_network_edit(&info, cx);
                 }
                 if signed_out {
+                    self.auth = None;
                     self.forget_token();
                     self.config.save();
                     self.route = Route::Login;
@@ -317,7 +359,10 @@ impl LoungeApp {
 
     pub(super) fn after_init(&mut self, old_active: Option<i64>, cx: &mut Context<Self>) {
         if let Some(token) = self.state.token.clone() {
-            self.config.token = token;
+            self.config.token = token.clone();
+            if let Some(Auth::Token { token: current, .. }) = &mut self.auth {
+                *current = token.clone();
+            }
             if let Err(error) = crate::secure_token::store_token(
                 &self.config.server,
                 &self.config.user,
@@ -456,6 +501,7 @@ impl LoungeApp {
         }
         self.conn_generation = self.conn_generation.wrapping_add(1);
         self.conn = None;
+        self.auth = None;
         self.reset_uploads();
         self.forget_token();
         self.config.save();

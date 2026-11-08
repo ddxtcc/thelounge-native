@@ -84,7 +84,7 @@ impl LoungeApp {
         let theme = self.theme;
         div()
             .id(id)
-            .tab_index(0)
+            .tab_index(100)
             .focus(|style| style.bg(theme.border).text_color(theme.text))
             .size(px(26.))
             .flex()
@@ -123,7 +123,7 @@ impl LoungeApp {
         cx.notify();
     }
 
-    fn move_lightbox(&mut self, delta: isize, cx: &mut Context<Self>) {
+    pub(super) fn move_lightbox(&mut self, delta: isize, cx: &mut Context<Self>) {
         let urls = self.channel_image_urls();
         let Some(index) = self.lightbox_index else {
             return;
@@ -673,7 +673,7 @@ impl LoungeApp {
             div()
                 .id("font-reset")
                 .tab_index(0)
-                .focus(|style| style.bg(theme.border).text_color(theme.text))
+                .focus(|style| style.bg(theme.hover).text_color(theme.accent))
                 .flex()
                 .items_center()
                 .justify_between()
@@ -685,6 +685,17 @@ impl LoungeApp {
                 .on_click(
                     cx.listener(move |this, _, _, cx| this.choose_font(target, reset_value, cx)),
                 )
+                .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                    let key = event.keystroke.key.to_lowercase();
+                    if matches!(key.as_str(), "enter" | "return" | "space" | " ")
+                        && !event.keystroke.modifiers.control
+                        && !event.keystroke.modifiers.alt
+                        && !event.keystroke.modifiers.platform
+                    {
+                        this.choose_font(target, reset_value, cx);
+                        cx.stop_propagation();
+                    }
+                }))
                 .child(reset_label)
                 .when(current == reset_value, |this| {
                     this.child(div().text_color(theme.accent).child("✓"))
@@ -693,10 +704,13 @@ impl LoungeApp {
         for font in filtered {
             let selected = font == current;
             let choose = font.clone();
+            let choose_key = choose.clone();
             let preview_font = font.clone();
             list = list.child(
                 div()
                     .id(ElementId::Name(format!("font-{font}").into()))
+                    .tab_index(0)
+                    .focus(|style| style.bg(theme.hover).text_color(theme.accent))
                     .flex()
                     .items_center()
                     .justify_between()
@@ -708,6 +722,17 @@ impl LoungeApp {
                     .on_click(
                         cx.listener(move |this, _, _, cx| this.choose_font(target, &choose, cx)),
                     )
+                    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                        let key = event.keystroke.key.to_lowercase();
+                        if matches!(key.as_str(), "enter" | "return" | "space" | " ")
+                            && !event.keystroke.modifiers.control
+                            && !event.keystroke.modifiers.alt
+                            && !event.keystroke.modifiers.platform
+                        {
+                            this.choose_font(target, &choose_key, cx);
+                            cx.stop_propagation();
+                        }
+                    }))
                     .child(div().font_family(preview_font).child(font))
                     .when(selected, |this| {
                         this.child(div().text_color(theme.accent).child("✓"))
@@ -913,10 +938,12 @@ impl LoungeApp {
         } else {
             label.to_string()
         };
+        let action = std::rc::Rc::new(action);
+        let click_action = action.clone();
         div()
             .id(ElementId::Name(format!("menu-{label}").into()))
             .tab_index(0)
-            .focus(|style| style.bg(theme.border).text_color(theme.text))
+            .focus(|style| style.bg(theme.hover).text_color(theme.accent))
             .flex()
             .items_center()
             .gap_2()
@@ -932,7 +959,20 @@ impl LoungeApp {
                     theme.hover
                 })
             })
-            .on_click(cx.listener(move |this, _, window, cx| action(this, window, cx)))
+            .on_click(cx.listener(move |this, _, window, cx| click_action(this, window, cx)))
+            .on_key_down(
+                cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                    let key = event.keystroke.key.to_lowercase();
+                    if matches!(key.as_str(), "enter" | "return" | "space" | " ")
+                        && !event.keystroke.modifiers.control
+                        && !event.keystroke.modifiers.alt
+                        && !event.keystroke.modifiers.platform
+                    {
+                        action(this, window, cx);
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .child(text)
             .into_any_element()
     }

@@ -20,8 +20,10 @@ impl LoungeApp {
         let on_accent = theme.on_accent;
         let mut list = div().flex().flex_col().gap_1().p_2().w_full();
 
-        for network in &self.state.networks {
+        for (network_index, network) in self.state.networks.iter().enumerate() {
             let uuid = network.uuid.clone();
+            let nav_focused = self.nav_section == super::keyboard::NavSection::Networks
+                && network_index == self.nav_network;
             let collapsed = self.collapsed_networks.contains(&uuid);
             let unread: u32 = network
                 .channels
@@ -52,6 +54,11 @@ impl LoungeApp {
                     .rounded(px(5.))
                     .cursor_pointer()
                     .hover(|style| style.bg(theme.hover))
+                    .when(nav_focused, |this| {
+                        this.bg(theme.accent_dim)
+                            .border_1()
+                            .border_color(theme.accent)
+                    })
                     .on_drag(drag, move |drag: &SortDrag, position, _, cx| {
                         LoungeApp::drag_preview(drag, position, theme, cx)
                     })
@@ -124,6 +131,8 @@ impl LoungeApp {
             for channel in &network.channels {
                 let id = channel.chan.id;
                 let selected = self.state.active == Some(id);
+                let nav_focused =
+                    self.nav_section == super::keyboard::NavSection::Channels && selected;
                 let name = if channel.is_lobby() {
                     network.name.clone()
                 } else {
@@ -166,6 +175,9 @@ impl LoungeApp {
                         .rounded(px(5.))
                         .cursor_pointer()
                         .when(selected, |this| this.bg(theme.accent_dim))
+                        .when(nav_focused, |this| {
+                            this.border_1().border_color(theme.accent)
+                        })
                         .when(!selected, |this| this.hover(|style| style.bg(theme.hover)))
                         .when(sortable, |this| {
                             this.on_drag(drag, move |drag: &SortDrag, position, _, cx| {
@@ -357,13 +369,8 @@ impl LoungeApp {
     }
 
     fn sidebar_footer(&self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = self.theme;
         let icon_buttons = self.config.icon_buttons;
-        let mut footer = div()
-            .border_t_1()
-            .border_color(theme.border)
-            .p_2()
-            .min_h(px(COMPOSER_MIN_HEIGHT));
+        let mut footer = div().p_2().min_h(px(COMPOSER_MIN_HEIGHT));
         footer = if icon_buttons {
             footer.flex().items_center().justify_between()
         } else {
@@ -489,9 +496,15 @@ impl LoungeApp {
                     .child("No matching users."),
             );
         }
-        for user in users {
+        for (user_index, user) in users.into_iter().enumerate() {
             let nick = user.nick.clone();
-            let mode = user_mode_prefix(user, network);
+            let nav_focused = self.nav_section == super::keyboard::NavSection::Users
+                && user_index == self.nav_user;
+            let mode = if self.config.show_user_modes {
+                user_mode_prefix(user, network)
+            } else {
+                None
+            };
             let color = if self.config.colored_nicks {
                 theme.nick_color(&user.nick)
             } else {
@@ -513,6 +526,11 @@ impl LoungeApp {
                     .rounded(px(3.))
                     .cursor_pointer()
                     .hover(|style| style.bg(theme.hover))
+                    .when(nav_focused, |this| {
+                        this.bg(theme.accent_dim)
+                            .border_1()
+                            .border_color(theme.accent)
+                    })
                     .on_click(cx.listener({
                         let nick = nick.clone();
                         move |this, _, _, cx| this.insert_nick(&nick, cx)

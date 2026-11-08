@@ -9,14 +9,26 @@ impl LoungeApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
-        let data = channel.chan.data.clone();
-        let rows: Vec<serde_json::Value> = data
-            .as_ref()
+        let channel_id = channel.chan.id;
+        if self.special_channel.get() != Some(channel_id) {
+            self.special_channel.set(Some(channel_id));
+            self.special_limit.set(100);
+        }
+        let data = channel.chan.data.as_ref();
+        let total_rows = data
             .and_then(|value| value.as_array())
-            .cloned()
+            .map(Vec::len)
+            .unwrap_or(0);
+        let rows: Vec<serde_json::Value> = data
+            .and_then(|value| value.as_array())
+            .map(|rows| {
+                rows.iter()
+                    .take(self.special_limit.get())
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default();
         let status_text = data
-            .as_ref()
             .and_then(|value| value.get("text"))
             .and_then(|value| value.as_str())
             .map(str::to_string);
@@ -210,6 +222,30 @@ impl LoungeApp {
                 }
                 table = table.child(cells);
             }
+        }
+        if total_rows > self.special_limit.get() {
+            let remaining = total_rows - self.special_limit.get();
+            let step = remaining.min(100);
+            table = table.child(
+                div().p_2().flex().justify_center().child(
+                    div()
+                        .id("special-more")
+                        .tab_index(0)
+                        .focus(|style| style.bg(theme.border).text_color(theme.text))
+                        .px_3()
+                        .py_1()
+                        .rounded(px(5.))
+                        .bg(theme.panel)
+                        .cursor_pointer()
+                        .hover(|style| style.bg(theme.hover))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.special_limit
+                                .set(this.special_limit.get().saturating_add(step));
+                            cx.notify();
+                        }))
+                        .child(format!("Show {step} more")),
+                ),
+            );
         }
 
         div()

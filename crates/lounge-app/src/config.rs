@@ -100,6 +100,7 @@ pub struct AppConfig {
     pub use_12h_clock: bool,
     pub show_seconds: bool,
     pub colored_nicks: bool,
+    pub show_user_modes: bool,
     pub status_messages: StatusMessages,
     pub show_user_list: bool,
     pub notifications: bool,
@@ -152,6 +153,7 @@ impl Default for AppConfig {
             use_12h_clock: false,
             show_seconds: false,
             colored_nicks: true,
+            show_user_modes: true,
             status_messages: StatusMessages::Condensed,
             show_user_list: true,
             notifications: true,
@@ -354,6 +356,12 @@ mod tests {
         let config: AppConfig = toml::from_str("notifications = true").unwrap();
         assert_eq!(config.media_volume, 1.0);
         assert!(!config.media_muted);
+    }
+
+    #[test]
+    fn legacy_config_shows_user_modes() {
+        let config: AppConfig = toml::from_str("notifications = true").unwrap();
+        assert!(config.show_user_modes);
     }
 
     #[test]
