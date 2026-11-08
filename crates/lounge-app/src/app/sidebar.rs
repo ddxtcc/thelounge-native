@@ -40,6 +40,9 @@ impl LoungeApp {
             list = list.child(
                 div()
                     .id(ElementId::Name(format!("net-{uuid}").into()))
+                    .tab_index(0)
+                    .tab_stop(!self.last_overlay_open)
+                    .focus(|style| style.bg(theme.border).text_color(theme.text))
                     .w_full()
                     .flex()
                     .items_center()
@@ -94,6 +97,9 @@ impl LoungeApp {
                     .child(
                         div()
                             .id(ElementId::Name(format!("net-menu-{uuid}").into()))
+                            .tab_index(0)
+                            .tab_stop(!self.last_overlay_open)
+                            .focus(|style| style.bg(theme.border).text_color(theme.text))
                             .w(px(20.))
                             .h(px(18.))
                             .text_center()
@@ -104,6 +110,9 @@ impl LoungeApp {
                                 cx.stop_propagation();
                                 this.open_network_menu(&uuid, cx);
                             }))
+                            .tooltip(move |_, cx| {
+                                cx.new(|_| Tooltip::new("Network actions", theme)).into()
+                            })
                             .child("..."),
                     ),
             );
@@ -144,6 +153,9 @@ impl LoungeApp {
                 list = list.child(
                     div()
                         .id(ElementId::Name(format!("chan-{id}").into()))
+                        .tab_index(0)
+                        .tab_stop(!self.last_overlay_open)
+                        .focus(|style| style.bg(theme.border).text_color(theme.text))
                         .w_full()
                         .flex()
                         .items_center()
@@ -313,6 +325,9 @@ impl LoungeApp {
                     .child(
                         div()
                             .id("add-network")
+                            .tab_index(0)
+                            .tab_stop(!self.last_overlay_open)
+                            .focus(|style| style.bg(theme.border).text_color(theme.text))
                             .size(px(26.))
                             .flex()
                             .items_center()
@@ -324,7 +339,10 @@ impl LoungeApp {
                             .cursor_pointer()
                             .hover(|style| style.bg(theme.hover))
                             .child("+")
-                            .on_click(cx.listener(|this, _, _, cx| this.open_network_modal(cx))),
+                            .on_click(cx.listener(|this, _, _, cx| this.open_network_modal(cx)))
+                            .tooltip(move |_, cx| {
+                                cx.new(|_| Tooltip::new("Add network", theme)).into()
+                            }),
                     ),
             )
             .child(
@@ -423,6 +441,9 @@ impl LoungeApp {
         let tooltip = tooltip.to_string();
         div()
             .id(ElementId::Name(format!("side-{label}").into()))
+            .tab_index(0)
+            .tab_stop(!self.last_overlay_open)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .px_2()
             .py(px(6.))
             .rounded(px(5.))
@@ -481,6 +502,9 @@ impl LoungeApp {
             list = list.child(
                 div()
                     .id(ElementId::Name(format!("user-{nick}").into()))
+                    .tab_index(0)
+                    .tab_stop(!self.last_overlay_open)
+                    .focus(|style| style.bg(theme.border).text_color(theme.text))
                     .flex()
                     .items_center()
                     .gap_1()

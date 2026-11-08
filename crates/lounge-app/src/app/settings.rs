@@ -34,6 +34,8 @@ impl LoungeApp {
             tabs = tabs.child(
                 div()
                     .id(ElementId::Name(format!("settings-tab-{label}").into()))
+                    .tab_index(0)
+                    .focus(|style| style.bg(theme.border).text_color(theme.text))
                     .px_3()
                     .py_1()
                     .rounded(px(5.))
@@ -523,6 +525,8 @@ impl LoungeApp {
         let theme = self.theme;
         div()
             .id(ElementId::Name(format!("setting-{label}").into()))
+            .tab_index(0)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .flex()
             .items_center()
             .justify_between()
@@ -561,6 +565,8 @@ impl LoungeApp {
         let theme = self.theme;
         div()
             .id(ElementId::Name(format!("setting-{label}").into()))
+            .tab_index(0)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .flex()
             .items_center()
             .justify_between()
@@ -595,6 +601,9 @@ impl LoungeApp {
     ) -> AnyElement {
         let theme = self.theme;
         div()
+            .id(ElementId::Name(format!("value-{label}").into()))
+            .tab_index(0)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .flex()
             .items_center()
             .justify_between()
@@ -643,6 +652,9 @@ impl LoungeApp {
     ) -> AnyElement {
         let theme = self.theme;
         div()
+            .id(ElementId::Name(format!("action-{label}").into()))
+            .tab_index(0)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .flex()
             .items_center()
             .justify_between()

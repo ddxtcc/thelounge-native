@@ -551,6 +551,9 @@ impl LoungeApp {
         };
         div()
             .id(ElementId::Name(format!("head-{label}").into()))
+            .tab_index(0)
+            .tab_stop(!self.last_overlay_open)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .px_2()
             .py(px(4.))
             .rounded(px(4.))
@@ -690,6 +693,9 @@ impl LoungeApp {
             .unwrap_or(false);
         let emoji_button = div()
             .id("emoji-picker-button")
+            .tab_index(0)
+            .tab_stop(!self.last_overlay_open)
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
             .h(px(34.))
             .px_2()
             .flex()
@@ -703,6 +709,7 @@ impl LoungeApp {
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover).text_color(theme.text))
             .on_click(cx.listener(|this, _, _, cx| this.open_emoji_picker(cx)))
+            .tooltip(move |_, cx| cx.new(|_| Tooltip::new("Insert emoji", theme)).into())
             .child(if self.config.icon_buttons {
                 "☺"
             } else {
@@ -711,6 +718,9 @@ impl LoungeApp {
         let upload_button = upload_enabled.then(|| {
             div()
                 .id("upload-file")
+                .tab_index(0)
+                .tab_stop(!self.last_overlay_open)
+                .focus(|style| style.bg(theme.border).text_color(theme.text))
                 .h(px(34.))
                 .px_2()
                 .flex()
@@ -724,6 +734,7 @@ impl LoungeApp {
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.hover).text_color(theme.text))
                 .on_click(cx.listener(|this, _, _, cx| this.prompt_for_upload(cx)))
+                .tooltip(move |_, cx| cx.new(|_| Tooltip::new("Upload file", theme)).into())
                 .child(if self.config.icon_buttons {
                     "📎"
                 } else {
