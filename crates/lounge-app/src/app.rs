@@ -280,6 +280,8 @@ pub struct LoungeApp {
     state: ClientState,
     conn: Option<ClientHandle>,
     conn_generation: u64,
+    pending_account_change: Option<(String, String)>,
+    server_hash: Option<i64>,
     auth: Option<Auth>,
     status: ConnectionStatus,
     route: Route,
@@ -439,6 +441,7 @@ mod desktop;
 mod image_cache;
 mod image_preview;
 mod keyboard;
+mod lightbox;
 mod link_preview_ui;
 #[cfg(feature = "media")]
 mod media;
@@ -465,6 +468,7 @@ pub(super) use palette::{PaletteCommand, PaletteEntry, PaletteMode, PaletteUserA
 mod render;
 mod render_impl;
 mod settings;
+mod settings_security;
 mod sidebar;
 mod special;
 mod theme_editor;
@@ -646,6 +650,8 @@ impl LoungeApp {
             state: ClientState::new(),
             conn: None,
             conn_generation: 0,
+            pending_account_change: None,
+            server_hash: None,
             auth: None,
             status: ConnectionStatus::Disconnected,
             route: Route::Login,
@@ -837,6 +843,7 @@ impl LoungeApp {
                 if this.theme_editor.is_some() {
                     this.save_theme_editor(cx);
                 }
+                this.save_draft(cx);
                 #[cfg(feature = "media")]
                 this.persist_media_positions();
             });

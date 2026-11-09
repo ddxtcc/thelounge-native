@@ -33,6 +33,42 @@ impl LoungeApp {
         }
     }
 
+    pub(super) fn text_input_focused(&self, window: &Window, cx: &gpui::App) -> bool {
+        let Some(focused) = window.focused(cx) else {
+            return false;
+        };
+        const ROLES: [InputRole; 24] = [
+            InputRole::Composer,
+            InputRole::LoginServer,
+            InputRole::LoginUser,
+            InputRole::LoginPassword,
+            InputRole::NetworkName,
+            InputRole::NetworkHost,
+            InputRole::NetworkPort,
+            InputRole::NetworkNick,
+            InputRole::NetworkUsername,
+            InputRole::NetworkRealname,
+            InputRole::NetworkPassword,
+            InputRole::Search,
+            InputRole::SettingHighlights,
+            InputRole::SettingHighlightExceptions,
+            InputRole::SettingAwayMessage,
+            InputRole::EmojiSearch,
+            InputRole::FontSearch,
+            InputRole::UsersFilter,
+            InputRole::Palette,
+            InputRole::PasswordOld,
+            InputRole::PasswordNew,
+            InputRole::PasswordVerify,
+            InputRole::ThemeName,
+            InputRole::ThemeHex,
+        ];
+        ROLES.iter().any(|role| {
+            self.input_for_role(*role)
+                .is_some_and(|input| input.read(cx).focus_handle(cx) == focused)
+        })
+    }
+
     pub(super) fn render_login(
         &mut self,
         _window: &mut Window,

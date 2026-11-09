@@ -293,9 +293,7 @@ impl ClientState {
         if let Some(token) = init.token.clone() {
             self.token = Some(token);
         }
-        if !init.networks.is_empty() {
-            self.merge_networks(init.networks);
-        }
+        self.merge_networks(init.networks);
 
         if init.active > 0 && self.find_channel(init.active).is_some() {
             self.active = Some(init.active);
@@ -571,6 +569,9 @@ impl ClientState {
             let kind = msg.kind;
             let from_nick = msg.from.as_ref().map(|from| from.nick.clone());
             let target_nick = msg.target.as_ref().map(|target| target.nick.clone());
+            if let Some(nick) = &from_nick {
+                channel.typing.retain(|typing| &typing.nick != nick);
+            }
             channel.chan.messages.push(msg);
             trim_messages(&mut channel.chan.messages);
             if channel.is_channel() {
@@ -675,7 +676,7 @@ impl ClientState {
         self.networks
             .iter()
             .flat_map(|network| network.channels.iter())
-            .map(|channel| channel.chan.unread + channel.chan.highlight)
+            .map(|channel| channel.chan.unread)
             .sum()
     }
 
@@ -772,7 +773,7 @@ fn sort_users(users: &mut [User], options: Option<&ServerOptions>) {
                 .prefix
                 .prefix
                 .iter()
-                .map(|prefix| prefix.mode.clone())
+                .map(|prefix| prefix.symbol.clone())
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();

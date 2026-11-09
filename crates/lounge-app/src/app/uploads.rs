@@ -22,15 +22,28 @@ impl LoungeApp {
             gpui::ImageFormat::Tiff => "tiff",
             gpui::ImageFormat::Svg => "svg",
         };
-        let path = std::env::temp_dir().join(format!(
-            "lounge-native-clipboard-{}.{}",
-            image.id(),
-            extension
-        ));
-        if let Err(error) = std::fs::write(&path, image.bytes()) {
+        let temp = match tempfile::Builder::new()
+            .prefix("lounge-native-clipboard-")
+            .suffix(&format!(".{extension}"))
+            .tempfile()
+        {
+            Ok(temp) => temp,
+            Err(error) => {
+                self.toast(format!("Could not save clipboard image: {error}"));
+                return;
+            }
+        };
+        if let Err(error) = std::fs::write(temp.path(), image.bytes()) {
             self.toast(format!("Could not save clipboard image: {error}"));
             return;
         }
+        let path = match temp.keep() {
+            Ok((_, path)) => path,
+            Err(error) => {
+                self.toast(format!("Could not save clipboard image: {}", error.error));
+                return;
+            }
+        };
         self.queue_upload(path, cx);
     }
 

@@ -1,3 +1,4 @@
+use std::net::{IpAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use gpui::{AppContext, Context};
@@ -16,31 +17,12 @@ pub(crate) enum PreviewState {
 }
 
 pub fn is_previewable_link(url: &str) -> bool {
+    if !is_safe_remote_url(url, false) {
+        return false;
+    }
     let Ok(parsed) = url::Url::parse(url) else {
         return false;
     };
-    if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return false;
-    }
-    if parsed.username() != "" || parsed.password().is_some() {
-        return false;
-    }
-    let Some(host) = parsed.host_str() else {
-        return false;
-    };
-    if host.eq_ignore_ascii_case("localhost") {
-        return false;
-    }
-    if let Ok(ip) = host.parse::<std::net::IpAddr>()
-        && (ip.is_loopback()
-            || ip.is_unspecified()
-            || match ip {
-                std::net::IpAddr::V4(ip) => ip.is_private() || ip.is_link_local(),
-                std::net::IpAddr::V6(ip) => ip.is_unique_local() || ip.is_unicast_link_local(),
-            })
-    {
-        return false;
-    }
     let path = parsed.path().to_ascii_lowercase();
     ![
         ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".svg", ".mp3", ".mp4", ".m4a",
@@ -50,12 +32,73 @@ pub fn is_previewable_link(url: &str) -> bool {
     .any(|extension| path.ends_with(extension))
 }
 
+pub(crate) fn is_safe_remote_url(url: &str, resolve_dns: bool) -> bool {
+    let Ok(parsed) = url::Url::parse(url) else {
+        return false;
+    };
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.username() != ""
+        || parsed.password().is_some()
+    {
+        return false;
+    }
+    let Some(host) = parsed.host() else {
+        return false;
+    };
+    let port = parsed.port_or_known_default().unwrap_or(443);
+    match host {
+        url::Host::Ipv4(ip) => is_global_ip(IpAddr::V4(ip)),
+        url::Host::Ipv6(ip) => {
+            if let Some(ip) = ip.to_ipv4_mapped() {
+                is_global_ip(IpAddr::V4(ip))
+            } else {
+                is_global_ip(IpAddr::V6(ip))
+            }
+        }
+        url::Host::Domain(domain) => {
+            let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+            if domain == "localhost" || domain.ends_with(".localhost") {
+                return false;
+            }
+            if !resolve_dns {
+                return true;
+            }
+            let Ok(addresses) = (domain.as_str(), port).to_socket_addrs() else {
+                return false;
+            };
+            let addresses: Vec<_> = addresses.collect();
+            !addresses.is_empty() && addresses.iter().all(|address| is_global_ip(address.ip()))
+        }
+    }
+}
+
+fn is_global_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            !(ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_broadcast()
+                || ip.is_multicast())
+        }
+        IpAddr::V6(ip) => {
+            !(ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_unique_local()
+                || ip.is_unicast_link_local()
+                || ip.is_multicast())
+        }
+    }
+}
+
 pub fn fetch(url: &str) -> Result<LinkPreview, String> {
-    if !is_previewable_link(url) {
+    if !is_previewable_link(url) || !is_safe_remote_url(url, true) {
         return Err("not a previewable link".to_string());
     }
     let mut response = ureq::get(url)
         .config()
+        .max_redirects(0)
         .timeout_global(Some(Duration::from_secs(12)))
         .build()
         .header("Accept", "text/html,application/xhtml+xml")
@@ -166,7 +209,7 @@ impl LoungeApp {
             };
         }
         if self.link_previews.borrow().len() >= LIMIT {
-            return None;
+            self.link_previews.borrow_mut().clear();
         }
         self.link_previews
             .borrow_mut()
@@ -197,6 +240,24 @@ impl LoungeApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_private_remote_urls() {
+        for url in [
+            "http://127.0.0.1/",
+            "http://10.0.0.1/",
+            "http://169.254.169.254/",
+            "http://[::1]/",
+            "http://[::ffff:127.0.0.1]/",
+            "http://localhost/",
+            "http://localhost./",
+            "file:///etc/passwd",
+            "http://user:pass@example.com/",
+        ] {
+            assert!(!is_safe_remote_url(url, false), "{url}");
+        }
+        assert!(is_safe_remote_url("https://example.com/", false));
+    }
 
     #[test]
     fn parses_open_graph_metadata() {

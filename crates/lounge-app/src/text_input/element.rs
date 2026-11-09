@@ -370,6 +370,9 @@ impl Element for TextElement {
                     if line_ix >= lines.len() {
                         break;
                     }
+                    let Some(visible_line) = line_ix.checked_sub(visible_start) else {
+                        continue;
+                    };
                     let line_start = starts[line_ix];
                     let line_end = ends[line_ix];
                     let start = selected_range.start.max(line_start);
@@ -389,7 +392,7 @@ impl Element for TextElement {
                     };
                     let x1 = lines[line_ix].x_for_index(display_start);
                     let x2 = lines[line_ix].x_for_index(display_end);
-                    let y = bounds.top() + line_height * (line_ix - visible_start) as f32;
+                    let y = bounds.top() + line_height * visible_line as f32;
                     selections.push(fill(
                         Bounds::new(point(bounds.left() + x1, y), size(x2 - x1, line_height)),
                         Hsla {

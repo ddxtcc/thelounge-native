@@ -23,6 +23,7 @@ pub struct ClientConfig {
     pub auth: Auth,
     pub initial_last_message: i64,
     pub initial_open_channel: Option<i64>,
+    pub server_hash: Option<i64>,
     pub has_config: bool,
 }
 
@@ -58,6 +59,8 @@ pub enum ClientEvent {
     Server(Box<ServerEvent>),
     Disconnected { reason: String },
     Reconnecting { attempt: u32, delay: Duration },
+    ServerHash(i64),
+    ServerRestarted,
     Error(String),
     Closed,
 }
@@ -153,6 +156,7 @@ async fn run(
     };
     let mut last_message = config.initial_last_message;
     let mut open_channel = config.initial_open_channel;
+    let mut last_server_hash = config.server_hash;
     let mut attempt: u32 = 0;
 
     loop {
@@ -162,6 +166,7 @@ async fn run(
             &mut token,
             &mut last_message,
             &mut open_channel,
+            &mut last_server_hash,
             &mut cmd_rx,
             &evt_tx,
             &mut attempt,
@@ -199,6 +204,7 @@ async fn run(
                                 let _ = evt_tx.send(ClientEvent::Closed);
                                 return;
                             }
+                            Some(Command::Open(id)) => open_channel = Some(id),
                             _ => {}
                         }
                     }
@@ -216,6 +222,7 @@ async fn session(
     token: &mut Option<String>,
     last_message: &mut i64,
     open_channel: &mut Option<i64>,
+    last_server_hash: &mut Option<i64>,
     cmd_rx: &mut mpsc::UnboundedReceiver<Command>,
     evt_tx: &mpsc::UnboundedSender<ClientEvent>,
     attempt: &mut u32,
@@ -225,10 +232,16 @@ async fn session(
         Err(error) => return SessionEnd::Disconnected(format!("invalid server URL: {error}")),
     };
 
-    let (ws, _) = match tokio_tungstenite::connect_async(url.as_str()).await {
-        Ok(connection) => connection,
-        Err(error) => return SessionEnd::Disconnected(format!("connection failed: {error}")),
-    };
+    let (ws, _) =
+        match tokio::time::timeout(PING_TIMEOUT, tokio_tungstenite::connect_async(url.as_str()))
+            .await
+        {
+            Ok(Ok(connection)) => connection,
+            Ok(Err(error)) => {
+                return SessionEnd::Disconnected(format!("connection failed: {error}"));
+            }
+            Err(_) => return SessionEnd::Disconnected("connection timed out".into()),
+        };
     let (mut sink, mut stream) = ws.split();
 
     let mut received_open = false;
@@ -370,6 +383,17 @@ async fn session(
                                 continue;
                             }
                             auth_sent = true;
+                            if let Some(Value::Number(hash)) = data.as_ref()
+                                && let Some(hash) = hash.as_i64()
+                            {
+                                if last_server_hash.is_some_and(|previous| previous != hash) {
+                                    *last_message = -1;
+                                    *open_channel = None;
+                                    let _ = evt_tx.send(ClientEvent::ServerRestarted);
+                                }
+                                *last_server_hash = Some(hash);
+                                let _ = evt_tx.send(ClientEvent::ServerHash(hash));
+                            }
                             let Some(payload) =
                                 auth_payload(config, token.as_deref(), *last_message, *open_channel)
                             else {
@@ -394,12 +418,13 @@ async fn session(
                                 match serde_path_to_error::deserialize::<_, InitData>(data) {
                                     Ok(init) => init,
                                     Err(error) => {
-                                        eprintln!(
+                                        let reason = format!(
                                             "init parse failed at {}: {}",
                                             error.path(),
                                             error.inner()
                                         );
-                                        continue;
+                                        let _ = evt_tx.send(ClientEvent::Error(reason.clone()));
+                                        return SessionEnd::Disconnected(reason);
                                     }
                                 };
 

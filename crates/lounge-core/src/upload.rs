@@ -5,6 +5,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
+use std::time::Duration;
 
 use ureq::unversioned::multipart::{Form, Part};
 
@@ -85,9 +86,19 @@ pub fn upload_file(
     .map_err(|error| format!("invalid file type: {error}"))?;
     let form = Form::new().part("file", part);
 
-    let mut response = ureq::post(&endpoint)
-        .send(form)
-        .map_err(|error| format!("upload failed: {error}"))?;
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(15)))
+        .timeout_recv_response(Some(Duration::from_secs(30)))
+        .timeout_send_body(Some(Duration::from_secs(300)))
+        .timeout_recv_body(Some(Duration::from_secs(30)))
+        .build()
+        .new_agent();
+    let mut response = agent.post(&endpoint).send(form).map_err(|error| {
+        format!(
+            "upload failed: {}",
+            error.to_string().replace(token, "[redacted]")
+        )
+    })?;
 
     let body: serde_json::Value = response
         .body_mut()

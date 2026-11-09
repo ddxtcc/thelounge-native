@@ -41,6 +41,7 @@ open = "5"
 scraper = "0.29"
 serde.workspace = true
 serde_json.workspace = true
+tempfile = "3"
 toml.workspace = true
 unicode-segmentation.workspace = true
 ureq = { version = "3.5", default-features = false, features = ["rustls"] }

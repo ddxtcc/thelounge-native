@@ -37,24 +37,23 @@ impl LoungeApp {
 
         let account_changed = server != self.config.server || user != self.config.user;
         if account_changed {
-            #[cfg(feature = "media")]
-            self.media_positions.clear();
-            self.config.media_positions.clear();
-            self.forget_token();
-            self.config.last_channel = None;
-            self.config.notification_overrides.clear();
-            self.drafts.clear();
-            self.histories.clear();
-            self.seen_mentions.clear();
-            self.expanded_condensed.clear();
-            self.persist_chat_state();
+            self.server_hash = None;
+            if self.pending_account_change.is_none() {
+                self.pending_account_change =
+                    Some((self.config.server.clone(), self.config.user.clone()));
+            }
         }
+        let token = if account_changed {
+            ""
+        } else {
+            self.config.token.as_str()
+        };
         self.config.server = server.clone();
         self.config.user = user.clone();
         self.config.save();
 
         self.login_error = None;
-        let auth = login_auth(user, password, &self.config.token, &self.config.user);
+        let auth = login_auth(user, password, token, &self.config.user);
         self.start_connection(auth, server, cx);
     }
 
@@ -93,6 +92,7 @@ impl LoungeApp {
             auth: auth.clone(),
             initial_last_message: -1,
             initial_open_channel: self.config.last_channel,
+            server_hash: self.server_hash,
             has_config: false,
         });
         self.conn = Some(handle);
@@ -132,6 +132,7 @@ impl LoungeApp {
             auth,
             initial_last_message: self.state.max_msg_id,
             initial_open_channel: self.state.active,
+            server_hash: self.server_hash,
             has_config: false,
         });
         self.conn = Some(handle);
@@ -175,7 +176,16 @@ impl LoungeApp {
             ClientEvent::AuthFailed => {
                 self.status = ConnectionStatus::Disconnected;
                 self.auth = None;
-                self.forget_token();
+                if let Some((old_server, old_user)) = self.pending_account_change.take() {
+                    self.config.server = old_server.clone();
+                    self.config.user = old_user.clone();
+                    self.config.token = crate::secure_token::load_token(&old_server, &old_user)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+                } else {
+                    self.forget_token();
+                }
                 self.config.save();
                 self.route = Route::Login;
                 self.login_error = Some("Authentication failed. Check your credentials.".into());
@@ -347,6 +357,12 @@ impl LoungeApp {
                     delay.as_secs()
                 ));
             }
+            ClientEvent::ServerHash(hash) => {
+                self.server_hash = Some(hash);
+            }
+            ClientEvent::ServerRestarted => {
+                self.reset_after_server_restart(cx);
+            }
             ClientEvent::Error(message) => {
                 self.status = ConnectionStatus::Failed(message.clone());
                 self.toast(message);
@@ -362,7 +378,41 @@ impl LoungeApp {
         true
     }
 
+    fn forget_old_account(&mut self, old_server: &str, old_user: &str) {
+        let _ = crate::secure_token::delete_token(old_server, old_user);
+        self.config.token.clear();
+        self.config.last_channel = None;
+        self.config.notification_overrides.clear();
+        self.config.media_positions.clear();
+        self.drafts.clear();
+        self.histories.clear();
+        self.seen_mentions.clear();
+        self.expanded_condensed.clear();
+        #[cfg(feature = "media")]
+        self.media_positions.clear();
+        self.persist_chat_state();
+    }
+
+    fn reset_after_server_restart(&mut self, cx: &mut Context<Self>) {
+        self.state = ClientState::new();
+        self.messages_list.reset(0);
+        self.messages_list_keys.clear();
+        self.message_rows_cache = None;
+        self.preview_overrides.clear();
+        self.clear_link_previews();
+        self.focused_message = None;
+        self.pending_focus_message = None;
+        self.last_active_channel = None;
+        self.last_message_id = 0;
+        self.messages_at_bottom = true;
+        self.scroll_to_bottom_pending = false;
+        cx.notify();
+    }
+
     pub(super) fn after_init(&mut self, old_active: Option<i64>, cx: &mut Context<Self>) {
+        if let Some((old_server, old_user)) = self.pending_account_change.take() {
+            self.forget_old_account(&old_server, &old_user);
+        }
         if let Some(token) = self.state.token.clone() {
             self.config.token = token.clone();
             if let Some(Auth::Token { token: current, .. }) = &mut self.auth {
@@ -507,6 +557,8 @@ impl LoungeApp {
         self.conn_generation = self.conn_generation.wrapping_add(1);
         self.conn = None;
         self.auth = None;
+        self.pending_account_change = None;
+        self.server_hash = None;
         self.reset_uploads();
         self.forget_token();
         self.config.save();

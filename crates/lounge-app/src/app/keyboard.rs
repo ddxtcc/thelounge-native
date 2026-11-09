@@ -231,6 +231,9 @@ impl LoungeApp {
             return false;
         }
         let key = key.to_lowercase();
+        if self.text_input_focused(window, cx) && !(self.settings_open && key == "tab") {
+            return false;
+        }
         if self.settings_open {
             let tabs = [
                 SettingsTab::Appearance,

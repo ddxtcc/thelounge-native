@@ -463,6 +463,7 @@ impl Render for LoungeApp {
                     && !this.last_overlay_open
                     && !this.sidebar_overlay
                     && !this.users_overlay
+                    && !this.text_input_focused(window, cx)
                     && !event.keystroke.key.eq_ignore_ascii_case("escape")
                 {
                     let focused = window.focused(cx);
