@@ -255,7 +255,6 @@ impl AppConfig {
                 Ok(()) => self.save(),
                 Err(error) => {
                     self.token_error = Some(error);
-                    self.save();
                 }
             }
             return;
@@ -303,24 +302,13 @@ impl AppConfig {
         let Ok(text) = toml::to_string_pretty(self) else {
             return;
         };
-        let temp = path.with_extension("toml.tmp");
-        let result = (|| -> std::io::Result<()> {
-            let mut options = fs::OpenOptions::new();
-            options.write(true).create(true).truncate(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options.open(&temp)?;
-            file.write_all(text.as_bytes())?;
-            file.sync_all()?;
-            fs::rename(&temp, &path)?;
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&temp);
+        let Ok(mut temp) = tempfile::NamedTempFile::new_in(parent) else {
+            return;
+        };
+        if temp.write_all(text.as_bytes()).is_err() || temp.as_file().sync_all().is_err() {
+            return;
         }
+        let _ = temp.persist(&path);
     }
 }
 

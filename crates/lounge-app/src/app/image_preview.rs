@@ -1,5 +1,4 @@
 use image::imageops::FilterType;
-use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
@@ -16,13 +15,13 @@ pub(super) enum PreviewState {
 }
 
 pub(super) fn load_thumbnail(url: &str) -> Result<PathBuf, String> {
-    let parsed = url::Url::parse(url).map_err(|error| error.to_string())?;
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return Err("unsupported image URL".to_string());
+    if !crate::link_preview::is_safe_remote_url(url, true) {
+        return Err("unsafe image URL".to_string());
     }
     let mut response = ureq::get(url)
         .header("User-Agent", "Lounge Native")
         .config()
+        .max_redirects(0)
         .timeout_global(Some(Duration::from_secs(30)))
         .build()
         .call()
@@ -52,10 +51,13 @@ pub(super) fn load_thumbnail(url: &str) -> Result<PathBuf, String> {
     let width = (image.width() as f32 * scale).round().max(1.) as u32;
     let height = (image.height() as f32 * scale).round().max(1.) as u32;
     let image = image.resize_exact(width, height, FilterType::Triangle);
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    url.hash(&mut hasher);
-    let path = std::env::temp_dir().join(format!("lounge-native-thumb-{:x}.png", hasher.finish()));
-    image.save(&path).map_err(|error| error.to_string())?;
+    let temp = tempfile::Builder::new()
+        .prefix("lounge-native-thumb-")
+        .suffix(".png")
+        .tempfile()
+        .map_err(|error| error.to_string())?;
+    image.save(temp.path()).map_err(|error| error.to_string())?;
+    let (_, path) = temp.keep().map_err(|error| error.to_string())?;
     Ok(path)
 }
 

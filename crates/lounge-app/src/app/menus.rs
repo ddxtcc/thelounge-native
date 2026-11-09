@@ -46,7 +46,20 @@ impl LoungeApp {
         self.network_edit_data = None;
         self.network_edit_loading = false;
         self.network_has_sts = false;
+        self.network_tls = true;
+        self.network_defaults_applied = false;
         self.focus_request = Some(InputRole::NetworkHost);
+        for input in [
+            &self.inputs.network_name,
+            &self.inputs.network_host,
+            &self.inputs.network_port,
+            &self.inputs.network_nick,
+            &self.inputs.network_username,
+            &self.inputs.network_realname,
+            &self.inputs.network_password,
+        ] {
+            input.update(cx, |input, cx| input.set_content("", cx));
+        }
         if !self.network_defaults_applied {
             self.network_defaults_applied = true;
             let defaults = self

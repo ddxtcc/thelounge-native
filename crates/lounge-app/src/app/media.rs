@@ -395,6 +395,7 @@ impl LoungeApp {
             let _ = audio.set_state(gst::State::Null);
         }
         self.media_video_loading = None;
+        self.inline_video_loading = None;
         self.media_error = None;
         self.media_fullscreen = false;
         super::trim_memory();

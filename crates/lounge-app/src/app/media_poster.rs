@@ -1,5 +1,4 @@
 use image::{ImageBuffer, Rgba};
-use std::hash::{Hash, Hasher};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use yuv::{YuvBiPlanarImage, YuvConversionMode, YuvRange, YuvStandardMatrix, yuv_nv12_to_bgra};
@@ -84,13 +83,13 @@ pub(super) fn generate_poster(url: &str) -> Option<Poster> {
         target[3] = source[3];
     }
     let buffer: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_raw(width, height, rgba)?;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    url.hash(&mut hasher);
-    let path = std::env::temp_dir().join(format!(
-        "lounge-native-poster-source-{:x}.png",
-        hasher.finish()
-    ));
-    buffer.save(&path).ok()?;
+    let temp = tempfile::Builder::new()
+        .prefix("lounge-native-poster-source-")
+        .suffix(".png")
+        .tempfile()
+        .ok()?;
+    buffer.save(temp.path()).ok()?;
+    let (_, path) = temp.keep().ok()?;
     Some(Poster {
         path,
         width,
@@ -107,9 +106,12 @@ pub(crate) fn extract_poster(url: &str, destination: &str) -> Result<(), String>
 
 pub(super) fn generate_poster_external(url: &str) -> Option<Poster> {
     let _guard = POSTER_LOCK.get_or_init(|| Mutex::new(())).lock().ok()?;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    url.hash(&mut hasher);
-    let path = std::env::temp_dir().join(format!("lounge-native-poster-{:x}.png", hasher.finish()));
+    let temp = tempfile::Builder::new()
+        .prefix("lounge-native-poster-")
+        .suffix(".png")
+        .tempfile()
+        .ok()?;
+    let path = temp.into_temp_path().keep().ok()?;
     let executable = std::env::current_exe().ok()?;
     let status = Command::new(executable)
         .arg("--poster")

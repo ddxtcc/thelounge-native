@@ -1,0 +1,814 @@
+use super::*;
+
+impl LoungeApp {
+    pub(crate) fn render_message_row(
+        &self,
+        network: &NetworkState,
+        channel: &ChannelState,
+        message: &Message,
+        nick_width: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = self.theme;
+        let preview_mode = self.config.preview_mode;
+        let stored_previews_visible = message.previews.is_empty()
+            || !message
+                .previews
+                .iter()
+                .all(|preview| preview.shown == Some(false));
+        let preview_visible = match preview_mode {
+            crate::config::PreviewMode::Hidden => false,
+            crate::config::PreviewMode::Shown => self
+                .preview_overrides
+                .get(&message.id)
+                .copied()
+                .unwrap_or(stored_previews_visible),
+            crate::config::PreviewMode::Collapsed => self
+                .preview_overrides
+                .get(&message.id)
+                .copied()
+                .unwrap_or(false),
+        };
+        let show_attachments = preview_visible;
+        let local_link_urls: Vec<String> = if show_attachments && self.config.show_previews {
+            let mut seen = HashSet::new();
+            format::find_links(&message.text)
+                .into_iter()
+                .map(|link| link.url)
+                .filter(|url| crate::link_preview::is_previewable_link(url))
+                .filter(|url| {
+                    !message.previews.iter().any(|preview| {
+                        !preview.head.is_empty()
+                            && preview.link == *url
+                            && preview.shown != Some(false)
+                    })
+                })
+                .filter(|url| seen.insert(url.clone()))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let link_preview_count = if self.config.show_previews {
+            message
+                .previews
+                .iter()
+                .filter(|preview| !preview.head.is_empty() && preview.kind != "image")
+                .count()
+                + local_link_urls.len()
+        } else {
+            0
+        };
+        #[cfg(feature = "media")]
+        let row_id = message.id;
+        let highlight = message.highlight;
+        let is_self = message.is_self;
+        let time = format::format_time(
+            message.time,
+            self.config.show_seconds,
+            self.config.use_12h_clock,
+        );
+        let nick_column = self.config.nick_column && !self.narrow;
+        let body = build_message_text(
+            message,
+            network,
+            channel,
+            &self.config,
+            nick_column,
+            &theme,
+            self.theme.dark,
+        );
+        let (text, mut runs, ranges, targets) = body;
+        if let Some(range) = self
+            .text_selection
+            .as_ref()
+            .and_then(|selection| selection.range_for(channel, message.id, &text))
+        {
+            runs = select_runs(runs, range, theme.accent_dim);
+        }
+        let selection_text = text.clone();
+
+        let weak = cx.entity().downgrade();
+        #[cfg(feature = "media")]
+        let inline_message_id = message.id;
+        let targets = Rc::new(targets);
+        let click = {
+            let weak = weak.clone();
+            move |index: usize, _window: &mut Window, cx: &mut App| {
+                let Some(target) = targets.get(index).cloned() else {
+                    return;
+                };
+                match target {
+                    ClickTarget::Url(url) => {
+                        let _ = weak.update(cx, |this, cx| {
+                            #[cfg(feature = "media")]
+                            if let Some(kind) = super::media::media_kind(&url) {
+                                this.play_inline_media(inline_message_id, url.clone(), kind, cx);
+                                return;
+                            }
+                            this.play_media_or_open(url, cx);
+                        });
+                    }
+                    ClickTarget::Nick(nick) => {
+                        let _ = weak.update(cx, |this, cx| this.insert_nick(&nick, cx));
+                    }
+                }
+            }
+        };
+
+        let message_id = message.id;
+        let channel_id = channel.chan.id;
+        let hover = {
+            let weak = weak.clone();
+            move |index: Option<usize>,
+                  event: gpui::MouseMoveEvent,
+                  _: &mut Window,
+                  cx: &mut App| {
+                let Some(index) = index else {
+                    return;
+                };
+                let _ = weak.update(cx, |this, cx| {
+                    this.hovered_text = Some((message_id, index));
+                    if event.dragging()
+                        && this.selecting_text
+                        && let Some(selection) = &mut this.text_selection
+                    {
+                        selection.end = SelectionPoint { message_id, index };
+                        cx.notify();
+                    }
+                });
+            }
+        };
+        let mut text_element = InteractiveText::new(
+            ElementId::Name(format!("msg-{message_id}").into()),
+            StyledText::new(text.clone()).with_runs(runs),
+        )
+        .on_hover(hover);
+        if !ranges.is_empty() {
+            text_element = text_element.on_click(ranges, click);
+        }
+        let text_element = div()
+            .id(ElementId::Name(format!("msg-wrap-{message_id}").into()))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                    window.focus(&this.root_focus);
+                    let index = this
+                        .hovered_text
+                        .filter(|(id, _)| *id == message_id)
+                        .map(|(_, index)| index)
+                        .unwrap_or(0);
+                    let point = SelectionPoint { message_id, index };
+                    if event.click_count >= 2 {
+                        let range = word_range(&selection_text, index);
+                        this.text_selection = Some(TextSelection {
+                            start: SelectionPoint {
+                                message_id,
+                                index: range.start,
+                            },
+                            end: SelectionPoint {
+                                message_id,
+                                index: range.end,
+                            },
+                        });
+                        this.selecting_text = false;
+                    } else if event.modifiers.shift
+                        && let Some(selection) = &mut this.text_selection
+                    {
+                        selection.end = point;
+                        this.selecting_text = false;
+                    } else {
+                        this.text_selection = Some(TextSelection {
+                            start: point,
+                            end: point,
+                        });
+                        this.selecting_text = true;
+                    }
+                    cx.notify();
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.selecting_text = false;
+                    if this
+                        .text_selection
+                        .as_ref()
+                        .is_some_and(TextSelection::is_empty)
+                    {
+                        this.text_selection = None;
+                    }
+                    cx.notify();
+                }),
+            )
+            .child(text_element)
+            .into_any_element();
+
+        let reply_button = if message.msgid.is_some() && message.kind != MessageType::Unknown {
+            let message = message.clone();
+            Some(
+                div()
+                    .id(ElementId::Name(format!("reply-{}", message.id).into()))
+                    .px_1()
+                    .rounded(px(3.))
+                    .text_size(px(11.))
+                    .text_color(theme.faint)
+                    .cursor_pointer()
+                    .hover(|style| style.text_color(theme.accent))
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_reply(&message, cx)))
+                    .child(">"),
+            )
+        } else {
+            None
+        };
+
+        let mut previews = div().flex().flex_col().gap_1();
+        let mut inline_images: Vec<String> = Vec::new();
+        for preview in &message.previews {
+            if preview_mode == crate::config::PreviewMode::Hidden {
+                break;
+            }
+            if preview.kind == "image"
+                || preview
+                    .media_type
+                    .as_deref()
+                    .map(|kind| kind.starts_with("image/"))
+                    .unwrap_or(false)
+            {
+                let candidate = if preview.kind == "image" {
+                    preview
+                        .media
+                        .as_deref()
+                        .filter(|url| !url.is_empty())
+                        .or_else(|| {
+                            preview
+                                .thumb_actual_url
+                                .as_deref()
+                                .filter(|url| !url.is_empty())
+                        })
+                        .or_else(|| Some(preview.thumb.as_str()).filter(|url| !url.is_empty()))
+                        .unwrap_or(&preview.link)
+                } else {
+                    preview
+                        .thumb_actual_url
+                        .as_deref()
+                        .filter(|url| !url.is_empty())
+                        .or_else(|| Some(preview.thumb.as_str()).filter(|url| !url.is_empty()))
+                        .or_else(|| preview.media.as_deref().filter(|url| !url.is_empty()))
+                        .unwrap_or(&preview.link)
+                };
+                inline_images.push(self.absolute_media_url(candidate));
+            }
+        }
+        for link in format::find_links(&message.text) {
+            if preview_mode == crate::config::PreviewMode::Hidden {
+                break;
+            }
+            let path = link
+                .url
+                .split(['?', '#'])
+                .next()
+                .unwrap_or(&link.url)
+                .to_lowercase();
+            if [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp"]
+                .iter()
+                .any(|extension| path.ends_with(extension))
+            {
+                inline_images.push(self.absolute_media_url(&link.url));
+            }
+        }
+        inline_images.sort();
+        inline_images.dedup();
+        let image_count = inline_images.len();
+
+        #[cfg(feature = "media")]
+        let mut preview_media_urls = HashSet::new();
+        for preview in &message.previews {
+            if !show_attachments {
+                break;
+            }
+            if !self.config.show_previews
+                || preview.head.is_empty()
+                || preview.shown == Some(false)
+                || preview.kind == "image"
+            {
+                continue;
+            }
+            let url = preview.link.clone();
+            let label = if preview.body.is_empty() {
+                preview.head.clone()
+            } else {
+                format!("{} - {}", preview.head, preview.body)
+            };
+            let thumb = preview
+                .thumb_actual_url
+                .as_deref()
+                .filter(|url| !url.is_empty())
+                .or_else(|| Some(preview.thumb.as_str()).filter(|url| !url.is_empty()))
+                .or_else(|| {
+                    (preview.kind == "image")
+                        .then_some(preview.media.as_deref())
+                        .flatten()
+                        .filter(|url| !url.is_empty())
+                })
+                .map(|url| self.absolute_media_url(url));
+            let media_type = preview.media_type.as_deref().unwrap_or_default();
+            let video = preview.kind == "video" || media_type.starts_with("video/");
+            let audio = preview.kind == "audio" || media_type.starts_with("audio/");
+            let playable = video || audio;
+            let play_url = self.absolute_media_url(
+                preview
+                    .media
+                    .as_deref()
+                    .filter(|url| !url.is_empty())
+                    .unwrap_or(&preview.link),
+            );
+            #[cfg(feature = "media")]
+            if playable {
+                preview_media_urls.insert(play_url.clone());
+                preview_media_urls.insert(self.absolute_media_url(&preview.link));
+            }
+            if !playable {
+                previews = previews.child(self.render_link_preview_card(
+                    &format!("preview-{}-{}", message.id, preview.link),
+                    preview,
+                    cx,
+                ));
+                continue;
+            }
+            let mut card = div()
+                .id(ElementId::Name(
+                    format!("preview-{}-{}", message.id, preview.link).into(),
+                ))
+                .px_2()
+                .py_1()
+                .rounded(px(4.))
+                .bg(theme.panel)
+                .border_1()
+                .border_color(theme.border)
+                .text_size(px(12.))
+                .text_color(theme.text)
+                .cursor_pointer()
+                .hover(|style| style.border_color(theme.accent))
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(div().truncate().child(label));
+            if playable {
+                #[cfg(feature = "media")]
+                let mut inline_active = false;
+                #[cfg(not(feature = "media"))]
+                let inline_active = false;
+                #[cfg(feature = "media")]
+                {
+                    let kind = if video {
+                        super::media::MediaKind::Video
+                    } else {
+                        super::media::MediaKind::Audio
+                    };
+                    if let Some(inline) = self.render_inline_media(row_id, &play_url, cx) {
+                        card = card.child(inline);
+                        inline_active = true;
+                    } else {
+                        let click_url = play_url.clone();
+                        card = card.on_click(cx.listener(move |this, _, _, cx| {
+                            this.play_inline_media(row_id, click_url.clone(), kind, cx);
+                        }));
+                    }
+                }
+                #[cfg(not(feature = "media"))]
+                {
+                    let click_url = play_url.clone();
+                    card = card.on_click(cx.listener(move |this, _, _, cx| {
+                        this.play_media_or_open(click_url.clone(), cx);
+                    }));
+                }
+                if !inline_active {
+                    card = card.child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.accent)
+                            .child(if video { "Play video" } else { "Play audio" }),
+                    );
+                }
+                #[cfg(feature = "media")]
+                let has_thumb = thumb.is_some();
+                if !inline_active && let Some(thumb) = thumb {
+                    card = card.child(
+                        div()
+                            .w(px(220.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(self.preview_image(&thumb, 220., cx)),
+                    );
+                }
+                #[cfg(feature = "media")]
+                if !inline_active
+                    && !has_thumb
+                    && video
+                    && let Some(poster) = self.media_poster(&play_url, cx)
+                {
+                    let max_w = MEDIA_PREVIEW_MAX_WIDTH;
+                    let max_h = MEDIA_PREVIEW_MAX_HEIGHT;
+                    let scale = (max_w / poster.width as f32)
+                        .min(max_h / poster.height as f32)
+                        .min(1.);
+                    card = card.child(
+                        div().w_full().flex().justify_center().child(
+                            div()
+                                .w(px(poster.width as f32 * scale))
+                                .h(px(poster.height as f32 * scale))
+                                .rounded(px(4.))
+                                .overflow_hidden()
+                                .bg(theme.sidebar)
+                                .child(
+                                    gpui::img(poster.path)
+                                        .image_cache(&self.image_cache)
+                                        .w_full()
+                                        .h_full()
+                                        .object_fit(gpui::ObjectFit::Contain),
+                                ),
+                        ),
+                    );
+                }
+            } else {
+                card = card.on_click(cx.listener(move |_, _, _, _| {
+                    let _ = open::that(url.clone());
+                }));
+            }
+            previews = previews.child(card);
+        }
+
+        for url in &local_link_urls {
+            if let Some(preview) = self.local_link_preview(url, cx) {
+                previews = previews.child(self.render_link_preview_card(
+                    &format!("local-preview-{}-{}", message.id, preview.link),
+                    &preview,
+                    cx,
+                ));
+            }
+        }
+
+        let mut inline = div().flex().flex_col().gap_2();
+        if show_attachments {
+            for (index, url) in inline_images.iter().enumerate() {
+                let lightbox_url = url.clone();
+                self.touch_image(url);
+                inline = inline.child(
+                    div()
+                        .id(ElementId::Name(
+                            format!("inline-image-{}-{index}", message.id).into(),
+                        ))
+                        .w_full()
+                        .max_w(px(460.))
+                        .rounded(px(6.))
+                        .overflow_hidden()
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open_lightbox(lightbox_url.clone(), cx);
+                        }))
+                        .child(self.preview_image(url, 460., cx)),
+                );
+            }
+        }
+
+        #[cfg(feature = "media")]
+        let mut media_count = 0;
+        #[cfg(not(feature = "media"))]
+        let media_count = 0;
+        #[cfg(feature = "media")]
+        let mut media_cards = div().flex().flex_col().gap_2();
+        #[cfg(not(feature = "media"))]
+        let media_cards = div().flex().flex_col().gap_2();
+        #[cfg(feature = "media")]
+        {
+            let mut seen_media_urls = HashSet::new();
+            for (index, link) in format::find_links(&message.text).into_iter().enumerate() {
+                let url = self.absolute_media_url(&link.url);
+                let Some(kind) = super::media::media_kind(&url) else {
+                    continue;
+                };
+                if !seen_media_urls.insert(url.clone()) || preview_media_urls.contains(&url) {
+                    continue;
+                }
+                media_count += 1;
+                if !show_attachments {
+                    continue;
+                }
+                let file = url.rsplit('/').next().unwrap_or(url.as_str()).to_string();
+                let badge = match kind {
+                    super::media::MediaKind::Video => "VIDEO",
+                    super::media::MediaKind::Audio => "AUDIO",
+                };
+                let header = div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .px_1()
+                            .py(px(1.))
+                            .rounded(px(3.))
+                            .bg(theme.sidebar)
+                            .text_size(px(9.))
+                            .text_color(theme.muted)
+                            .child(badge),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .truncate()
+                            .text_size(px(11.))
+                            .text_color(theme.muted)
+                            .child(file),
+                    );
+                let mut card = div()
+                    .id(ElementId::Name(
+                        format!("media-link-{row_id}-{index}").into(),
+                    ))
+                    .w_full()
+                    .max_w(px(460.))
+                    .rounded(px(8.))
+                    .bg(theme.panel)
+                    .border_1()
+                    .border_color(theme.border)
+                    .p_2()
+                    .flex()
+                    .flex_col()
+                    .gap_2();
+                if kind == super::media::MediaKind::Video {
+                    card = card.child(header);
+                }
+                if let Some(inline) = self.render_inline_media(row_id, &url, cx) {
+                    card = card.child(inline);
+                } else if kind == super::media::MediaKind::Audio {
+                    card = card.child(self.render_audio_preview(row_id, &url, cx));
+                } else {
+                    let play_url = url.clone();
+                    card = card
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.play_inline_media(row_id, play_url.clone(), kind, cx);
+                        }))
+                        .cursor_pointer();
+                    if kind == super::media::MediaKind::Video
+                        && let Some(poster) = self.media_poster(&url, cx)
+                    {
+                        let max_w = MEDIA_PREVIEW_MAX_WIDTH;
+                        let max_h = MEDIA_PREVIEW_MAX_HEIGHT;
+                        let scale = (max_w / poster.width as f32)
+                            .min(max_h / poster.height as f32)
+                            .min(1.);
+                        let width = poster.width as f32 * scale;
+                        let height = poster.height as f32 * scale;
+                        card = card.child(
+                            div().w_full().flex().justify_center().child(
+                                div()
+                                    .relative()
+                                    .w(px(width))
+                                    .h(px(height))
+                                    .rounded(px(5.))
+                                    .overflow_hidden()
+                                    .bg(theme.sidebar)
+                                    .child(
+                                        gpui::img(poster.path)
+                                            .image_cache(&self.image_cache)
+                                            .w_full()
+                                            .h_full()
+                                            .object_fit(gpui::ObjectFit::Contain),
+                                    )
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .top_0()
+                                            .left_0()
+                                            .size_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .child(
+                                                div()
+                                                    .size(px(52.))
+                                                    .rounded_full()
+                                                    .bg(theme.overlay)
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .child(
+                                                        gpui::svg()
+                                                            .path("icons/play.svg")
+                                                            .w(px(24.))
+                                                            .h(px(24.))
+                                                            .text_color(theme.text),
+                                                    ),
+                                            ),
+                                    ),
+                            ),
+                        );
+                    }
+                    if kind == super::media::MediaKind::Video {
+                        let play_url = url.clone();
+                        let expand_url = url.clone();
+                        let download_url = url.clone();
+                        card = card.child(
+                            div()
+                                .w_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .gap_1()
+                                .child(self.media_icon_button(
+                                    "play",
+                                    "Play",
+                                    false,
+                                    cx,
+                                    move |this, _, cx| {
+                                        this.play_inline_media(row_id, play_url.clone(), kind, cx);
+                                    },
+                                ))
+                                .child(self.media_icon_button(
+                                    "expand",
+                                    "Expand",
+                                    false,
+                                    cx,
+                                    move |this, _, cx| {
+                                        this.open_lightbox(expand_url.clone(), cx);
+                                    },
+                                ))
+                                .child(self.media_icon_button(
+                                    "download",
+                                    "Download",
+                                    false,
+                                    cx,
+                                    move |this, _, cx| {
+                                        this.download_media(download_url.clone(), cx);
+                                    },
+                                )),
+                        );
+                    }
+                }
+                media_cards = media_cards.child(card);
+            }
+        }
+
+        let preview_count = image_count + media_count + link_preview_count;
+        let preview_toggle =
+            if preview_mode != crate::config::PreviewMode::Hidden && preview_count > 0 {
+                let visible = preview_visible;
+                let noun = if preview_count == 1 {
+                    "preview"
+                } else {
+                    "previews"
+                };
+                Some(
+                    div()
+                        .id(ElementId::Name(
+                            format!("preview-toggle-{}", message.id).into(),
+                        ))
+                        .w(px(110.))
+                        .px_1()
+                        .py(px(1.))
+                        .text_size(px(11.))
+                        .text_color(theme.faint)
+                        .cursor_pointer()
+                        .hover(|style| style.text_color(theme.accent))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.toggle_message_previews(channel_id, message_id, !visible, cx);
+                        }))
+                        .child(if visible {
+                            format!("▾ Hide {noun}")
+                        } else {
+                            format!("▸ Show {noun}")
+                        }),
+                )
+            } else {
+                None
+            };
+        let mut content = div()
+            .flex_1()
+            .min_w(px(0.))
+            .flex()
+            .flex_row()
+            .items_start()
+            .gap_2()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .line_height(relative(self.config.line_height.max(1.3)))
+                    .child(text_element)
+                    .when_some(preview_toggle, |this, toggle| this.child(toggle))
+                    .child(inline)
+                    .child(previews)
+                    .child(media_cards),
+            );
+
+        if let Some(reply_button) = reply_button {
+            content = content.child(reply_button);
+        }
+
+        let context_message = message.clone();
+        let focused = self.focused_message == Some(message.id);
+        let mut row = div()
+            .id(ElementId::Name(format!("row-{}", message.id).into()))
+            .flex()
+            .w_full()
+            .items_start()
+            .gap_2()
+            .px_4()
+            .py(px(self.config.message_spacing))
+            .when(highlight || focused, |this| {
+                this.bg(if focused {
+                    theme.accent_dim
+                } else {
+                    theme.highlight_bg
+                })
+            })
+            .when(is_self, |this| this.opacity(0.85))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.message_menu = Some(MessageMenu {
+                        position: event.position,
+                        channel_id,
+                        message: context_message.clone(),
+                    });
+                    cx.notify();
+                }),
+            );
+
+        if self.config.show_timestamps {
+            row = row.child(
+                div()
+                    .w(px(54.))
+                    .flex_shrink_0()
+                    .text_size(px(11.))
+                    .text_color(theme.faint)
+                    .child(time),
+            );
+        }
+        let status = is_status_message(message.kind);
+        let status_column = if nick_column { nick_width } else { 22. };
+        if status {
+            let (icon, color) = status_icon(message.kind, &theme);
+            row = row.child(
+                div()
+                    .w(px(status_column))
+                    .flex_shrink_0()
+                    .flex()
+                    .justify_end()
+                    .pr_2()
+                    .text_size(px(12.))
+                    .text_color(color)
+                    .child(icon),
+            );
+        } else if nick_column {
+            let nick = message
+                .from
+                .as_ref()
+                .map(|from| from.nick.clone())
+                .unwrap_or_default();
+            let mode = if self.config.show_user_modes {
+                message
+                    .from
+                    .as_ref()
+                    .and_then(|from| user_mode_prefix_in_message(from, network))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let color = if self.config.colored_nicks && !nick.is_empty() {
+                theme.nick_color(&nick)
+            } else {
+                theme.text
+            };
+            let insert = nick.clone();
+            let mut column = div()
+                .id(ElementId::Name(format!("nickcol-{}", message.id).into()))
+                .w(px(nick_width))
+                .flex_shrink_0()
+                .pr_2()
+                .flex()
+                .justify_end()
+                .truncate()
+                .text_size(px(self.config.font_size))
+                .font_weight(FontWeight::BOLD)
+                .text_color(color);
+            if !nick.is_empty() {
+                column = column
+                    .cursor_pointer()
+                    .hover(|style| style.text_color(theme.accent))
+                    .on_click(cx.listener(move |this, _, _, cx| this.insert_nick(&insert, cx)))
+                    .child(format!("{mode}{nick}"));
+            } else {
+                column = column.child("");
+            }
+            row = row.child(column);
+        }
+        row.child(content).into_any_element()
+    }
+}

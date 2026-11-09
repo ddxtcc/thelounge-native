@@ -159,6 +159,26 @@ fn part_and_quit_pick_fallback() {
 }
 
 #[test]
+fn total_unread_does_not_double_count_highlights() {
+    let state = init_state();
+    assert_eq!(state.total_unread(), 4);
+    assert_eq!(state.total_highlights(), 1);
+}
+
+#[test]
+fn empty_init_clears_stale_state() {
+    let mut state = init_state();
+    let init: InitData = serde_json::from_value(json!({
+        "active": 0,
+        "networks": []
+    }))
+    .unwrap();
+    state.apply(ServerEvent::Init(Box::new(init)));
+    assert!(state.networks.is_empty());
+    assert_eq!(state.active, None);
+}
+
+#[test]
 fn names_sorted_by_mode_then_nick() {
     let mut state = init_state();
     state.apply(ServerEvent::Names(NamesEvent {
@@ -166,17 +186,17 @@ fn names_sorted_by_mode_then_nick() {
         users: vec![
             User {
                 nick: "zed".into(),
+                modes: vec!["+".into()],
                 ..Default::default()
             },
             User {
                 nick: "bob".into(),
-                modes: vec!["v".into()],
+                modes: vec!["@".into()],
                 away: String::new(),
                 ..Default::default()
             },
             User {
                 nick: "alice".into(),
-                modes: vec!["o".into()],
                 ..Default::default()
             },
         ],
@@ -184,7 +204,7 @@ fn names_sorted_by_mode_then_nick() {
     let users = &state.find_channel(2).unwrap().1.users;
     assert_eq!(
         users.iter().map(|u| u.nick.as_str()).collect::<Vec<_>>(),
-        vec!["alice", "bob", "zed"]
+        vec!["bob", "zed", "alice"]
     );
     assert!(!state.find_channel(2).unwrap().1.users_outdated);
 }
