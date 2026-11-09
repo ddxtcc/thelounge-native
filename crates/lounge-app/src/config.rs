@@ -94,6 +94,8 @@ pub struct AppConfig {
     #[serde(default = "default_media_volume")]
     pub media_volume: f32,
     pub media_muted: bool,
+    pub remember_media_positions: bool,
+    pub media_positions: HashMap<String, u64>,
     pub show_sidebar: bool,
     pub nick_column: bool,
     pub show_timestamps: bool,
@@ -147,6 +149,8 @@ impl Default for AppConfig {
             video_thumbnails: true,
             media_volume: 1.0,
             media_muted: false,
+            remember_media_positions: true,
+            media_positions: HashMap::new(),
             show_sidebar: true,
             nick_column: true,
             show_timestamps: true,
@@ -356,6 +360,31 @@ mod tests {
         let config: AppConfig = toml::from_str("notifications = true").unwrap();
         assert_eq!(config.media_volume, 1.0);
         assert!(!config.media_muted);
+    }
+
+    #[test]
+    fn media_positions_round_trip() {
+        let mut config = AppConfig {
+            remember_media_positions: true,
+            ..Default::default()
+        };
+        config
+            .media_positions
+            .insert("https://example.test/video.mp4".into(), 42);
+        let text = toml::to_string_pretty(&config).unwrap();
+        let parsed: AppConfig = toml::from_str(&text).unwrap();
+        assert!(parsed.remember_media_positions);
+        assert_eq!(
+            parsed.media_positions.get("https://example.test/video.mp4"),
+            Some(&42)
+        );
+    }
+
+    #[test]
+    fn legacy_config_remembers_media_positions() {
+        let config: AppConfig = toml::from_str("notifications = true").unwrap();
+        assert!(config.remember_media_positions);
+        assert!(config.media_positions.is_empty());
     }
 
     #[test]
