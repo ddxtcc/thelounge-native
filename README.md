@@ -28,7 +28,7 @@ The installer writes to `$HOME/.local` by default. Set `PREFIX` or `XDG_DATA_HOM
 Ubuntu 24.04, Debian trixie, and compatible distributions can install the Debian package instead:
 
 ```sh
-sudo apt install ./lounge-native_0.9.6_amd64.deb
+sudo apt install ./lounge-native_0.9.7_amd64.deb
 ```
 
 The package installs the binary, desktop entry, AppStream metadata, and hicolor icons under `/usr`. Update it by installing a newer package or rerunning `install.sh` from a newer archive. Settings > About > Check for updates compares the app against the latest GitHub release.
@@ -36,14 +36,14 @@ The package installs the binary, desktop entry, AppStream metadata, and hicolor 
 A portable AppImage is also published with each release:
 
 ```sh
-chmod +x lounge-native_0.9.6_x86_64.AppImage
-./lounge-native_0.9.6_x86_64.AppImage
+chmod +x lounge-native_0.9.7_x86_64.AppImage
+./lounge-native_0.9.7_x86_64.AppImage
 ```
 
 Release assets include `SHA256SUMS` and GitHub build provenance attestations. Verify a downloaded asset with GitHub CLI:
 
 ```sh
-gh attestation verify lounge-native_0.9.6_amd64.deb --repo ddxtcc/thelounge-native
+gh attestation verify lounge-native_0.9.7_amd64.deb --repo ddxtcc/thelounge-native
 ```
 
 Arch Linux users can build the package in `packaging/aur`:
