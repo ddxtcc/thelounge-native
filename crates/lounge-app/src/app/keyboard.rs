@@ -53,8 +53,8 @@ impl LoungeApp {
         let filter = self.inputs.users_filter.read(cx).content().to_lowercase();
         self.state
             .active_channel()
-            .map(|(_, channel)| {
-                channel
+            .map(|(network, channel)| {
+                let mut users: Vec<_> = channel
                     .users
                     .iter()
                     .filter(|user| {
@@ -63,8 +63,11 @@ impl LoungeApp {
                             || user.away.to_lowercase().contains(&filter)
                             || (user.is_bot && "bot".contains(&filter))
                     })
-                    .map(|user| user.nick.clone())
-                    .collect()
+                    .collect();
+                if self.config.sort_users_by_mode {
+                    super::sidebar::sort_users(&mut users, network);
+                }
+                users.into_iter().map(|user| user.nick.clone()).collect()
             })
             .unwrap_or_default()
     }

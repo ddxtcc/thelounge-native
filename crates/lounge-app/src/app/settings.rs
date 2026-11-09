@@ -322,6 +322,12 @@ impl LoungeApp {
                 cx,
                 |this| this.config.show_sidebar = !this.config.show_sidebar,
             ))
+            .child(self.setting_row_toggle(
+                "Sort users by mode",
+                self.config.sort_users_by_mode,
+                cx,
+                |this| this.config.sort_users_by_mode = !this.config.sort_users_by_mode,
+            ))
             .child(self.setting_section("Notifications"))
             .child(self.setting_row_toggle(
                 "Desktop notifications",
