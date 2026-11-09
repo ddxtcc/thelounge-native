@@ -484,14 +484,16 @@ impl LoungeApp {
             ("Ctrl+F", "Search messages"),
             ("Ctrl+Tab / Ctrl+PageDown", "Next channel"),
             ("Ctrl+Shift+Tab / Ctrl+PageUp", "Previous channel"),
-            ("Up / Down", "Previous / next input history"),
+            ("Up / Down", "Select message / input history"),
+            ("PageUp / PageDown", "Scroll messages"),
             ("Home / End", "First / last item"),
+            ("Enter", "Open selected message menu or focus input"),
             ("Shift+F10", "Open context menu"),
             ("Ctrl+Shift+V", "Paste image from clipboard"),
             ("Ctrl+C", "Copy text selection"),
             ("Ctrl+Shift+L", "Show or hide the window"),
             ("Ctrl+,", "Open settings"),
-            ("Escape", "Close overlay or cancel reply"),
+            ("Escape", "Clear selection, close overlay, or cancel reply"),
         ];
         let mut card = self.modal_card("Keyboard shortcuts", cx);
         for (keys, description) in shortcuts {
