@@ -19,6 +19,7 @@ impl LoungeApp {
         let theme = self.theme;
         let on_accent = theme.on_accent;
         let mut list = div().flex().flex_col().gap_1().p_2().w_full();
+        list = list.child(self.render_pinned(cx));
 
         for (network_index, network) in self.state.networks.iter().enumerate() {
             let uuid = network.uuid.clone();

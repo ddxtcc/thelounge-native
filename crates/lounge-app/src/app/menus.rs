@@ -400,9 +400,9 @@ impl LoungeApp {
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
-        let _ = network_uuid;
         self.user_menu = Some(UserMenu {
             nick: nick.to_string(),
+            network_uuid: network_uuid.to_string(),
             chan_id,
             position,
         });
@@ -570,6 +570,12 @@ impl LoungeApp {
         let uuid_ignored = uuid.to_string();
         let uuid_remove = uuid.to_string();
         let uuid_cancel = uuid.to_string();
+        let uuid_favourite = uuid.to_string();
+        let favourite_label = if self.is_favourite_network(uuid) {
+            "Remove from favourites"
+        } else {
+            "Add to favourites"
+        };
 
         let mut card = self.menu_card(&network_name, cx);
         if !locked {
@@ -579,6 +585,10 @@ impl LoungeApp {
         }
         card.child(self.menu_button("Reconnect", cx, move |this, _, cx| {
             this.send_network_command(&uuid_connect, "/connect", cx)
+        }))
+        .child(self.menu_button(favourite_label, cx, move |this, _, cx| {
+            this.toggle_favourite_network(&uuid_favourite, cx);
+            this.network_menu = None;
         }))
         .child(self.menu_button("Move network up", cx, {
             let uuid = uuid.to_string();
@@ -776,6 +786,17 @@ impl LoungeApp {
             this.user_menu = None;
             cx.notify();
         }));
+        let friend_network = menu.network_uuid.clone();
+        let friend_nick = nick.clone();
+        let friend_label = if self.is_friend(&friend_network, &friend_nick) {
+            "Remove friend"
+        } else {
+            "Add friend"
+        };
+        card = card.child(self.menu_button(friend_label, cx, move |this, _, cx| {
+            this.toggle_friend(&friend_network, &friend_nick, cx);
+            this.user_menu = None;
+        }));
         for (label, command) in commands {
             let command = command.to_string();
             let menu = menu.clone();
@@ -813,6 +834,13 @@ impl LoungeApp {
         let network_down = menu.network_uuid.clone();
         let muted = menu.muted;
         let is_query = menu.is_query;
+        let network_favourite = menu.network_uuid.clone();
+        let name_favourite = menu.name.clone();
+        let favourite_label = if self.is_favourite_channel(&network_favourite, &name_favourite) {
+            "Remove from favourites"
+        } else {
+            "Add to favourites"
+        };
         let mut card = self.menu_card(&menu.name, cx);
         card = card
             .child(self.menu_button("Move up", cx, move |this, _, cx| {
@@ -848,6 +876,10 @@ impl LoungeApp {
                 cx.notify();
             }));
         if !is_query {
+            card = card.child(self.menu_button(favourite_label, cx, move |this, _, cx| {
+                this.toggle_favourite_channel(&network_favourite, &name_favourite, cx);
+                this.channel_menu = None;
+            }));
             card = card.child(self.menu_button("Edit topic", cx, move |this, window, cx| {
                 this.inputs
                     .composer
