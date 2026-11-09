@@ -693,14 +693,68 @@ fn unread_badge(count: u32, highlight: bool, theme: Theme) -> AnyElement {
 }
 
 pub(super) fn user_mode_prefix(user: &User, network: &NetworkState) -> Option<String> {
-    let options = network.server_options.as_ref()?;
-    for prefix in &options.prefix.prefix {
-        if user.modes.contains(&prefix.mode) {
-            return Some(prefix.symbol.clone());
+    mode_symbol(&user.modes, &user.mode, network)
+}
+
+pub(super) fn mode_symbol(modes: &[String], mode: &str, network: &NetworkState) -> Option<String> {
+    if let Some(options) = network.server_options.as_ref() {
+        for prefix in &options.prefix.prefix {
+            if modes.iter().any(|symbol| symbol == &prefix.symbol) {
+                return Some(prefix.symbol.clone());
+            }
         }
     }
-    if !user.mode.is_empty() {
-        return options.prefix.mode_to_symbol.get(&user.mode).cloned();
+    if let Some(symbol) = modes.first() {
+        return Some(symbol.clone());
     }
-    None
+    if mode.is_empty() {
+        return None;
+    }
+    if let Some(options) = network.server_options.as_ref() {
+        if let Some(symbol) = options.prefix.mode_to_symbol.get(mode) {
+            return Some(symbol.clone());
+        }
+        if options.prefix.symbols.iter().any(|symbol| symbol == mode) {
+            return Some(mode.to_string());
+        }
+    }
+    Some(mode.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lounge_core::proto::{Prefix, PrefixObject, ServerOptions};
+
+    #[test]
+    fn user_modes_are_symbols() {
+        let network = NetworkState {
+            server_options: Some(ServerOptions {
+                prefix: Prefix {
+                    prefix: vec![
+                        PrefixObject {
+                            symbol: "@".into(),
+                            mode: "o".into(),
+                        },
+                        PrefixObject {
+                            symbol: "+".into(),
+                            mode: "v".into(),
+                        },
+                    ],
+                    mode_to_symbol: [("o".into(), "@".into()), ("v".into(), "+".into())]
+                        .into_iter()
+                        .collect(),
+                    symbols: vec!["@".into(), "+".into()],
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(mode_symbol(&["+".into()], "", &network), Some("+".into()));
+        assert_eq!(
+            mode_symbol(&["+".into(), "@".into()], "", &network),
+            Some("@".into())
+        );
+        assert_eq!(mode_symbol(&[], "v", &network), Some("+".into()));
+    }
 }
