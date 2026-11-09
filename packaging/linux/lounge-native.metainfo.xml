@@ -3,6 +3,9 @@
   <id>dev.lounge.native</id>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
+  <developer id="github.ddxtcc">
+    <name>Lounge Native contributors</name>
+  </developer>
   <name>Lounge Native</name>
   <summary>Native IRC client for The Lounge</summary>
   <description>
@@ -14,7 +17,14 @@
   <launchable type="desktop-id">lounge-native.desktop</launchable>
   <url type="homepage">https://github.com/ddxtcc/thelounge-native</url>
   <url type="bugtracker">https://github.com/ddxtcc/thelounge-native/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/ddxtcc/thelounge-native/main/assets/screenshots/app.png</image>
+      <caption>Chat channels and network sidebar</caption>
+    </screenshot>
+  </screenshots>
   <releases>
+    <release version="1.0.0" date="2026-11-09" />
     <release version="0.9.13" date="2026-11-09" />
     <release version="0.9.12" date="2026-11-09" />
     <release version="0.9.11" date="2026-11-09" />
