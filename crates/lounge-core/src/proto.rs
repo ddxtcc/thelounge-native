@@ -216,7 +216,7 @@ pub struct Message {
     #[serde(default)]
     pub gecos: Option<String>,
     #[serde(default)]
-    pub account: bool,
+    pub account: Option<serde_json::Value>,
     #[serde(default)]
     pub error: Option<String>,
     #[serde(default)]
@@ -269,7 +269,7 @@ impl Default for Message {
             command: None,
             invited_you: false,
             gecos: None,
-            account: false,
+            account: None,
             error: None,
             nick: None,
             channel: None,
@@ -864,6 +864,21 @@ mod tests {
         let u = socket_url("https://example.com/lounge/").unwrap();
         assert_eq!(u.scheme(), "wss");
         assert_eq!(u.path(), "/lounge/socket.io/");
+    }
+
+    #[test]
+    fn message_account_accepts_server_values() {
+        for account in [
+            serde_json::json!("boycott"),
+            serde_json::json!(true),
+            serde_json::Value::Null,
+        ] {
+            let message: Message = serde_json::from_value(serde_json::json!({
+                "account": account
+            }))
+            .unwrap();
+            assert_eq!(message.text, "");
+        }
     }
 
     #[test]
