@@ -390,8 +390,20 @@ async fn session(
                         }
                         "init" => {
                             let Some(data) = data else { continue };
-                            let Ok(init) = serde_json::from_value::<InitData>(data) else {
-                                continue;
+                            let json = data.to_string();
+                            let mut deserializer = serde_json::Deserializer::from_str(&json);
+                            let init = match serde_path_to_error::deserialize::<_, InitData>(
+                                &mut deserializer,
+                            ) {
+                                Ok(init) => init,
+                                Err(error) => {
+                                    eprintln!(
+                                        "init parse failed at {}: {}",
+                                        error.path(),
+                                        error.inner()
+                                    );
+                                    continue;
+                                }
                             };
 
                             *attempt = 0;
