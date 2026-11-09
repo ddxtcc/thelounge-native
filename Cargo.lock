@@ -3932,7 +3932,7 @@ dependencies = [
 
 [[package]]
 name = "lounge-core"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "chrono",
  "futures-util",
@@ -3947,7 +3947,7 @@ dependencies = [
 
 [[package]]
 name = "lounge-native"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "anyhow",
  "chrono",
