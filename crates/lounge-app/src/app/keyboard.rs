@@ -324,6 +324,68 @@ impl LoungeApp {
         true
     }
 
+    fn keyboard_menu_position(window: &Window) -> Point<Pixels> {
+        let position = window.mouse_position();
+        let viewport = window.viewport_size();
+        if position.x < px(0.)
+            || position.y < px(0.)
+            || position.x > viewport.width
+            || position.y > viewport.height
+        {
+            gpui::point(px(320.), px(160.))
+        } else {
+            position
+        }
+    }
+
+    fn move_message_selection(&mut self, delta: i32, cx: &mut Context<Self>) -> bool {
+        let Some((_, channel)) = self.state.active_channel() else {
+            return false;
+        };
+        let messages = &channel.chan.messages;
+        if messages.is_empty() {
+            return false;
+        }
+        let current = self
+            .focused_message
+            .and_then(|id| messages.iter().position(|message| message.id == id));
+        let target = match current {
+            Some(index) => (index as i32 + delta).clamp(0, messages.len() as i32 - 1) as usize,
+            None => messages.len() - 1,
+        };
+        let id = messages[target].id;
+        self.focused_message = Some(id);
+        self.pending_focus_message = Some(id);
+        self.messages_at_bottom = false;
+        cx.notify();
+        true
+    }
+
+    fn open_selected_message_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(id) = self.focused_message else {
+            return false;
+        };
+        let Some((_, channel)) = self.state.active_channel() else {
+            return false;
+        };
+        let Some(message) = channel
+            .chan
+            .messages
+            .iter()
+            .find(|message| message.id == id)
+            .cloned()
+        else {
+            return false;
+        };
+        self.message_menu = Some(MessageMenu {
+            position: Self::keyboard_menu_position(window),
+            channel_id: channel.chan.id,
+            message,
+        });
+        cx.notify();
+        true
+    }
+
     fn open_selected_context_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         match self.nav_section {
             NavSection::Networks => {
@@ -344,7 +406,7 @@ impl LoungeApp {
                     name: channel.chan.name.clone(),
                     is_query: channel.is_query(),
                     muted: channel.chan.muted,
-                    position: window.mouse_position(),
+                    position: Self::keyboard_menu_position(window),
                 };
                 self.open_channel_menu(menu, cx);
                 true
@@ -365,7 +427,7 @@ impl LoungeApp {
                 self.open_user_menu(&nick, &network_uuid, chan_id, window.mouse_position(), cx);
                 true
             }
-            NavSection::Main => false,
+            NavSection::Main => self.open_selected_message_menu(window, cx),
         }
     }
 
@@ -393,6 +455,10 @@ impl LoungeApp {
             return true;
         }
         if key == "escape" {
+            if self.nav_section == NavSection::Main && self.focused_message.take().is_some() {
+                cx.notify();
+                return true;
+            }
             if self.nav_section != NavSection::Main {
                 self.nav_section = NavSection::Main;
                 self.sidebar_overlay = false;
@@ -404,14 +470,8 @@ impl LoungeApp {
         }
         match self.nav_section {
             NavSection::Main => match key.as_str() {
-                "up" | "k" => {
-                    self.scroll_messages_by(px(48.), cx);
-                    true
-                }
-                "down" | "j" => {
-                    self.scroll_messages_by(px(-48.), cx);
-                    true
-                }
+                "up" | "k" => self.move_message_selection(-1, cx),
+                "down" | "j" => self.move_message_selection(1, cx),
                 "home" => {
                     self.scroll_messages_home(cx);
                     true
@@ -423,9 +483,13 @@ impl LoungeApp {
                 "left" | "h" => self.cycle_navigable_channel(-1, window, cx),
                 "right" | "l" => self.cycle_navigable_channel(1, window, cx),
                 "enter" => {
-                    self.nav_mode = false;
-                    self.focus_composer(window, cx);
-                    true
+                    if self.open_selected_message_menu(window, cx) {
+                        true
+                    } else {
+                        self.nav_mode = false;
+                        self.focus_composer(window, cx);
+                        true
+                    }
                 }
                 _ => false,
             },

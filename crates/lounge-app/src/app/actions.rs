@@ -495,6 +495,8 @@ impl LoungeApp {
         if self.state.active == Some(id) {
             return;
         }
+        self.focused_message = None;
+        self.pending_focus_message = None;
         self.messages_list.reset(0);
         self.messages_list_keys.clear();
         self.message_rows_cache = None;

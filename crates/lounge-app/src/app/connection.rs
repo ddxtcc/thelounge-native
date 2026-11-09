@@ -82,6 +82,8 @@ impl LoungeApp {
         self.login_error = None;
         self.last_active_channel = None;
         self.last_message_id = 0;
+        self.focused_message = None;
+        self.pending_focus_message = None;
 
         let (handle, mut events) = lounge_core::socket::connect(ClientConfig {
             base_url: server,
