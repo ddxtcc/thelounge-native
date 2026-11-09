@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1 - 2026-11-09
+
+### Fixed
+
+- Friends and favourites can be removed from their row context menus.
+
 ## 1.1.0 - 2026-11-09
 
 ### Added

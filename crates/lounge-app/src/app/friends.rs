@@ -59,6 +59,17 @@ impl LoungeApp {
                                 }
                             },
                         ))
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener({
+                                let friend = friend.clone();
+                                move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.pinned_menu = Some(PinnedMenu::Friend(friend.clone()));
+                                    cx.notify();
+                                }
+                            }),
+                        )
                         .child(div().size(px(7.)).rounded_full().bg(if online {
                             theme.success
                         } else {
@@ -120,6 +131,18 @@ impl LoungeApp {
                                 }
                             },
                         ))
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener({
+                                let uuid = uuid.clone();
+                                move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.pinned_menu =
+                                        Some(PinnedMenu::FavouriteNetwork(uuid.clone()));
+                                    cx.notify();
+                                }
+                            }),
+                        )
                         .child(div().text_color(theme.accent).child("◆"))
                         .child(div().flex_1().truncate().child(name)),
                 );
@@ -174,6 +197,18 @@ impl LoungeApp {
                                 }
                             },
                         ))
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener({
+                                let favourite = favourite.clone();
+                                move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.pinned_menu =
+                                        Some(PinnedMenu::FavouriteChannel(favourite.clone()));
+                                    cx.notify();
+                                }
+                            }),
+                        )
                         .child(div().flex_1().truncate().child(name))
                         .child(
                             div()
@@ -186,6 +221,78 @@ impl LoungeApp {
             }
         }
         section.into_any_element()
+    }
+
+    pub(super) fn render_pinned_menu(
+        &mut self,
+        menu: PinnedMenu,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match menu {
+            PinnedMenu::Friend(friend) => {
+                let title = friend.nick.clone();
+                let mut card = self.menu_card(&title, cx);
+                let open = friend.clone();
+                card = card.child(self.menu_button("Open query", cx, move |this, window, cx| {
+                    this.open_friend(&open, window, cx);
+                    this.pinned_menu = None;
+                    cx.notify();
+                }));
+                card = card.child(self.menu_button("Remove friend", cx, move |this, _, cx| {
+                    this.toggle_friend(&friend.network, &friend.nick, cx);
+                    this.pinned_menu = None;
+                    cx.notify();
+                }));
+                card.child(self.menu_button("Cancel", cx, |this, _, cx| {
+                    this.pinned_menu = None;
+                    cx.notify();
+                }))
+                .into_any_element()
+            }
+            PinnedMenu::FavouriteNetwork(uuid) => {
+                let title = self
+                    .state
+                    .networks
+                    .iter()
+                    .find(|network| network.uuid == uuid)
+                    .map(|network| network.name.clone())
+                    .unwrap_or_else(|| uuid.clone());
+                let mut card = self.menu_card(&title, cx);
+                let network = uuid.clone();
+                card = card.child(self.menu_button(
+                    "Remove from favourites",
+                    cx,
+                    move |this, _, cx| {
+                        this.toggle_favourite_network(&network, cx);
+                        this.pinned_menu = None;
+                        cx.notify();
+                    },
+                ));
+                card.child(self.menu_button("Cancel", cx, |this, _, cx| {
+                    this.pinned_menu = None;
+                    cx.notify();
+                }))
+                .into_any_element()
+            }
+            PinnedMenu::FavouriteChannel(favourite) => {
+                let mut card = self.menu_card(&favourite.name, cx);
+                let channel = favourite.clone();
+                card = card.child(self.menu_button(
+                    "Remove from favourites",
+                    cx,
+                    move |this, _, cx| {
+                        this.toggle_favourite_channel(&channel.network, &channel.name, cx);
+                        this.pinned_menu = None;
+                        cx.notify();
+                    },
+                ));
+                card.child(self.menu_button("Cancel", cx, |this, _, cx| {
+                    this.pinned_menu = None;
+                    cx.notify();
+                }))
+                .into_any_element()
+            }
+        }
     }
 
     fn query_channel(&self, network_uuid: &str, nick: &str) -> Option<i64> {

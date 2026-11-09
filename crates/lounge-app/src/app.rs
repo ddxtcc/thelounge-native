@@ -17,7 +17,7 @@ use lounge_core::proto::{Message, MessageType, ServerEvent, User};
 use lounge_core::socket::{Auth, ClientConfig, ClientEvent, ClientHandle};
 use lounge_core::state::{ChannelState, ClientState, NetworkState};
 
-use crate::config::{AppConfig, NotificationMode, StatusMessages};
+use crate::config::{AppConfig, FavouriteChannel, Friend, NotificationMode, StatusMessages};
 use crate::text_input::{InputAction, InputColors, InputRole, TextInput};
 use crate::theme::Theme;
 
@@ -195,6 +195,13 @@ struct UserMenu {
 enum FontTarget {
     Ui,
     Mono,
+}
+
+#[derive(Clone)]
+enum PinnedMenu {
+    Friend(Friend),
+    FavouriteNetwork(String),
+    FavouriteChannel(FavouriteChannel),
 }
 
 #[derive(Clone)]
@@ -403,6 +410,7 @@ pub struct LoungeApp {
     network_edit_loading: bool,
     network_has_sts: bool,
     user_menu: Option<UserMenu>,
+    pinned_menu: Option<PinnedMenu>,
     channel_menu: Option<ChannelMenu>,
     message_menu: Option<MessageMenu>,
     text_selection: Option<TextSelection>,
@@ -774,6 +782,7 @@ impl LoungeApp {
             network_edit_loading: false,
             network_has_sts: false,
             user_menu: None,
+            pinned_menu: None,
             channel_menu: None,
             message_menu: None,
             text_selection: None,
