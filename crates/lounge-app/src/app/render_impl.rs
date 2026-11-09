@@ -176,6 +176,7 @@ impl Render for LoungeApp {
             || self.security_open
             || self.network_menu.is_some()
             || self.user_menu.is_some()
+            || self.pinned_menu.is_some()
             || self.channel_menu.is_some()
             || self.message_menu.is_some()
             || self.confirm_remove_network.is_some()
@@ -516,6 +517,7 @@ impl Render for LoungeApp {
             || self.security_open
             || self.network_menu.is_some()
             || self.user_menu.is_some()
+            || self.pinned_menu.is_some()
             || self.channel_menu.is_some()
             || self.message_menu.is_some()
             || self.confirm_remove_network.is_some()
