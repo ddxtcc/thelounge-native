@@ -15,6 +15,7 @@
   <url type="homepage">https://github.com/ddxtcc/thelounge-native</url>
   <url type="bugtracker">https://github.com/ddxtcc/thelounge-native/issues</url>
   <releases>
+    <release version="0.9.6" date="2026-11-09" />
     <release version="0.9.5" date="2026-11-09" />
     <release version="0.9.4" date="2026-11-09" />
     <release version="0.9.3" date="2026-11-08" />
