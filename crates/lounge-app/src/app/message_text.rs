@@ -514,18 +514,7 @@ pub(super) fn user_mode_prefix_in_message(
     user: &lounge_core::proto::UserInMessage,
     network: &NetworkState,
 ) -> Option<String> {
-    let options = network.server_options.as_ref()?;
-    if !user.mode.is_empty() {
-        if let Some(symbol) = options.prefix.mode_to_symbol.get(&user.mode) {
-            return Some(symbol.clone());
-        }
-        for prefix in &options.prefix.prefix {
-            if user.mode.contains(&prefix.mode) {
-                return Some(prefix.symbol.clone());
-            }
-        }
-    }
-    None
+    super::sidebar::mode_symbol(&user.modes, &user.mode, network)
 }
 
 #[derive(Default)]
