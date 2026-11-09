@@ -206,6 +206,126 @@ impl TextInput {
         cx.notify();
     }
 
+    pub fn handle_forwarded_key(
+        &mut self,
+        keystroke: &gpui::Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let key = keystroke.key.to_lowercase();
+        let shift = keystroke.modifiers.shift;
+        let control = keystroke.modifiers.control || keystroke.modifiers.platform;
+        let alt = keystroke.modifiers.alt;
+        let text = keystroke.key_char.as_deref();
+        let word = control || alt;
+        match key.as_str() {
+            "backspace" => {
+                if word {
+                    self.delete_word_backward(&DeleteWordBackward, window, cx);
+                } else {
+                    self.backspace(&Backspace, window, cx);
+                }
+                true
+            }
+            "delete" => {
+                if word {
+                    self.delete_word_forward(&DeleteWordForward, window, cx);
+                } else {
+                    self.delete(&Delete, window, cx);
+                }
+                true
+            }
+            "left" => {
+                if word && shift {
+                    self.select_word_left(&SelectWordLeft, window, cx);
+                } else if word {
+                    self.word_left_action(&WordLeft, window, cx);
+                } else if shift {
+                    self.select_left(&SelectLeft, window, cx);
+                } else {
+                    self.left(&Left, window, cx);
+                }
+                true
+            }
+            "right" => {
+                if word && shift {
+                    self.select_word_right(&SelectWordRight, window, cx);
+                } else if word {
+                    self.word_right_action(&WordRight, window, cx);
+                } else if shift {
+                    self.select_right(&SelectRight, window, cx);
+                } else {
+                    self.right(&Right, window, cx);
+                }
+                true
+            }
+            "home" => {
+                if shift {
+                    self.select_home(&SelectHome, window, cx);
+                } else {
+                    self.home(&Home, window, cx);
+                }
+                true
+            }
+            "end" => {
+                if shift {
+                    self.select_end(&SelectEnd, window, cx);
+                } else {
+                    self.end(&End, window, cx);
+                }
+                true
+            }
+            "up" => {
+                self.prev_history(&PrevHistory, window, cx);
+                true
+            }
+            "down" => {
+                self.next_history(&NextHistory, window, cx);
+                true
+            }
+            "enter" => {
+                if shift {
+                    self.newline(&Newline, window, cx);
+                } else {
+                    self.submit(&Submit, window, cx);
+                }
+                true
+            }
+            "escape" => {
+                self.escape(&Escape, window, cx);
+                true
+            }
+            "a" if control => {
+                self.select_all(&SelectAll, window, cx);
+                true
+            }
+            "c" if control => {
+                self.copy(&Copy, window, cx);
+                true
+            }
+            "x" if control => {
+                self.cut(&Cut, window, cx);
+                true
+            }
+            "v" if control => {
+                self.paste(&Paste, window, cx);
+                true
+            }
+            _ => {
+                if !control
+                    && !alt
+                    && let Some(text) = text
+                    && !text.is_empty()
+                    && !text.chars().all(char::is_control)
+                {
+                    self.insert_text(text, cx);
+                    return true;
+                }
+                false
+            }
+        }
+    }
+
     pub fn insert_text(&mut self, text: &str, cx: &mut Context<Self>) {
         let range = clamp_range(&self.content, self.selected_range.clone());
         self.content = format!(

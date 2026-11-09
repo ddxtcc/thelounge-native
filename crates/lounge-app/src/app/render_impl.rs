@@ -468,10 +468,14 @@ impl Render for LoungeApp {
                     let focused = window.focused(cx);
                     let composer = this.inputs.composer.read(cx).focus_handle(cx);
                     if focused.as_ref() != Some(&composer) {
-                        this.nav_mode = false;
-                        this.focus_composer(window, cx);
-                        window.dispatch_keystroke(event.keystroke.clone(), cx);
-                        cx.stop_propagation();
+                        let handled = this.inputs.composer.update(cx, |input, cx| {
+                            input.handle_forwarded_key(&event.keystroke, window, cx)
+                        });
+                        if handled {
+                            this.nav_mode = false;
+                            this.focus_composer(window, cx);
+                            cx.stop_propagation();
+                        }
                     }
                 }
             }))
