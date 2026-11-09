@@ -418,12 +418,15 @@ impl LoungeApp {
             if let Some(Auth::Token { token: current, .. }) = &mut self.auth {
                 *current = token.clone();
             }
-            if let Err(error) = crate::secure_token::store_token(
+            match crate::secure_token::store_token(
                 &self.config.server,
                 &self.config.user,
                 &self.config.token,
             ) {
-                self.toast(format!("Could not save login token securely: {error}"));
+                Ok(()) => self.config.save_blocked = false,
+                Err(error) => {
+                    self.toast(format!("Could not save login token securely: {error}"));
+                }
             }
         }
         if let Some(active) = self.state.active {

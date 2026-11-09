@@ -79,6 +79,8 @@ pub struct AppConfig {
     pub token: String,
     #[serde(skip)]
     pub token_error: Option<String>,
+    #[serde(skip)]
+    pub save_blocked: bool,
     pub last_channel: Option<i64>,
     pub theme: String,
     pub font_family: String,
@@ -136,6 +138,7 @@ impl Default for AppConfig {
             user: String::new(),
             token: String::new(),
             token_error: None,
+            save_blocked: false,
             last_channel: None,
             theme: "dark".into(),
             font_family: ".SystemUIFont".into(),
@@ -255,6 +258,7 @@ impl AppConfig {
                 Ok(()) => self.save(),
                 Err(error) => {
                     self.token_error = Some(error);
+                    self.save_blocked = true;
                 }
             }
             return;
@@ -289,7 +293,7 @@ impl AppConfig {
     }
 
     pub fn save(&self) {
-        if self.load_failed {
+        if self.load_failed || self.save_blocked {
             return;
         }
         let path = Self::path();
