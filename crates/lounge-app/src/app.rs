@@ -186,6 +186,7 @@ struct ReplyTarget {
 #[derive(Clone)]
 struct UserMenu {
     nick: String,
+    network_uuid: String,
     chan_id: i64,
     position: Point<Pixels>,
 }
@@ -438,6 +439,7 @@ mod badge;
 mod commands;
 mod connection;
 mod desktop;
+mod friends;
 mod image_cache;
 mod image_preview;
 mod keyboard;

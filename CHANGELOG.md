@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0 - 2026-11-09
+
+### Added
+
+- Friends list with online presence indicators.
+- Favourite networks and channels pinned at the top of the sidebar.
+- Friend and favourite actions in user, network, and channel context menus.
+
 ## 1.0.0 - 2026-11-09
 
 ### Added

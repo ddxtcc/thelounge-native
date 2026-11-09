@@ -70,6 +70,18 @@ pub struct SavedHistory {
     pub entries: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Friend {
+    pub network: String,
+    pub nick: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FavouriteChannel {
+    pub network: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -120,6 +132,9 @@ pub struct AppConfig {
     #[serde(default)]
     pub saved_themes: Vec<SavedTheme>,
     pub favorite_commands: Vec<String>,
+    pub friends: Vec<Friend>,
+    pub favourite_networks: Vec<String>,
+    pub favourite_channels: Vec<FavouriteChannel>,
     pub command_aliases: HashMap<String, String>,
     pub saved_drafts: Vec<SavedDraft>,
     pub saved_histories: Vec<SavedHistory>,
@@ -175,6 +190,9 @@ impl Default for AppConfig {
             custom_theme: None,
             saved_themes: Vec::new(),
             favorite_commands: Vec::new(),
+            friends: Vec::new(),
+            favourite_networks: Vec::new(),
+            favourite_channels: Vec::new(),
             command_aliases: HashMap::new(),
             saved_drafts: Vec::new(),
             saved_histories: Vec::new(),
@@ -354,6 +372,27 @@ mod tests {
         let config: AppConfig = toml::from_str("notifications = true").unwrap();
         assert_eq!(config.media_volume, 1.0);
         assert!(!config.media_muted);
+    }
+
+    #[test]
+    fn friends_and_favourites_round_trip() {
+        let config = AppConfig {
+            friends: vec![Friend {
+                network: "u1".into(),
+                nick: "alice".into(),
+            }],
+            favourite_networks: vec!["u1".into()],
+            favourite_channels: vec![FavouriteChannel {
+                network: "u1".into(),
+                name: "#rust".into(),
+            }],
+            ..Default::default()
+        };
+        let text = toml::to_string_pretty(&config).unwrap();
+        let parsed: AppConfig = toml::from_str(&text).unwrap();
+        assert_eq!(parsed.friends, config.friends);
+        assert_eq!(parsed.favourite_networks, config.favourite_networks);
+        assert_eq!(parsed.favourite_channels, config.favourite_channels);
     }
 
     #[test]
