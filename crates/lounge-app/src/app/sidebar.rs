@@ -22,7 +22,8 @@ impl LoungeApp {
 
         for (network_index, network) in self.state.networks.iter().enumerate() {
             let uuid = network.uuid.clone();
-            let nav_focused = self.nav_section == super::keyboard::NavSection::Networks
+            let nav_focused = self.nav_mode
+                && self.nav_section == super::keyboard::NavSection::Networks
                 && network_index == self.nav_network;
             let collapsed = self.collapsed_networks.contains(&uuid);
             let unread: u32 = network
@@ -151,8 +152,9 @@ impl LoungeApp {
             for channel in &network.channels {
                 let id = channel.chan.id;
                 let selected = self.state.active == Some(id);
-                let nav_focused =
-                    self.nav_section == super::keyboard::NavSection::Channels && selected;
+                let nav_focused = self.nav_mode
+                    && self.nav_section == super::keyboard::NavSection::Channels
+                    && selected;
                 let name = if channel.is_lobby() {
                     network.name.clone()
                 } else {
@@ -542,7 +544,8 @@ impl LoungeApp {
         }
         for (user_index, user) in users.into_iter().enumerate() {
             let nick = user.nick.clone();
-            let nav_focused = self.nav_section == super::keyboard::NavSection::Users
+            let nav_focused = self.nav_mode
+                && self.nav_section == super::keyboard::NavSection::Users
                 && user_index == self.nav_user;
             let mode = if self.config.show_user_modes {
                 user_mode_prefix(user, network)

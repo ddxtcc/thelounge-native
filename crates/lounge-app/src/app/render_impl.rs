@@ -463,21 +463,14 @@ impl Render for LoungeApp {
                     && !this.last_overlay_open
                     && !this.sidebar_overlay
                     && !this.users_overlay
-                    && !event.keystroke.modifiers.control
-                    && !event.keystroke.modifiers.alt
-                    && !event.keystroke.modifiers.platform
-                    && !event.keystroke.modifiers.function
-                    && let Some(text) = event.keystroke.key_char.as_deref()
-                    && !text.is_empty()
-                    && !text.chars().all(char::is_control)
+                    && !event.keystroke.key.eq_ignore_ascii_case("escape")
                 {
                     let focused = window.focused(cx);
                     let composer = this.inputs.composer.read(cx).focus_handle(cx);
                     if focused.as_ref() != Some(&composer) {
-                        this.inputs
-                            .composer
-                            .update(cx, |input, cx| input.insert_text(text, cx));
+                        this.nav_mode = false;
                         this.focus_composer(window, cx);
+                        window.dispatch_keystroke(event.keystroke.clone(), cx);
                         cx.stop_propagation();
                     }
                 }

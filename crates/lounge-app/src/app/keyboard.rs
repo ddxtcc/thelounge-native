@@ -455,17 +455,25 @@ impl LoungeApp {
             return true;
         }
         if key == "escape" {
-            if self.nav_section == NavSection::Main && self.focused_message.take().is_some() {
+            let had_focus = self.nav_mode
+                || self.focused_message.is_some()
+                || self.nav_section != NavSection::Main
+                || self.sidebar_overlay
+                || self.users_overlay;
+            if had_focus {
+                self.nav_mode = false;
+                self.nav_section = NavSection::Main;
+                self.focused_message = None;
+                self.pending_focus_message = None;
+                self.sidebar_overlay = false;
+                self.users_overlay = false;
+                self.focus_composer(window, cx);
                 cx.notify();
                 return true;
             }
-            if self.nav_section != NavSection::Main {
-                self.nav_section = NavSection::Main;
-                self.sidebar_overlay = false;
-                self.users_overlay = false;
-                self.focus_navigation(window, cx);
-                return true;
-            }
+            return false;
+        }
+        if !self.nav_mode {
             return false;
         }
         match self.nav_section {
