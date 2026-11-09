@@ -157,6 +157,7 @@ async fn run(
     let mut last_message = config.initial_last_message;
     let mut open_channel = config.initial_open_channel;
     let mut last_server_hash = config.server_hash;
+    let mut pending_commands = Vec::new();
     let mut attempt: u32 = 0;
 
     loop {
@@ -167,6 +168,7 @@ async fn run(
             &mut last_message,
             &mut open_channel,
             &mut last_server_hash,
+            &mut pending_commands,
             &mut cmd_rx,
             &evt_tx,
             &mut attempt,
@@ -204,8 +206,11 @@ async fn run(
                                 let _ = evt_tx.send(ClientEvent::Closed);
                                 return;
                             }
-                            Some(Command::Open(id)) => open_channel = Some(id),
-                            _ => {}
+                            Some(Command::Open(id)) => {
+                                open_channel = Some(id);
+                                pending_commands.push(Command::Open(id));
+                            }
+                            Some(command) => pending_commands.push(command),
                         }
                     }
                 }
@@ -223,6 +228,7 @@ async fn session(
     last_message: &mut i64,
     open_channel: &mut Option<i64>,
     last_server_hash: &mut Option<i64>,
+    pending_commands: &mut Vec<Command>,
     cmd_rx: &mut mpsc::UnboundedReceiver<Command>,
     evt_tx: &mpsc::UnboundedSender<ClientEvent>,
     attempt: &mut u32,
@@ -256,7 +262,7 @@ async fn session(
                 }
             }
             Ok(Some(Ok(WsMessage::Ping(payload)))) => {
-                if sink.send(WsMessage::Pong(payload)).await.is_err() {
+                if send_ws(&mut sink, WsMessage::Pong(payload)).await.is_err() {
                     return SessionEnd::Disconnected("connection lost during handshake".into());
                 }
             }
@@ -271,7 +277,10 @@ async fn session(
         }
     }
 
-    if sink.send(WsMessage::Text("40".into())).await.is_err() {
+    if send_ws(&mut sink, WsMessage::Text("40".into()))
+        .await
+        .is_err()
+    {
         return SessionEnd::Disconnected("failed to open socket.io namespace".into());
     }
     let _ = evt_tx.send(ClientEvent::Handshake);
@@ -290,42 +299,16 @@ async fn session(
             }
             command = cmd_rx.recv() => {
                 let Some(command) = command else {
-                    let _ = sink.send(WsMessage::Text("41".into())).await;
+                    let _ = send_ws(&mut sink, WsMessage::Text("41".into())).await;
                     return SessionEnd::Closed;
                 };
                 match command {
                     Command::Close => {
-                        let _ = sink.send(WsMessage::Text("41".into())).await;
+                        let _ = send_ws(&mut sink, WsMessage::Text("41".into())).await;
                         return SessionEnd::Closed;
                     }
-                    Command::Open(id) => {
-                        *open_channel = Some(id);
-                        if send_event(&mut sink, "open", Some(json!(id))).await.is_err() {
-                            return SessionEnd::Disconnected("connection lost".into());
-                        }
-                    }
-                    Command::Emit { event, data } => {
-                        if send_event(&mut sink, &event, data).await.is_err() {
-                            return SessionEnd::Disconnected("connection lost".into());
-                        }
-                    }
-                    Command::Input { target, text, reply_to } => {
-                        let mut data = json!({"target": target, "text": text});
-                        if let Some(reply_to) = reply_to {
-                            data["replyTo"] = json!(reply_to);
-                        }
-                        if send_event(&mut sink, "input", Some(data)).await.is_err() {
-                            return SessionEnd::Disconnected("connection lost".into());
-                        }
-                    }
-                    Command::Names(target) => {
-                        if send_event(&mut sink, "names", Some(json!({"target": target}))).await.is_err() {
-                            return SessionEnd::Disconnected("connection lost".into());
-                        }
-                    }
-                    Command::More { target, last_id, condensed } => {
-                        let data = json!({"target": target, "lastId": last_id, "condensed": condensed});
-                        if send_event(&mut sink, "more", Some(data)).await.is_err() {
+                    command => {
+                        if send_command(&mut sink, command, open_channel).await.is_err() {
                             return SessionEnd::Disconnected("connection lost".into());
                         }
                     }
@@ -342,7 +325,7 @@ async fn session(
                         Err(_) => continue,
                     },
                     Ok(WsMessage::Ping(payload)) => {
-                        if sink.send(WsMessage::Pong(payload)).await.is_err() {
+                        if send_ws(&mut sink, WsMessage::Pong(payload)).await.is_err() {
                             return SessionEnd::Disconnected("connection lost".into());
                         }
                         continue;
@@ -362,7 +345,7 @@ async fn session(
 
                 for packet in split_packets(&text) {
                     if packet == "2" {
-                        if sink.send(WsMessage::Text("3".into())).await.is_err() {
+                        if send_ws(&mut sink, WsMessage::Text("3".into())).await.is_err() {
                             return SessionEnd::Disconnected("connection lost".into());
                         }
                         continue;
@@ -443,6 +426,16 @@ async fn session(
                                 *open_channel = Some(init.active);
                             }
                             let _ = evt_tx.send(ClientEvent::Init(Box::new(init)));
+                            for command in pending_commands.drain(..) {
+                                if send_command(&mut sink, command, open_channel)
+                                    .await
+                                    .is_err()
+                                {
+                                    return SessionEnd::Disconnected(
+                                        "connection lost".into(),
+                                    );
+                                }
+                            }
                         }
                         "open" => {
                             if let Some(Value::Number(id)) = &data
@@ -523,11 +516,55 @@ fn auth_payload(
     }
 }
 
-async fn send_event<S>(
+async fn send_command<S>(
     sink: &mut S,
-    event: &str,
-    data: Option<Value>,
-) -> Result<(), tokio_tungstenite::tungstenite::Error>
+    command: Command,
+    open_channel: &mut Option<i64>,
+) -> Result<(), ()>
+where
+    S: futures_util::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    match command {
+        Command::Open(id) => {
+            *open_channel = Some(id);
+            send_event(sink, "open", Some(json!(id))).await
+        }
+        Command::Emit { event, data } => send_event(sink, &event, data).await,
+        Command::Input {
+            target,
+            text,
+            reply_to,
+        } => {
+            let mut data = json!({"target": target, "text": text});
+            if let Some(reply_to) = reply_to {
+                data["replyTo"] = json!(reply_to);
+            }
+            send_event(sink, "input", Some(data)).await
+        }
+        Command::Names(target) => send_event(sink, "names", Some(json!({"target": target}))).await,
+        Command::More {
+            target,
+            last_id,
+            condensed,
+        } => {
+            let data = json!({"target": target, "lastId": last_id, "condensed": condensed});
+            send_event(sink, "more", Some(data)).await
+        }
+        Command::Close => Ok(()),
+    }
+}
+
+async fn send_ws<S>(sink: &mut S, message: WsMessage) -> Result<(), ()>
+where
+    S: futures_util::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    match tokio::time::timeout(PING_TIMEOUT, sink.send(message)).await {
+        Ok(Ok(())) => Ok(()),
+        _ => Err(()),
+    }
+}
+
+async fn send_event<S>(sink: &mut S, event: &str, data: Option<Value>) -> Result<(), ()>
 where
     S: futures_util::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
@@ -536,7 +573,7 @@ where
         None => json!([event]),
     };
     let text = format!("42{packet}");
-    sink.send(WsMessage::Text(text.into())).await
+    send_ws(sink, WsMessage::Text(text.into())).await
 }
 
 fn split_packets(text: &str) -> Vec<&str> {
@@ -578,6 +615,32 @@ mod tests {
         let (event, _) = parse_socketio_event(r#"7["open",3]"#).unwrap();
         assert_eq!(event, "open");
         assert!(parse_socketio_event("garbage").is_none());
+    }
+
+    #[test]
+    fn builds_auth_payloads() {
+        let config = ClientConfig {
+            base_url: "https://example.test".into(),
+            auth: Auth::Token {
+                user: "alice".into(),
+                token: "secret".into(),
+            },
+            initial_last_message: -1,
+            initial_open_channel: None,
+            server_hash: None,
+            has_config: false,
+        };
+        let payload = auth_payload(&config, None, 42, Some(7)).unwrap();
+        assert_eq!(payload["user"], "alice");
+        assert_eq!(payload["token"], "secret");
+        assert_eq!(payload["lastMessage"], 42);
+        assert_eq!(payload["openChannel"], 7);
+
+        let public = ClientConfig {
+            auth: Auth::Public,
+            ..config
+        };
+        assert!(auth_payload(&public, None, 0, None).is_none());
     }
 
     #[test]
