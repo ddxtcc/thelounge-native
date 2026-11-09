@@ -103,6 +103,7 @@ pub struct AppConfig {
     pub show_seconds: bool,
     pub colored_nicks: bool,
     pub show_user_modes: bool,
+    pub sort_users_by_mode: bool,
     pub status_messages: StatusMessages,
     pub show_user_list: bool,
     pub notifications: bool,
@@ -158,6 +159,7 @@ impl Default for AppConfig {
             show_seconds: false,
             colored_nicks: true,
             show_user_modes: true,
+            sort_users_by_mode: true,
             status_messages: StatusMessages::Condensed,
             show_user_list: true,
             notifications: true,
@@ -391,6 +393,7 @@ mod tests {
     fn legacy_config_shows_user_modes() {
         let config: AppConfig = toml::from_str("notifications = true").unwrap();
         assert!(config.show_user_modes);
+        assert!(config.sort_users_by_mode);
     }
 
     #[test]

@@ -523,7 +523,7 @@ impl LoungeApp {
             return div().into_any_element();
         }
         let filter = self.inputs.users_filter.read(cx).content().to_lowercase();
-        let users: Vec<_> = channel
+        let mut users: Vec<_> = channel
             .users
             .iter()
             .filter(|user| {
@@ -533,6 +533,9 @@ impl LoungeApp {
                     || (user.is_bot && "bot".contains(&filter))
             })
             .collect();
+        if self.config.sort_users_by_mode {
+            sort_users(&mut users, network);
+        }
         let mut list = div().flex().flex_col().gap_0p5().p_2();
         if users.is_empty() && !filter.is_empty() {
             list = list.child(
@@ -542,7 +545,22 @@ impl LoungeApp {
                     .child("No matching users."),
             );
         }
+        let mut group = None;
         for (user_index, user) in users.into_iter().enumerate() {
+            if self.config.sort_users_by_mode {
+                let next_group = mode_group(user, network);
+                if group.as_deref() != Some(next_group.as_str()) {
+                    list = list.child(
+                        div()
+                            .pt_1()
+                            .pb_0p5()
+                            .text_size(px(10.))
+                            .text_color(theme.muted)
+                            .child(next_group.clone()),
+                    );
+                    group = Some(next_group);
+                }
+            }
             let nick = user.nick.clone();
             let nav_focused = self.nav_mode
                 && self.nav_section == super::keyboard::NavSection::Users
@@ -696,6 +714,38 @@ pub(super) fn user_mode_prefix(user: &User, network: &NetworkState) -> Option<St
     mode_symbol(&user.modes, &user.mode, network)
 }
 
+pub(super) fn sort_users(users: &mut Vec<&User>, network: &NetworkState) {
+    users.sort_by_key(|user| (mode_rank(&user.modes, network), user.nick.to_lowercase()));
+}
+
+fn mode_rank(modes: &[String], network: &NetworkState) -> usize {
+    if let Some(options) = network.server_options.as_ref() {
+        for (index, prefix) in options.prefix.prefix.iter().enumerate() {
+            if modes.iter().any(|symbol| symbol == &prefix.symbol) {
+                return index;
+            }
+        }
+        return options.prefix.prefix.len();
+    }
+    const FALLBACK: [&str; 5] = ["~", "&", "@", "%", "+"];
+    FALLBACK
+        .iter()
+        .position(|symbol| modes.iter().any(|mode| mode == symbol))
+        .unwrap_or(FALLBACK.len())
+}
+
+fn mode_group(user: &User, network: &NetworkState) -> String {
+    match mode_symbol(&user.modes, &user.mode, network).as_deref() {
+        Some("@") => "Operators".into(),
+        Some("+") => "Voiced".into(),
+        Some("%") => "Half Operators".into(),
+        Some("&") => "Admins".into(),
+        Some("~") => "Owners".into(),
+        Some(other) => other.into(),
+        None => "Users".into(),
+    }
+}
+
 pub(super) fn mode_symbol(modes: &[String], mode: &str, network: &NetworkState) -> Option<String> {
     if let Some(options) = network.server_options.as_ref() {
         for prefix in &options.prefix.prefix {
@@ -756,5 +806,48 @@ mod tests {
             Some("@".into())
         );
         assert_eq!(mode_symbol(&[], "v", &network), Some("+".into()));
+    }
+
+    #[test]
+    fn sorts_users_by_mode_then_nickname() {
+        let network = NetworkState {
+            server_options: Some(ServerOptions {
+                prefix: Prefix {
+                    prefix: vec![
+                        PrefixObject {
+                            symbol: "@".into(),
+                            mode: "o".into(),
+                        },
+                        PrefixObject {
+                            symbol: "+".into(),
+                            mode: "v".into(),
+                        },
+                    ],
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let users_owned = [
+            User {
+                nick: "zulu".into(),
+                ..Default::default()
+            },
+            User {
+                nick: "alice".into(),
+                modes: vec!["+".into()],
+                ..Default::default()
+            },
+            User {
+                nick: "bob".into(),
+                modes: vec!["@".into()],
+                ..Default::default()
+            },
+        ];
+        let mut users: Vec<&User> = users_owned.iter().collect();
+        sort_users(&mut users, &network);
+        let nicks: Vec<_> = users.iter().map(|user| user.nick.as_str()).collect();
+        assert_eq!(nicks, ["bob", "alice", "zulu"]);
     }
 }

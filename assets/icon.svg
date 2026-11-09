@@ -1,7 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <rect width="256" height="256" rx="56" fill="#11151c"/>
-  <rect x="8" y="8" width="240" height="240" rx="49" fill="none" stroke="#253041" stroke-width="2"/>
-  <path d="M64 64h128a20 20 0 0 1 20 20v72a20 20 0 0 1-20 20h-54l-34 28v-28H64a20 20 0 0 1-20-20V84a20 20 0 0 1 20-20Z" fill="#7aa2f7"/>
-  <path d="M86 102l26 22-26 22" fill="none" stroke="#11151c" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="126" y="132" width="54" height="14" rx="7" fill="#11151c"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 960 960">
+  <title>Orange geometric chat symbol</title>
+  <desc>Single orange outlined hexagonal speech symbol on a transparent square canvas.</desc>
+  <path d="M470 120 L790 305 L790 590 L255 900 L270 725 L145 650 L145 325 Z" transform="translate(12 -30)" fill="none" stroke="#FF7900" stroke-width="82" stroke-linejoin="round" stroke-linecap="round"/>
 </svg>
