@@ -484,6 +484,12 @@ impl LoungeApp {
         #[cfg(all(feature = "media", any(target_os = "windows", target_os = "macos")))]
         media::configure_gstreamer();
         let config = AppConfig::load();
+        #[cfg(feature = "media")]
+        let media_positions = if config.remember_media_positions {
+            config.media_positions.clone()
+        } else {
+            HashMap::new()
+        };
         let theme = Theme::from_config(&config.theme, &config.saved_themes);
         let root_focus = cx.focus_handle();
         let settings_first_focus = cx.focus_handle();
@@ -693,7 +699,7 @@ impl LoungeApp {
             #[cfg(feature = "media")]
             media_audio_url: None,
             #[cfg(feature = "media")]
-            media_positions: HashMap::new(),
+            media_positions,
             #[cfg(feature = "media")]
             media_failures: HashMap::new(),
             #[cfg(feature = "media")]
@@ -831,6 +837,8 @@ impl LoungeApp {
                 if this.theme_editor.is_some() {
                     this.save_theme_editor(cx);
                 }
+                #[cfg(feature = "media")]
+                this.persist_media_positions();
             });
         })
         .detach();

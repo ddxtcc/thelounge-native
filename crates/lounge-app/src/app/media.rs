@@ -317,6 +317,48 @@ impl LoungeApp {
         } else {
             self.media_positions.remove(url);
         }
+        self.save_media_positions();
+    }
+
+    fn save_media_positions(&mut self) {
+        if self.config.remember_media_positions {
+            self.config.media_positions = self.media_positions.clone();
+        } else {
+            self.config.media_positions.clear();
+        }
+        self.config.save();
+    }
+
+    pub(super) fn persist_media_positions(&mut self) {
+        if let Some((url, video)) = self.media_video.as_ref() {
+            let url = url.clone();
+            let position = video.position().as_secs();
+            self.remember_position(&url, position);
+        }
+        if let Some(audio) = self.media_audio.as_ref()
+            && let Some(url) = self.media_audio_url.clone()
+        {
+            let position = audio
+                .query_position::<gst::ClockTime>()
+                .map(|position| position.seconds())
+                .unwrap_or(0);
+            self.remember_position(&url, position);
+        }
+        if let Some(video) = self.inline_video.as_ref() {
+            let url = video.url.clone();
+            let position = video.video.position().as_secs();
+            self.remember_position(&url, position);
+        }
+        if let Some(audio) = self.inline_audio.as_ref() {
+            let url = audio.url.clone();
+            let position = audio
+                .pipeline
+                .query_position::<gst::ClockTime>()
+                .map(|position| position.seconds())
+                .unwrap_or(0);
+            self.remember_position(&url, position);
+        }
+        self.save_media_positions();
     }
 
     fn remember_failure(&mut self, url: String, error: String) {
@@ -326,7 +368,6 @@ impl LoungeApp {
     }
 
     pub(super) fn clear_media_session(&mut self) {
-        self.media_positions.clear();
         self.media_failures.clear();
     }
 

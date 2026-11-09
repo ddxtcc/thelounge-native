@@ -276,6 +276,17 @@ impl LoungeApp {
                 cx,
                 |this| this.config.video_thumbnails = !this.config.video_thumbnails,
             ))
+            .child(self.setting_row_toggle(
+                "Remember playback positions",
+                self.config.remember_media_positions,
+                cx,
+                |this| {
+                    this.config.remember_media_positions = !this.config.remember_media_positions;
+                    if !this.config.remember_media_positions {
+                        this.config.media_positions.clear();
+                    }
+                },
+            ))
             .child(self.setting_row_button(
                 "Clear current channel history",
                 "Clear",

@@ -37,6 +37,9 @@ impl LoungeApp {
 
         let account_changed = server != self.config.server || user != self.config.user;
         if account_changed {
+            #[cfg(feature = "media")]
+            self.media_positions.clear();
+            self.config.media_positions.clear();
             self.forget_token();
             self.config.last_channel = None;
             self.config.notification_overrides.clear();
