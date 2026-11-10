@@ -198,10 +198,16 @@ enum FontTarget {
 }
 
 #[derive(Clone)]
-enum PinnedMenu {
+enum PinnedTarget {
     Friend(Friend),
     FavouriteNetwork(String),
     FavouriteChannel(FavouriteChannel),
+}
+
+#[derive(Clone)]
+struct PinnedMenu {
+    target: PinnedTarget,
+    position: Point<Pixels>,
 }
 
 #[derive(Clone)]

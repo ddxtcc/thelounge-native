@@ -922,7 +922,7 @@ impl LoungeApp {
     }
 }
 
-fn menu_origin(
+pub(super) fn menu_origin(
     window: &Window,
     position: Point<Pixels>,
     width: f32,

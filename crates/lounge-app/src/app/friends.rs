@@ -65,9 +65,12 @@ impl LoungeApp {
                             MouseButton::Right,
                             cx.listener({
                                 let friend = friend.clone();
-                                move |this, _, _, cx| {
+                                move |this, event: &gpui::MouseDownEvent, _, cx| {
                                     cx.stop_propagation();
-                                    this.pinned_menu = Some(PinnedMenu::Friend(friend.clone()));
+                                    this.pinned_menu = Some(PinnedMenu {
+                                        target: PinnedTarget::Friend(friend.clone()),
+                                        position: event.position,
+                                    });
                                     cx.notify();
                                 }
                             }),
@@ -142,10 +145,12 @@ impl LoungeApp {
                             MouseButton::Right,
                             cx.listener({
                                 let uuid = uuid.clone();
-                                move |this, _, _, cx| {
+                                move |this, event: &gpui::MouseDownEvent, _, cx| {
                                     cx.stop_propagation();
-                                    this.pinned_menu =
-                                        Some(PinnedMenu::FavouriteNetwork(uuid.clone()));
+                                    this.pinned_menu = Some(PinnedMenu {
+                                        target: PinnedTarget::FavouriteNetwork(uuid.clone()),
+                                        position: event.position,
+                                    });
                                     cx.notify();
                                 }
                             }),
@@ -213,10 +218,12 @@ impl LoungeApp {
                             MouseButton::Right,
                             cx.listener({
                                 let favourite = favourite.clone();
-                                move |this, _, _, cx| {
+                                move |this, event: &gpui::MouseDownEvent, _, cx| {
                                     cx.stop_propagation();
-                                    this.pinned_menu =
-                                        Some(PinnedMenu::FavouriteChannel(favourite.clone()));
+                                    this.pinned_menu = Some(PinnedMenu {
+                                        target: PinnedTarget::FavouriteChannel(favourite.clone()),
+                                        position: event.position,
+                                    });
                                     cx.notify();
                                 }
                             }),
@@ -248,10 +255,12 @@ impl LoungeApp {
     pub(super) fn render_pinned_menu(
         &mut self,
         menu: PinnedMenu,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        match menu {
-            PinnedMenu::Friend(friend) => {
+        let position = menu.position;
+        let card = match menu.target {
+            PinnedTarget::Friend(friend) => {
                 let title = friend.nick.clone();
                 let mut card = self.menu_card(&title, cx);
                 let open = friend.clone();
@@ -271,7 +280,7 @@ impl LoungeApp {
                 }))
                 .into_any_element()
             }
-            PinnedMenu::FavouriteNetwork(uuid) => {
+            PinnedTarget::FavouriteNetwork(uuid) => {
                 let title = self
                     .state
                     .networks
@@ -296,7 +305,7 @@ impl LoungeApp {
                 }))
                 .into_any_element()
             }
-            PinnedMenu::FavouriteChannel(favourite) => {
+            PinnedTarget::FavouriteChannel(favourite) => {
                 let mut card = self.menu_card(&favourite.name, cx);
                 let channel = favourite.clone();
                 card = card.child(self.menu_button(
@@ -314,7 +323,14 @@ impl LoungeApp {
                 }))
                 .into_any_element()
             }
-        }
+        };
+        let (x, y) = super::menus::menu_origin(window, position, 420., 320.);
+        div()
+            .absolute()
+            .left(x)
+            .top(y)
+            .child(card)
+            .into_any_element()
     }
 
     fn query_channel(&self, network_uuid: &str, nick: &str) -> Option<i64> {

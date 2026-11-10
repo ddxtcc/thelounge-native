@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.4 - 2026-11-10
+
+### Fixed
+
+- Friend and favourite right-click menus now open at the pointer like other context menus.
+
 ## 1.1.3 - 2026-11-10
 
 ### Changed
