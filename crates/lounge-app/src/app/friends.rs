@@ -72,11 +72,13 @@ impl LoungeApp {
                                 }
                             }),
                         )
-                        .child(div().size(px(7.)).rounded_full().bg(if online {
-                            theme.success
-                        } else {
-                            theme.faint
-                        }))
+                        .child(div().w(px(14.)).flex().justify_center().child(
+                            div().size(px(7.)).rounded_full().bg(if online {
+                                theme.success
+                            } else {
+                                theme.faint
+                            }),
+                        ))
                         .child(div().flex_1().truncate().child(friend.nick))
                         .child(
                             div()
@@ -172,7 +174,7 @@ impl LoungeApp {
                 else {
                     continue;
                 };
-                let name = channel.chan.name.clone();
+                let (icon, display_name) = super::sidebar::channel_prefix(&channel.chan.name);
                 let network_name = network.name.clone();
                 let click_favourite = favourite.clone();
                 let key_favourite = favourite.clone();
@@ -219,7 +221,17 @@ impl LoungeApp {
                                 }
                             }),
                         )
-                        .child(div().flex_1().truncate().child(name))
+                        .child(
+                            div()
+                                .w(px(14.))
+                                .text_color(if self.state.active == Some(channel.chan.id) {
+                                    theme.accent
+                                } else {
+                                    theme.muted
+                                })
+                                .child(icon),
+                        )
+                        .child(div().flex_1().truncate().child(display_name))
                         .child(
                             div()
                                 .text_size(px(10.))

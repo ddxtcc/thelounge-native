@@ -94,14 +94,16 @@ impl LoungeApp {
                         }),
                     )
                     .child(
-                        div()
-                            .size(px(7.))
-                            .rounded_full()
-                            .bg(if network.status.connected {
-                                theme.success
-                            } else {
-                                theme.faint
-                            }),
+                        div().w(px(14.)).flex().justify_center().child(
+                            div()
+                                .size(px(7.))
+                                .rounded_full()
+                                .bg(if network.status.connected {
+                                    theme.success
+                                } else {
+                                    theme.faint
+                                }),
+                        ),
                     )
                     .child(
                         div()
@@ -161,11 +163,11 @@ impl LoungeApp {
                 } else {
                     channel.chan.name.clone()
                 };
-                let icon = match channel.chan.kind {
-                    lounge_core::ChanType::Query => "@",
-                    lounge_core::ChanType::Channel => "#",
-                    lounge_core::ChanType::Special => "=",
-                    _ => "*",
+                let (icon, display_name) = match channel.chan.kind {
+                    lounge_core::ChanType::Query => ("@".to_string(), name.clone()),
+                    lounge_core::ChanType::Channel => channel_prefix(&name),
+                    lounge_core::ChanType::Special => ("=".to_string(), name.clone()),
+                    _ => ("*".to_string(), name.clone()),
                 };
                 let highlight = channel.chan.highlight;
                 let unread = channel.chan.unread;
@@ -255,7 +257,7 @@ impl LoungeApp {
                         ))
                         .child(
                             div()
-                                .w(px(12.))
+                                .w(px(14.))
                                 .text_color(if selected { theme.accent } else { theme.muted })
                                 .child(icon),
                         )
@@ -264,7 +266,7 @@ impl LoungeApp {
                                 .flex_1()
                                 .truncate()
                                 .when(muted, |this| this.text_color(theme.faint))
-                                .child(name),
+                                .child(display_name),
                         )
                         .when(highlight > 0, |this| {
                             this.child(
@@ -709,6 +711,19 @@ fn unread_badge(count: u32, highlight: bool, theme: Theme) -> AnyElement {
         .text_size(px(11.))
         .child(count.to_string())
         .into_any_element()
+}
+
+pub(super) fn channel_prefix(name: &str) -> (String, String) {
+    let prefix_len = name
+        .chars()
+        .take_while(|character| matches!(character, '#' | '&'))
+        .count();
+    if prefix_len == 0 {
+        ("#".into(), name.to_string())
+    } else {
+        let (prefix, rest) = name.split_at(prefix_len);
+        (prefix.to_string(), rest.to_string())
+    }
 }
 
 pub(super) fn user_mode_prefix(user: &User, network: &NetworkState) -> Option<String> {
