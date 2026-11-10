@@ -20,6 +20,16 @@ impl LoungeApp {
         let on_accent = theme.on_accent;
         let mut list = div().flex().flex_col().gap_1().p_2().w_full();
         list = list.child(self.render_pinned(cx));
+        if !self.state.networks.is_empty() {
+            list = list.child(
+                div()
+                    .px_2()
+                    .pt_1()
+                    .text_size(px(10.))
+                    .text_color(theme.muted)
+                    .child("NETWORKS"),
+            );
+        }
 
         for (network_index, network) in self.state.networks.iter().enumerate() {
             let uuid = network.uuid.clone();
@@ -87,9 +97,9 @@ impl LoungeApp {
                         MouseButton::Right,
                         cx.listener({
                             let uuid = uuid.clone();
-                            move |this, _, _, cx| {
+                            move |this, event: &gpui::MouseDownEvent, _, cx| {
                                 cx.stop_propagation();
-                                this.open_network_menu(&uuid, cx);
+                                this.open_network_menu_at(&uuid, Some(event.position), cx);
                             }
                         }),
                     )

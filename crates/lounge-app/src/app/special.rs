@@ -90,6 +90,17 @@ impl LoungeApp {
 
         if let Some(text) = status_text {
             table = table.child(div().p_4().text_color(theme.muted).child(text));
+        } else if special == "list_channels" && data.is_none() {
+            table = table.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .p_4()
+                    .text_color(theme.muted)
+                    .child(["◐", "◓", "◑", "◒"][self.special_spinner % 4])
+                    .child("Loading channels..."),
+            );
         } else if rows.is_empty() && !headers.is_empty() {
             table = table.child(div().p_4().text_color(theme.muted).child("No entries."));
         } else {
@@ -280,6 +291,37 @@ impl LoungeApp {
                     .child(table),
             )
             .into_any_element()
+    }
+
+    pub(super) fn start_special_spinner(&mut self, cx: &mut Context<Self>) {
+        self.special_spinner_generation = self.special_spinner_generation.wrapping_add(1);
+        let generation = self.special_spinner_generation;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(120))
+                    .await;
+                let keep = this.update(cx, |this, cx| {
+                    if this.special_spinner_generation != generation {
+                        return false;
+                    }
+                    let loading = this.state.active_channel().is_some_and(|(_, channel)| {
+                        channel.chan.special.as_deref() == Some("list_channels")
+                            && channel.chan.data.is_none()
+                    });
+                    if !loading {
+                        return false;
+                    }
+                    this.special_spinner = (this.special_spinner + 1) % 4;
+                    cx.notify();
+                    true
+                });
+                if !matches!(keep, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 }
 
