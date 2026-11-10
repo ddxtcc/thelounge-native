@@ -199,6 +199,8 @@ jobs:
           install -Dm755 packaging/install.sh dist/install.sh
           cp -r assets/icons/hicolor dist/icons/
           tar -C dist -czf ${{ matrix.package }} .
+          mkdir -p upload
+          cp "${{ matrix.package }}" upload/
           VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
           bash packaging/linux/build-deb.sh dist/lounge-native "dist/lounge-native_${VERSION}_amd64.deb"
           dpkg-deb --info "dist/lounge-native_${VERSION}_amd64.deb" >/dev/null
@@ -222,6 +224,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "makensis failed with exit code $LASTEXITCODE."
           }
+          New-Item -ItemType Directory -Force upload | Out-Null
+          Copy-Item "${{ matrix.package }}" upload/
+          Copy-Item "$PWD\dist\lounge-native_${version}_x86_64-setup.exe" upload/
       - name: Package macOS
         if: runner.os == 'macOS'
         run: |
@@ -264,12 +269,12 @@ jobs:
           codesign --force --deep --sign - "dist/Lounge Native.app"
           cp README.md LICENSE dist/
           tar -C dist -czf ${{ matrix.package }} .
+          mkdir -p upload
+          cp "${{ matrix.package }}" upload/
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            ${{ matrix.package }}
-            dist/*setup.exe
+          path: upload/*
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v7
@@ -302,11 +307,14 @@ jobs:
           merge-multiple: true
       - name: Verify required artifacts
         run: |
-          test -s dist/lounge-native-x86_64-unknown-linux-gnu.tar.gz
-          test -s dist/lounge-native-x86_64-pc-windows-msvc.zip
-          test -s dist/*setup.exe
-          ls dist/*.deb >/dev/null
-          ls dist/*.AppImage >/dev/null
+          for file in             dist/lounge-native-x86_64-unknown-linux-gnu.tar.gz             dist/lounge-native-x86_64-pc-windows-msvc.zip             dist/lounge-native_*_x86_64-setup.exe; do
+            if [ ! -s "$file" ]; then
+              echo "::error::missing release artifact $file"
+              exit 1
+            fi
+          done
+          ls dist/*.deb
+          ls dist/*.AppImage
       - name: Generate checksums
         run: (cd dist && sha256sum * > SHA256SUMS)
       - name: Attest build provenance
