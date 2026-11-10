@@ -149,7 +149,17 @@ jobs:
       - name: Install NSIS
         if: runner.os == 'Windows'
         shell: pwsh
-        run: choco install nsis -y --no-progress
+        run: |
+          choco install nsis -y --no-progress
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\NSIS\makensis.exe",
+            "$env:ProgramFiles\NSIS\makensis.exe"
+          )
+          $makensis = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $makensis) {
+            throw "Could not locate makensis.exe after installing NSIS."
+          }
+          Split-Path -Parent $makensis | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install GStreamer
         if: runner.os == 'macOS'
         run: |
@@ -204,7 +214,14 @@ jobs:
           Copy-Item README.md, LICENSE, packaging/windows/lounge-native.ico dist/
           Compress-Archive -Path dist/* -DestinationPath "${{ matrix.package }}" -Force
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
-          makensis /DVERSION=$version /DSRC="$PWD\dist" /DOUTFILE="$PWD\dist\lounge-native_${version}_x86_64-setup.exe" packaging/windows/lounge-native.nsi
+          $makensis = Get-Command makensis.exe -ErrorAction SilentlyContinue
+          if (-not $makensis) {
+            throw "makensis.exe is not available on PATH."
+          }
+          & $makensis.Source /DVERSION=$version /DSRC="$PWD\dist" /DOUTFILE="$PWD\dist\lounge-native_${version}_x86_64-setup.exe" packaging/windows/lounge-native.nsi
+          if ($LASTEXITCODE -ne 0) {
+            throw "makensis failed with exit code $LASTEXITCODE."
+          }
       - name: Package macOS
         if: runner.os == 'macOS'
         run: |
