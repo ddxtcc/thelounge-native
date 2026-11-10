@@ -42,7 +42,9 @@ pub(super) fn configure_gstreamer() {
     let plugins = framework.join("lib").join("gstreamer-1.0");
     if plugins.is_dir() {
         unsafe {
+            std::env::set_var("GST_PLUGIN_SYSTEM_PATH", &plugins);
             std::env::set_var("GST_PLUGIN_SYSTEM_PATH_1_0", &plugins);
+            std::env::set_var("GST_PLUGIN_PATH", &plugins);
             std::env::set_var("GST_PLUGIN_PATH_1_0", &plugins);
         }
     }
@@ -65,10 +67,32 @@ pub(super) fn configure_gstreamer() {
 pub(super) fn configure_gstreamer() {
     use std::path::PathBuf;
 
-    let Some(root) = std::env::current_exe()
+    let mut roots = Vec::new();
+    if let Some(exe) = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(PathBuf::from))
-    else {
+    {
+        roots.push(exe);
+    }
+    for name in [
+        "GSTREAMER_1_0_ROOT_MSVC_X86_64",
+        "GSTREAMER_ROOT",
+        "GSTREAMER_1_0_ROOT_MINGW_X86_64",
+    ] {
+        if let Some(root) = std::env::var_os(name) {
+            roots.push(PathBuf::from(root));
+        }
+    }
+    roots.extend([
+        PathBuf::from(r"C:\gstreamer\1.0\msvc_x86_64"),
+        PathBuf::from(r"C:\Program Files\gstreamer\1.0\msvc_x86_64"),
+        PathBuf::from(r"C:\Program Files (x86)\gstreamer\1.0\msvc_x86_64"),
+    ]);
+    let Some(root) = roots.into_iter().find(|root| {
+        root.join("lib").join("gstreamer-1.0").is_dir()
+            || root.join("bin").join("gstreamer-1.0-0.dll").is_file()
+            || root.join("bin").join("gstreamer-1.0.dll").is_file()
+    }) else {
         return;
     };
     let plugins = root.join("lib").join("gstreamer-1.0");
@@ -78,14 +102,27 @@ pub(super) fn configure_gstreamer() {
             std::env::set_var("GST_PLUGIN_PATH_1_0", &plugins);
         }
     }
-    let scanner = root.join("gst-plugin-scanner.exe");
-    if scanner.is_file() {
-        unsafe {
-            std::env::set_var("GST_PLUGIN_SCANNER", &scanner);
-            std::env::set_var("GST_PLUGIN_SCANNER_1_0", &scanner);
+    for relative in [
+        r"libexec\gst-plugin-scanner.exe",
+        r"bin\gst-plugin-scanner.exe",
+        r"libexec\gstreamer-1.0\gst-plugin-scanner.exe",
+    ] {
+        let scanner = root.join(relative);
+        if scanner.is_file() {
+            unsafe {
+                std::env::set_var("GST_PLUGIN_SCANNER", &scanner);
+                std::env::set_var("GST_PLUGIN_SCANNER_1_0", &scanner);
+            }
+            break;
         }
     }
-    let mut paths = vec![root];
+    let gio = root.join("lib").join("gio").join("modules");
+    if gio.is_dir() {
+        unsafe {
+            std::env::set_var("GIO_EXTRA_MODULES", &gio);
+        }
+    }
+    let mut paths = vec![root.join("bin")];
     if let Some(path) = std::env::var_os("PATH") {
         paths.extend(std::env::split_paths(&path));
     }

@@ -28,22 +28,31 @@ The installer writes to `$HOME/.local` by default. Set `PREFIX` or `XDG_DATA_HOM
 Ubuntu 24.04, Debian trixie, and compatible distributions can install the Debian package instead:
 
 ```sh
-sudo apt install ./lounge-native_1.1.5_amd64.deb
+sudo apt install ./lounge-native_1.1.6_amd64.deb
 ```
 
 The package installs the binary, desktop entry, AppStream metadata, and hicolor icons under `/usr`. Update it by installing a newer package or rerunning `install.sh` from a newer archive. Settings > About > Check for updates compares the app against the latest GitHub release.
 
+Windows releases include a per-user installer and a portable zip:
+
+- `lounge-native_1.1.6_x86_64-setup.exe` installs under `%LOCALAPPDATA%\Programs\Lounge Native` and adds a Start Menu shortcut.
+- `lounge-native-x86_64-pc-windows-msvc.zip` can be unpacked anywhere; run `lounge-native.exe` from the unpacked folder.
+
+Install the GStreamer 1.26 MSVC x86_64 runtime from
+<https://gstreamer.freedesktop.org/download/#windows> before launching. Windows
+archives no longer include the GStreamer runtime.
+
 A portable AppImage is also published with each release:
 
 ```sh
-chmod +x lounge-native_1.1.5_x86_64.AppImage
-./lounge-native_1.1.5_x86_64.AppImage
+chmod +x lounge-native_1.1.6_x86_64.AppImage
+./lounge-native_1.1.6_x86_64.AppImage
 ```
 
 Release assets include `SHA256SUMS` and GitHub build provenance attestations. Verify a downloaded asset with GitHub CLI:
 
 ```sh
-gh attestation verify lounge-native_1.1.5_amd64.deb --repo ddxtcc/thelounge-native
+gh attestation verify lounge-native_1.1.6_amd64.deb --repo ddxtcc/thelounge-native
 ```
 
 Arch Linux users can build the package in `packaging/aur`:
@@ -73,8 +82,15 @@ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
 
 macOS builds require GStreamer from Homebrew or the official GStreamer packages.
 Windows builds require the GStreamer SDK and a working `pkg-config` setup. Windows
-and macOS release archives bundle the GStreamer runtime. Use `--no-default-features`
-to build without media support on other platforms.
+release archives do not bundle GStreamer. Install the GStreamer 1.26 MSVC x86_64
+runtime from <https://gstreamer.freedesktop.org/download/#windows> before starting
+the application. The installer checks for an existing runtime and offers the
+download page when it is missing. Use `--no-default-features` to build without
+media support on other platforms.
+
+On Windows, run `lounge-native.exe` from the unpacked archive or the Start Menu
+shortcut. It is a small launcher that finds GStreamer, configures its plugin
+paths, and starts `lounge-native-app.exe`.
 
 ## Development
 

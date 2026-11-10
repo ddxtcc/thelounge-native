@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.6 - 2026-11-10
+
+### Changed
+
+- Windows releases no longer bundle GStreamer. The zip and installer contain only the application, launcher, and documentation.
+- Windows playback uses the installed GStreamer 1.26 MSVC x86_64 runtime. The launcher finds it, configures plugin paths, and starts the application.
+
+### Fixed
+
+- Windows builds now ship an NSIS installer with a Start Menu shortcut and uninstaller instead of only a zip.
+- Windows release builds no longer open a console window.
+
 ## 1.1.5 - 2026-11-10
 
 ### Fixed

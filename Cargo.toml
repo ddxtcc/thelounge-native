@@ -1,9 +1,9 @@
 [workspace]
-members = ["crates/lounge-core", "crates/lounge-app"]
+members = ["crates/lounge-core", "crates/lounge-app", "crates/lounge-launcher"]
 resolver = "2"
 
 [workspace.package]
-version = "1.1.5"
+version = "1.1.6"
 edition = "2024"
 license = "MIT"
 rust-version = "1.96"
