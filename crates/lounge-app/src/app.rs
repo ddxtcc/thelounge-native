@@ -17,7 +17,7 @@ use lounge_core::proto::{Message, MessageType, ServerEvent, User};
 use lounge_core::socket::{Auth, ClientConfig, ClientEvent, ClientHandle};
 use lounge_core::state::{ChannelState, ClientState, NetworkState};
 
-use crate::config::{AppConfig, FavouriteChannel, Friend, NotificationMode, StatusMessages};
+use crate::config::{AppConfig, NotificationMode, StatusMessages};
 use crate::text_input::{InputAction, InputColors, InputRole, TextInput};
 use crate::theme::Theme;
 
@@ -198,16 +198,9 @@ enum FontTarget {
 }
 
 #[derive(Clone)]
-enum PinnedTarget {
-    Friend(Friend),
-    FavouriteNetwork(String),
-    FavouriteChannel(FavouriteChannel),
-}
-
-#[derive(Clone)]
-struct PinnedMenu {
-    target: PinnedTarget,
-    position: Point<Pixels>,
+struct NetworkMenu {
+    uuid: String,
+    position: Option<Point<Pixels>>,
 }
 
 #[derive(Clone)]
@@ -410,19 +403,22 @@ pub struct LoungeApp {
     focus_root_request: bool,
     emoji_picker_open: bool,
     security_open: bool,
-    network_menu: Option<String>,
+    network_menu: Option<NetworkMenu>,
     network_edit_uuid: Option<String>,
     network_edit_data: Option<serde_json::Map<String, serde_json::Value>>,
     network_edit_loading: bool,
     network_has_sts: bool,
     user_menu: Option<UserMenu>,
-    pinned_menu: Option<PinnedMenu>,
     channel_menu: Option<ChannelMenu>,
     message_menu: Option<MessageMenu>,
     text_selection: Option<TextSelection>,
     hovered_text: Option<(i64, usize)>,
     selecting_text: bool,
     confirm_remove_network: Option<String>,
+    special_spinner: usize,
+    special_spinner_generation: u64,
+    #[cfg(feature = "media")]
+    video_ticker_generation: u64,
     root_focus: gpui::FocusHandle,
     settings_first_focus: gpui::FocusHandle,
     settings_refocus: bool,
@@ -788,13 +784,16 @@ impl LoungeApp {
             network_edit_loading: false,
             network_has_sts: false,
             user_menu: None,
-            pinned_menu: None,
             channel_menu: None,
             message_menu: None,
             text_selection: None,
             hovered_text: None,
             selecting_text: false,
             confirm_remove_network: None,
+            special_spinner: 0,
+            special_spinner_generation: 0,
+            #[cfg(feature = "media")]
+            video_ticker_generation: 0,
             root_focus,
             settings_first_focus,
             settings_refocus: false,

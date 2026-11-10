@@ -65,12 +65,10 @@ impl LoungeApp {
             overlay = overlay.child(self.render_emoji_picker(window, cx));
         } else if self.security_open {
             overlay = overlay.child(self.render_security(window, cx));
-        } else if let Some(uuid) = self.network_menu.clone() {
-            overlay = overlay.child(self.render_network_menu(&uuid, cx));
+        } else if let Some(menu) = self.network_menu.clone() {
+            overlay = overlay.child(self.render_network_menu(menu, window, cx));
         } else if let Some(menu) = self.user_menu.clone() {
             overlay = overlay.child(self.render_user_menu(menu, window, cx));
-        } else if let Some(menu) = self.pinned_menu.clone() {
-            overlay = overlay.child(self.render_pinned_menu(menu, window, cx));
         } else if let Some(menu) = self.channel_menu.clone() {
             overlay = overlay.child(self.render_channel_menu(menu, window, cx));
         } else if let Some(menu) = self.message_menu.clone() {

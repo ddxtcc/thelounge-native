@@ -294,7 +294,19 @@ impl LoungeApp {
     }
 
     pub(super) fn open_network_menu(&mut self, uuid: &str, cx: &mut Context<Self>) {
-        self.network_menu = Some(uuid.to_string());
+        self.open_network_menu_at(uuid, None, cx);
+    }
+
+    pub(super) fn open_network_menu_at(
+        &mut self,
+        uuid: &str,
+        position: Option<Point<Pixels>>,
+        cx: &mut Context<Self>,
+    ) {
+        self.network_menu = Some(NetworkMenu {
+            uuid: uuid.to_string(),
+            position,
+        });
         self.confirm_remove_network = None;
         cx.notify();
     }
@@ -549,7 +561,14 @@ impl LoungeApp {
         cx.notify();
     }
 
-    pub(super) fn render_network_menu(&mut self, uuid: &str, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_network_menu(
+        &mut self,
+        menu: NetworkMenu,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let uuid = menu.uuid;
+        let position = menu.position;
         let theme = self.theme;
         let network_name = self
             .state
@@ -571,7 +590,7 @@ impl LoungeApp {
         let uuid_remove = uuid.to_string();
         let uuid_cancel = uuid.to_string();
         let uuid_favourite = uuid.to_string();
-        let favourite_label = if self.is_favourite_network(uuid) {
+        let favourite_label = if self.is_favourite_network(&uuid) {
             "Remove from favourites"
         } else {
             "Add to favourites"
@@ -583,51 +602,62 @@ impl LoungeApp {
                 this.begin_edit_network(&uuid_edit, cx)
             }));
         }
-        card.child(self.menu_button("Reconnect", cx, move |this, _, cx| {
-            this.send_network_command(&uuid_connect, "/connect", cx)
-        }))
-        .child(self.menu_button(favourite_label, cx, move |this, _, cx| {
-            this.toggle_favourite_network(&uuid_favourite, cx);
-            this.network_menu = None;
-        }))
-        .child(self.menu_button("Move network up", cx, {
-            let uuid = uuid.to_string();
-            move |this, _, cx| this.move_network(&uuid, -1, cx)
-        }))
-        .child(self.menu_button("Move network down", cx, {
-            let uuid = uuid.to_string();
-            move |this, _, cx| this.move_network(&uuid, 1, cx)
-        }))
-        .child(self.menu_button("Disconnect", cx, move |this, _, cx| {
-            this.send_network_command(&uuid_disconnect, "/disconnect", cx)
-        }))
-        .child(
-            self.menu_button("List ignored users", cx, move |this, _, cx| {
-                this.send_network_command(&uuid_ignored, "/ignorelist", cx)
-            }),
-        )
-        .child(
+        card = card
+            .child(self.menu_button("Reconnect", cx, move |this, _, cx| {
+                this.send_network_command(&uuid_connect, "/connect", cx)
+            }))
+            .child(self.menu_button(favourite_label, cx, move |this, _, cx| {
+                this.toggle_favourite_network(&uuid_favourite, cx);
+                this.network_menu = None;
+            }))
+            .child(self.menu_button("Move network up", cx, {
+                let uuid = uuid.to_string();
+                move |this, _, cx| this.move_network(&uuid, -1, cx)
+            }))
+            .child(self.menu_button("Move network down", cx, {
+                let uuid = uuid.to_string();
+                move |this, _, cx| this.move_network(&uuid, 1, cx)
+            }))
+            .child(self.menu_button("Disconnect", cx, move |this, _, cx| {
+                this.send_network_command(&uuid_disconnect, "/disconnect", cx)
+            }))
+            .child(
+                self.menu_button("List ignored users", cx, move |this, _, cx| {
+                    this.send_network_command(&uuid_ignored, "/ignorelist", cx)
+                }),
+            )
+            .child(
+                div()
+                    .id("network-remove")
+                    .px_2()
+                    .py(px(7.))
+                    .rounded(px(5.))
+                    .cursor_pointer()
+                    .text_color(theme.error)
+                    .hover(|style| style.bg(theme.hover))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.network_menu = None;
+                        this.confirm_remove_network = Some(uuid_remove.clone());
+                        cx.notify();
+                    }))
+                    .child("Remove network"),
+            )
+            .child(self.menu_button("Cancel", cx, move |this, _, cx| {
+                this.network_menu = None;
+                let _ = uuid_cancel;
+                cx.notify();
+            }));
+        if let Some(position) = position {
+            let (x, y) = menu_origin(window, position, 420., 500.);
             div()
-                .id("network-remove")
-                .px_2()
-                .py(px(7.))
-                .rounded(px(5.))
-                .cursor_pointer()
-                .text_color(theme.error)
-                .hover(|style| style.bg(theme.hover))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.network_menu = None;
-                    this.confirm_remove_network = Some(uuid_remove.clone());
-                    cx.notify();
-                }))
-                .child("Remove network"),
-        )
-        .child(self.menu_button("Cancel", cx, move |this, _, cx| {
-            this.network_menu = None;
-            let _ = uuid_cancel;
-            cx.notify();
-        }))
-        .into_any_element()
+                .absolute()
+                .left(x)
+                .top(y)
+                .child(card.into_any_element())
+                .into_any_element()
+        } else {
+            card.into_any_element()
+        }
     }
 
     pub(super) fn render_remove_network(
@@ -836,6 +866,13 @@ impl LoungeApp {
         let is_query = menu.is_query;
         let network_favourite = menu.network_uuid.clone();
         let name_favourite = menu.name.clone();
+        let network_friend = menu.network_uuid.clone();
+        let name_friend = menu.name.clone();
+        let friend_label = if self.is_friend(&network_friend, &name_friend) {
+            "Remove friend"
+        } else {
+            "Add friend"
+        };
         let favourite_label = if self.is_favourite_channel(&network_favourite, &name_favourite) {
             "Remove from favourites"
         } else {
@@ -875,7 +912,12 @@ impl LoungeApp {
                 this.channel_menu = None;
                 cx.notify();
             }));
-        if !is_query {
+        if is_query {
+            card = card.child(self.menu_button(friend_label, cx, move |this, _, cx| {
+                this.toggle_friend(&network_friend, &name_friend, cx);
+                this.channel_menu = None;
+            }));
+        } else {
             card = card.child(self.menu_button(favourite_label, cx, move |this, _, cx| {
                 this.toggle_favourite_channel(&network_favourite, &name_favourite, cx);
                 this.channel_menu = None;

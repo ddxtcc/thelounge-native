@@ -288,6 +288,7 @@ impl LoungeApp {
                         video.set_volume(f64::from(this.config.media_volume.clamp(0., 1.)));
                         this.resume_video(&target, &video);
                         this.media_video = Some((target, video));
+                        this.start_video_ticker(cx);
                     }
                     Err(error) => this.media_error = Some(error.to_string()),
                 }
@@ -296,6 +297,39 @@ impl LoungeApp {
         })
         .detach();
         cx.notify();
+    }
+
+    fn start_video_ticker(&mut self, cx: &mut Context<Self>) {
+        self.video_ticker_generation = self.video_ticker_generation.wrapping_add(1);
+        let generation = self.video_ticker_generation;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(250))
+                    .await;
+                let keep = this.update(cx, |this, cx| {
+                    if this.video_ticker_generation != generation {
+                        return false;
+                    }
+                    let Some(video) = this
+                        .inline_video
+                        .as_ref()
+                        .map(|inline| &inline.video)
+                        .or_else(|| this.media_video.as_ref().map(|(_, video)| video))
+                    else {
+                        return false;
+                    };
+                    if !video.paused() {
+                        cx.notify();
+                    }
+                    true
+                });
+                if !matches!(keep, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     fn remember_audio_position(&mut self, url: &str, pipeline: &gst::Pipeline) {
@@ -552,6 +586,7 @@ impl LoungeApp {
                             url: target,
                             video,
                         });
+                        this.start_video_ticker(cx);
                     }
                     Err(error) => {
                         this.media_failures
@@ -654,6 +689,7 @@ impl LoungeApp {
             .filter(|inline| inline.message_id == message_id && inline.url == url)?;
         let url = inline.url.clone();
         let video = inline.video.clone();
+        let progress_video = video.clone();
         let toggle = video.clone();
         let click_video = video.clone();
         let mute = video.clone();
@@ -698,6 +734,7 @@ impl LoungeApp {
                                 .size(display_width, display_height),
                         ),
                 )
+                .child(self.render_video_progress(&progress_video))
                 .child(
                     div()
                         .w_full()
@@ -822,6 +859,7 @@ impl LoungeApp {
                 .into_any_element();
         };
         let video = video.clone();
+        let progress_video = video.clone();
         let controls_video = video.clone();
         let click_video = video.clone();
         let mute_video = video.clone();
@@ -852,56 +890,62 @@ impl LoungeApp {
                         .size(max_w, max_h),
                 ),
         );
-        body = body.child(
-            div()
-                .w_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .gap_3()
-                .child(self.media_icon_button(
-                    if paused { "play" } else { "pause" },
-                    if paused { "Play" } else { "Pause" },
-                    !paused,
-                    cx,
-                    move |_, _, cx| {
-                        controls_video.set_paused(!controls_video.paused());
-                        cx.notify();
-                    },
-                ))
-                .child(self.media_icon_button(
-                    if muted { "volume-x" } else { "volume-2" },
-                    if muted { "Unmute" } else { "Mute" },
-                    false,
-                    cx,
-                    move |this, _, cx| {
-                        let muted = !mute_video.muted();
-                        mute_video.set_muted(muted);
-                        this.config.media_muted = muted;
-                        this.config.save();
-                        cx.notify();
-                    },
-                ))
-                .child(self.media_icon_button(
-                    "download",
-                    "Download",
-                    false,
-                    cx,
-                    move |this, _, cx| this.download_media(download_url.clone(), cx),
-                ))
-                .child(self.media_fullscreen_button(cx))
-                .child(
-                    self.media_icon_button("x", "Close", false, cx, |this, _, cx| {
-                        this.close_overlays(cx)
-                    }),
-                )
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(theme.muted)
-                        .child("Click outside to close"),
-                ),
-        );
+        body = body
+            .child(
+                div()
+                    .w_full()
+                    .child(self.render_video_progress(&progress_video)),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap_3()
+                    .child(self.media_icon_button(
+                        if paused { "play" } else { "pause" },
+                        if paused { "Play" } else { "Pause" },
+                        !paused,
+                        cx,
+                        move |_, _, cx| {
+                            controls_video.set_paused(!controls_video.paused());
+                            cx.notify();
+                        },
+                    ))
+                    .child(self.media_icon_button(
+                        if muted { "volume-x" } else { "volume-2" },
+                        if muted { "Unmute" } else { "Mute" },
+                        false,
+                        cx,
+                        move |this, _, cx| {
+                            let muted = !mute_video.muted();
+                            mute_video.set_muted(muted);
+                            this.config.media_muted = muted;
+                            this.config.save();
+                            cx.notify();
+                        },
+                    ))
+                    .child(self.media_icon_button(
+                        "download",
+                        "Download",
+                        false,
+                        cx,
+                        move |this, _, cx| this.download_media(download_url.clone(), cx),
+                    ))
+                    .child(self.media_fullscreen_button(cx))
+                    .child(
+                        self.media_icon_button("x", "Close", false, cx, |this, _, cx| {
+                            this.close_overlays(cx)
+                        }),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.muted)
+                            .child("Click outside to close"),
+                    ),
+            );
         body.into_any_element()
     }
 }

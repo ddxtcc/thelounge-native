@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.5 - 2026-11-10
+
+### Fixed
+
+- Friend and favourite right-click menus now reuse the standard user, channel, and network menus, with working close buttons and every normal action.
+- Query channel menus now include Add friend and Remove friend.
+
+### Added
+
+- Video playback now shows elapsed and total time with a progress bar, inline and in the lightbox.
+- Channel List requests its data when opened and shows a spinner until results arrive.
+
+### Changed
+
+- The sidebar Networks section now has a heading matching Friends and Favorites.
+
 ## 1.1.4 - 2026-11-10
 
 ### Fixed

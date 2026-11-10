@@ -503,7 +503,7 @@ impl LoungeApp {
         let Some(id) = self.state.active else {
             return;
         };
-        let (needs_names, can_auto_history, already_loading) = self
+        let (needs_names, can_auto_history, already_loading, needs_list) = self
             .state
             .find_channel(id)
             .map(|(_, channel)| {
@@ -511,9 +511,17 @@ impl LoungeApp {
                     channel.users_outdated,
                     channel.chan.messages.len() <= 1 && channel.more_history_available(),
                     channel.history_loading,
+                    channel.chan.special.as_deref() == Some("list_channels")
+                        && channel.chan.data.is_none(),
                 )
             })
-            .unwrap_or((false, false, false));
+            .unwrap_or((false, false, false, false));
+        if needs_list {
+            if let Some(conn) = &self.conn {
+                conn.input(id, "/list", None);
+            }
+            self.start_special_spinner(cx);
+        }
         if needs_names {
             if let Some(channel) = self.state.find_channel_mut(id) {
                 channel.users_outdated = false;

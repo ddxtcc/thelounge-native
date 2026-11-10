@@ -77,6 +77,52 @@ impl LoungeApp {
         cx.notify();
     }
 
+    pub(super) fn render_video_progress(&self, video: &gpui_video_player::Video) -> AnyElement {
+        let theme = self.theme;
+        let position = video.position().as_secs();
+        let duration = video.duration().as_secs();
+        let ratio = if duration > 0 {
+            (position as f32 / duration as f32).clamp(0., 1.)
+        } else {
+            0.
+        };
+        let time = if duration > 0 {
+            format!("{} / {}", format_clock(position), format_clock(duration))
+        } else {
+            "0:00 / --:--".to_string()
+        };
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .h(px(5.))
+                    .w_full()
+                    .rounded_full()
+                    .overflow_hidden()
+                    .bg(theme.border)
+                    .child(
+                        div()
+                            .h_full()
+                            .rounded_full()
+                            .bg(theme.accent)
+                            .w(relative(ratio)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .text_size(px(10.))
+                    .text_color(theme.muted)
+                    .child(time),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn render_audio_preview(
         &self,
         message_id: i64,
