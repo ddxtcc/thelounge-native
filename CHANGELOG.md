@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.3 - 2026-11-10
+
+### Changed
+
+- Sidebar channel rows no longer repeat channel prefixes.
+- All sidebar row markers now share the same column width and vertical alignment.
+
 ## 1.1.2 - 2026-11-10
 
 ### Changed
