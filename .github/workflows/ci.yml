@@ -146,6 +146,10 @@ jobs:
           pkg-config --version
           pkg-config --cflags glib-2.0
           pkg-config --libs gstreamer-1.0
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install nsis -y --no-progress
       - name: Install GStreamer
         if: runner.os == 'macOS'
         run: |
@@ -171,6 +175,10 @@ jobs:
         env:
           RUSTFLAGS: ${{ runner.os == 'macOS' && '-C link-arg=-Wl,-headerpad_max_install_names' || '' }}
         run: cargo build --release --locked --target ${{ matrix.target }} -p lounge-native
+      - name: Build Windows launcher
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cargo build --release --locked --target ${{ matrix.target }} -p lounge-launcher
       - name: Package Linux
         if: runner.os == 'Linux'
         run: |
@@ -191,20 +199,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/lounge-native.exe" dist/
-          Copy-Item README.md, LICENSE dist/
-          if (-not $env:GSTREAMER_ROOT) {
-            throw "GSTREAMER_ROOT is not set."
-          }
-          Copy-Item "$env:GSTREAMER_ROOT\bin\*.dll" dist/
-          New-Item -ItemType Directory -Force dist/lib | Out-Null
-          Copy-Item "$env:GSTREAMER_ROOT\lib\gstreamer-1.0" dist/lib -Recurse
-          $scanner = Get-ChildItem -LiteralPath $env:GSTREAMER_ROOT -Filter "gst-plugin-scanner.exe" -Recurse | Select-Object -First 1
-          if (-not $scanner) {
-            throw "Could not locate gst-plugin-scanner.exe."
-          }
-          Copy-Item $scanner.FullName dist/
+          Copy-Item "target/${{ matrix.target }}/release/lounge-native.exe" dist/lounge-native-app.exe
+          Copy-Item "target/${{ matrix.target }}/release/lounge-launcher.exe" dist/lounge-native.exe
+          Copy-Item README.md, LICENSE, packaging/windows/lounge-native.ico dist/
           Compress-Archive -Path dist/* -DestinationPath "${{ matrix.package }}" -Force
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          makensis /DVERSION=$version /DSRC="$PWD\dist" /DOUTFILE="$PWD\dist\lounge-native_${version}_x86_64-setup.exe" packaging/windows/lounge-native.nsi
       - name: Package macOS
         if: runner.os == 'macOS'
         run: |
@@ -250,7 +250,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.package }}
+          path: |
+            ${{ matrix.package }}
+            dist/*setup.exe
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v7
@@ -285,6 +287,7 @@ jobs:
         run: |
           test -s dist/lounge-native-x86_64-unknown-linux-gnu.tar.gz
           test -s dist/lounge-native-x86_64-pc-windows-msvc.zip
+          test -s dist/*setup.exe
           ls dist/*.deb >/dev/null
           ls dist/*.AppImage >/dev/null
       - name: Generate checksums
