@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.2 - 2026-11-10
+
+### Changed
+
+- Sidebar sections now share consistent row widths, heights, padding, and marker sizes.
+- Network favorites show connection status like normal network rows.
+
 ## 1.1.1 - 2026-11-09
 
 ### Fixed

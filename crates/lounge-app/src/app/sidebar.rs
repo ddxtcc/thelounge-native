@@ -53,7 +53,7 @@ impl LoungeApp {
                     .items_center()
                     .gap_2()
                     .px_2()
-                    .py_1p5()
+                    .py(px(5.))
                     .rounded(px(5.))
                     .cursor_pointer()
                     .hover(|style| style.bg(theme.hover))

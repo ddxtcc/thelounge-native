@@ -14,6 +14,7 @@ impl LoungeApp {
         if !friends.is_empty() {
             section = section.child(
                 div()
+                    .px_2()
                     .pt_1()
                     .text_size(px(10.))
                     .text_color(theme.muted)
@@ -40,11 +41,12 @@ impl LoungeApp {
                         .tab_index(0)
                         .tab_stop(!self.last_overlay_open)
                         .focus(|style| style.bg(theme.border).text_color(theme.text))
+                        .w_full()
                         .flex()
                         .items_center()
                         .gap_2()
                         .px_2()
-                        .py_1()
+                        .py(px(5.))
                         .rounded(px(5.))
                         .cursor_pointer()
                         .hover(|style| style.bg(theme.hover))
@@ -89,6 +91,7 @@ impl LoungeApp {
         if !favourite_networks.is_empty() || !favourite_channels.is_empty() {
             section = section.child(
                 div()
+                    .px_2()
                     .pt_1()
                     .text_size(px(10.))
                     .text_color(theme.muted)
@@ -104,6 +107,7 @@ impl LoungeApp {
                     continue;
                 };
                 let name = network.name.clone();
+                let online = network.status.connected;
                 let uuid_click = uuid.clone();
                 let uuid_key = uuid.clone();
                 section = section.child(
@@ -112,11 +116,12 @@ impl LoungeApp {
                         .tab_index(0)
                         .tab_stop(!self.last_overlay_open)
                         .focus(|style| style.bg(theme.border).text_color(theme.text))
+                        .w_full()
                         .flex()
                         .items_center()
                         .gap_2()
                         .px_2()
-                        .py_1()
+                        .py(px(5.))
                         .rounded(px(5.))
                         .cursor_pointer()
                         .hover(|style| style.bg(theme.hover))
@@ -143,7 +148,11 @@ impl LoungeApp {
                                 }
                             }),
                         )
-                        .child(div().text_color(theme.accent).child("◆"))
+                        .child(div().size(px(7.)).rounded_full().bg(if online {
+                            theme.success
+                        } else {
+                            theme.faint
+                        }))
                         .child(div().flex_1().truncate().child(name)),
                 );
             }
@@ -175,11 +184,12 @@ impl LoungeApp {
                         .tab_index(0)
                         .tab_stop(!self.last_overlay_open)
                         .focus(|style| style.bg(theme.border).text_color(theme.text))
+                        .w_full()
                         .flex()
                         .items_center()
                         .gap_2()
                         .px_2()
-                        .py_1()
+                        .py(px(5.))
                         .rounded(px(5.))
                         .cursor_pointer()
                         .hover(|style| style.bg(theme.hover))
