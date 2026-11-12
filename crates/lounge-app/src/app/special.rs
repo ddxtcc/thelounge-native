@@ -13,21 +13,66 @@ impl LoungeApp {
         if self.special_channel.get() != Some(channel_id) {
             self.special_channel.set(Some(channel_id));
             self.special_limit.set(100);
+            self.special_sort.set(None);
+            self.inputs
+                .special_filter
+                .update(cx, |input, cx| input.set_content("", cx));
         }
         let data = channel.chan.data.as_ref();
-        let total_rows = data
+        let mut all_rows: Vec<serde_json::Value> = data
             .and_then(|value| value.as_array())
-            .map(Vec::len)
-            .unwrap_or(0);
-        let rows: Vec<serde_json::Value> = data
-            .and_then(|value| value.as_array())
-            .map(|rows| {
-                rows.iter()
-                    .take(self.special_limit.get())
-                    .cloned()
-                    .collect()
-            })
+            .cloned()
             .unwrap_or_default();
+        if special == "list_channels" && self.config.features.channel_list_tools {
+            let filter = self
+                .inputs
+                .special_filter
+                .read(cx)
+                .content()
+                .trim()
+                .to_lowercase();
+            if !filter.is_empty() {
+                all_rows.retain(|row| {
+                    json_string(row, "channel").to_lowercase().contains(&filter)
+                        || json_string(row, "topic").to_lowercase().contains(&filter)
+                });
+            }
+        }
+        if special == "list_channels"
+            && self.config.features.channel_list_tools
+            && let Some((sort, ascending)) = self.special_sort.get()
+        {
+            all_rows.sort_by(|left, right| {
+                let ordering = match sort {
+                    SpecialSort::Channel => json_string(left, "channel")
+                        .to_lowercase()
+                        .cmp(&json_string(right, "channel").to_lowercase()),
+                    SpecialSort::Users => left
+                        .get("num_users")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0)
+                        .cmp(
+                            &right
+                                .get("num_users")
+                                .and_then(serde_json::Value::as_u64)
+                                .unwrap_or(0),
+                        ),
+                    SpecialSort::Topic => json_string(left, "topic")
+                        .to_lowercase()
+                        .cmp(&json_string(right, "topic").to_lowercase()),
+                };
+                if ascending {
+                    ordering
+                } else {
+                    ordering.reverse()
+                }
+            });
+        }
+        let total_rows = all_rows.len();
+        let rows: Vec<serde_json::Value> = all_rows
+            .into_iter()
+            .take(self.special_limit.get())
+            .collect();
         let status_text = data
             .and_then(|value| value.get("text"))
             .and_then(|value| value.as_str())
@@ -67,6 +112,15 @@ impl LoungeApp {
         }
 
         let mut table = div().flex().flex_col().w_full();
+        if special == "list_channels" && self.config.features.channel_list_tools {
+            table = table.child(
+                div()
+                    .p_2()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .child(self.inputs.special_filter.clone()),
+            );
+        }
         if !headers.is_empty() {
             let mut header_row = div()
                 .flex()
@@ -78,12 +132,54 @@ impl LoungeApp {
                 .text_size(px(11.))
                 .text_color(theme.muted);
             for (label, width) in &headers {
-                header_row = header_row.child(
-                    div()
-                        .when_some(*width, |this, width| this.w(width))
-                        .when(width.is_none(), |this| this.flex_1())
-                        .child(label.to_string()),
-                );
+                let sort = if special == "list_channels" && self.config.features.channel_list_tools
+                {
+                    match *label {
+                        "Channel" => Some(SpecialSort::Channel),
+                        "Users" => Some(SpecialSort::Users),
+                        "Topic" => Some(SpecialSort::Topic),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                let arrow = sort
+                    .filter(|sort| {
+                        self.special_sort
+                            .get()
+                            .is_some_and(|(current, _)| current == *sort)
+                    })
+                    .map(|_| {
+                        if self
+                            .special_sort
+                            .get()
+                            .is_some_and(|(_, ascending)| ascending)
+                        {
+                            " ↑"
+                        } else {
+                            " ↓"
+                        }
+                    })
+                    .unwrap_or_default();
+                let mut cell = div()
+                    .id(ElementId::Name(format!("special-header-{label}").into()))
+                    .when_some(*width, |this, width| this.w(width))
+                    .when(width.is_none(), |this| this.flex_1());
+                if let Some(sort) = sort {
+                    cell = cell
+                        .cursor_pointer()
+                        .hover(|style| style.text_color(theme.text))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.special_sort.set(match this.special_sort.get() {
+                                Some((current, true)) if current == sort => Some((sort, false)),
+                                Some((current, false)) if current == sort => None,
+                                _ => Some((sort, true)),
+                            });
+                            this.special_limit.set(100);
+                            cx.notify();
+                        }));
+                }
+                header_row = header_row.child(cell.child(format!("{label}{arrow}")));
             }
             table = table.child(header_row);
         }

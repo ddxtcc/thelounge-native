@@ -294,6 +294,7 @@ impl LoungeApp {
         }
         if self.palette.is_some()
             || self.mentions_open
+            || self.pins_open
             || self.emoji_picker_open
             || self.search_open
         {

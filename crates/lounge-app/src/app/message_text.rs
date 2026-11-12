@@ -69,8 +69,12 @@ pub(super) fn build_message_text(
                 .map(format::clean)
                 .unwrap_or_default()
         );
-        let _ = reply;
+        let start = builder.text.len();
         builder.push(&label, &font, theme.faint, None, false, false);
+        if config.features.reply_jump {
+            ranges.push(start..builder.text.len());
+            targets.push(ClickTarget::Reply(reply.clone()));
+        }
     }
 
     if status_like {

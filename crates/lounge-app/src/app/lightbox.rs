@@ -21,8 +21,13 @@ impl LoungeApp {
         let pan = self.lightbox_pan;
         div()
             .id("lightbox")
-            .max_w(max_w)
-            .max_h(max_h)
+            .w(max_w)
+            .h(max_h)
+            .p(px(12.))
+            .rounded(px(10.))
+            .bg(theme.panel)
+            .border_1()
+            .border_color(theme.border)
             .flex()
             .flex_col()
             .items_center()
@@ -31,15 +36,20 @@ impl LoungeApp {
             .child(
                 div()
                     .id("lightbox-image")
-                    .w(max_w)
-                    .h(max_h)
+                    .w_full()
+                    .flex_1()
+                    .min_h(px(0.))
                     .relative()
+                    .bg(theme.bg)
                     .overflow_hidden()
                     .rounded(px(6.))
                     .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                            if this.lightbox_zoom <= 1.0 {
+                                return;
+                            }
                             this.lightbox_drag_last = Some(event.position);
                             cx.notify();
                         }),
@@ -52,7 +62,7 @@ impl LoungeApp {
                         }),
                     )
                     .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
-                        if !event.dragging() {
+                        if !event.dragging() || this.lightbox_zoom <= 1.0 {
                             return;
                         }
                         if let Some(last) = this.lightbox_drag_last {
@@ -65,7 +75,10 @@ impl LoungeApp {
                     .on_scroll_wheel(cx.listener(|this, event: &gpui::ScrollWheelEvent, _, cx| {
                         let delta = event.delta.pixel_delta(px(20.)).y;
                         let factor = if delta > px(0.) { 0.9 } else { 1.1 };
-                        this.lightbox_zoom = (this.lightbox_zoom * factor).clamp(0.5, 5.0);
+                        this.lightbox_zoom = (this.lightbox_zoom * factor).clamp(1.0, 5.0);
+                        if this.lightbox_zoom <= 1.0 {
+                            this.lightbox_pan = Point::default();
+                        }
                         cx.notify();
                     }))
                     .child(
@@ -73,8 +86,8 @@ impl LoungeApp {
                             .absolute()
                             .left(pan.x)
                             .top(pan.y)
-                            .w(max_w * zoom)
-                            .h(max_h * zoom)
+                            .w(relative(zoom))
+                            .h(relative(zoom))
                             .child(
                                 gpui::img(url.to_string())
                                     .image_cache(&self.image_cache)
@@ -174,7 +187,8 @@ impl LoungeApp {
                                 })
                             })
                             .child("Open in browser")
-                    }),
+                    })
+                    .child(self.close_button("lightbox-close", cx)),
             )
             .into_any_element()
     }

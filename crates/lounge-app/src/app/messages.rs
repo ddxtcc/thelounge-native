@@ -116,6 +116,11 @@ impl LoungeApp {
         } else {
             (viewport_height - px(150.)).max(px(120.))
         };
+        let unread = self
+            .state
+            .active_channel()
+            .map(|(_, channel)| channel.chan.unread + channel.chan.highlight)
+            .unwrap_or(0);
         let entity = cx.entity();
         let item_rows = rows.clone();
         let item_entity = entity.clone();
@@ -186,6 +191,39 @@ impl LoungeApp {
                 .line_height(relative(self.config.line_height.max(1.3)))
                 .text_size(px(self.config.font_size))
                 .font_family(self.config.font_family.clone()),
+            )
+            .when(
+                unread > 0 && !self.messages_at_bottom && self.config.features.unread_jump,
+                |this| {
+                    this.child(
+                        div()
+                            .id("jump-unread")
+                            .absolute()
+                            .bottom(px(12.))
+                            .right(px(16.))
+                            .tab_index(0)
+                            .tab_stop(!self.last_overlay_open)
+                            .focus(|style| style.bg(theme.hover).text_color(theme.text))
+                            .px_3()
+                            .py_1()
+                            .rounded_full()
+                            .bg(theme.accent)
+                            .text_color(theme.on_accent)
+                            .text_size(px(11.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .cursor_pointer()
+                            .shadow_md()
+                            .hover(|style| style.bg(theme.accent.opacity(0.9)))
+                            .on_click(cx.listener(|this, _, _, cx| this.jump_to_unread(cx)))
+                            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                                if activation_key(event) {
+                                    this.jump_to_unread(cx);
+                                    cx.stop_propagation();
+                                }
+                            }))
+                            .child(format!("↑ {unread} unread")),
+                    )
+                },
             )
             .into_any_element()
     }

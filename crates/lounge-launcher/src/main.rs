@@ -3,6 +3,7 @@
 #[cfg(windows)]
 mod windows {
     use std::ffi::{OsStr, c_void};
+    use std::os::windows::process::CommandExt;
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
@@ -35,6 +36,7 @@ mod windows {
             std::process::exit(1);
         }
         let mut command = Command::new(&app);
+        command.creation_flags(0x0800_0000);
         command.args(std::env::args_os().skip(1));
         if let Some(parent) = app.parent() {
             command.current_dir(parent);

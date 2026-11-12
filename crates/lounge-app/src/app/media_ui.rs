@@ -8,6 +8,30 @@ use super::media_kind::MediaKind;
 use super::tooltip::Tooltip;
 use super::*;
 
+fn seek_video(video: &gpui_video_player::Video, bounds: Bounds<Pixels>, x: Pixels) {
+    if bounds.size.width <= px(0.) {
+        return;
+    }
+    let fraction = ((x - bounds.origin.x) / bounds.size.width).clamp(0., 1.) as f64;
+    let duration = video.duration().as_secs_f64();
+    if duration <= 0. {
+        return;
+    }
+    let _ = video.seek(
+        std::time::Duration::from_secs_f64(duration * fraction),
+        true,
+    );
+}
+
+fn seek_video_relative(video: &gpui_video_player::Video, delta: f64) {
+    let duration = video.duration().as_secs_f64();
+    if duration <= 0. {
+        return;
+    }
+    let target = (video.position().as_secs_f64() + delta).clamp(0., duration);
+    let _ = video.seek(std::time::Duration::from_secs_f64(target), true);
+}
+
 impl LoungeApp {
     pub(super) fn media_icon_button(
         &self,
@@ -59,6 +83,66 @@ impl LoungeApp {
             .into_any_element()
     }
 
+    pub(super) fn media_speed_button(
+        &self,
+        video: &gpui_video_player::Video,
+        key: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        const SPEEDS: [f64; 5] = [0.75, 1.0, 1.25, 1.5, 2.0];
+        let theme = self.theme;
+        let speed = video.speed();
+        let label = if speed.fract() == 0. {
+            format!("{}x", speed as u32)
+        } else {
+            format!("{speed}x")
+        };
+        let next = SPEEDS
+            .iter()
+            .copied()
+            .find(|candidate| *candidate > speed + 0.001)
+            .unwrap_or(SPEEDS[0]);
+        let click_video = video.clone();
+        let key_video = video.clone();
+        div()
+            .id(ElementId::Name(format!("media-speed-{key}").into()))
+            .tab_index(0)
+            .tab_stop(!self.last_overlay_open || self.lightbox.is_some())
+            .focus(|style| style.bg(theme.border).text_color(theme.text))
+            .min_w(px(34.))
+            .h(px(26.))
+            .px_1()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.))
+            .cursor_pointer()
+            .text_color(if speed == 1.0 {
+                theme.muted
+            } else {
+                theme.accent
+            })
+            .hover(|style| style.bg(theme.hover))
+            .tooltip(move |_, cx| cx.new(|_| Tooltip::new("Playback speed", theme)).into())
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if click_video.set_speed(next).is_err() {
+                    this.toast("Could not change playback speed.");
+                }
+                cx.notify();
+            }))
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                if activation_key(event) {
+                    if key_video.set_speed(next).is_err() {
+                        this.toast("Could not change playback speed.");
+                    }
+                    cx.notify();
+                    cx.stop_propagation();
+                }
+            }))
+            .child(label)
+            .into_any_element()
+    }
+
     pub(super) fn toggle_media_fullscreen(&mut self, cx: &mut Context<Self>) {
         if self.media_fullscreen {
             self.media_fullscreen = false;
@@ -77,7 +161,12 @@ impl LoungeApp {
         cx.notify();
     }
 
-    pub(super) fn render_video_progress(&self, video: &gpui_video_player::Video) -> AnyElement {
+    pub(super) fn render_video_progress(
+        &self,
+        video: &gpui_video_player::Video,
+        key: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = self.theme;
         let position = video.position().as_secs();
         let duration = video.duration().as_secs();
@@ -91,6 +180,15 @@ impl LoungeApp {
         } else {
             "0:00 / --:--".to_string()
         };
+        let bounds: std::rc::Rc<std::cell::RefCell<Option<Bounds<Pixels>>>> =
+            std::rc::Rc::new(std::cell::RefCell::new(None));
+        let prepaint_bounds = bounds.clone();
+        let click_bounds = bounds.clone();
+        let move_bounds = bounds.clone();
+        let click_video = video.clone();
+        let move_video = video.clone();
+        let key_video = video.clone();
+        let label = "Seek";
         div()
             .w_full()
             .flex()
@@ -98,17 +196,68 @@ impl LoungeApp {
             .gap_1()
             .child(
                 div()
-                    .h(px(5.))
+                    .h(px(9.))
                     .w_full()
-                    .rounded_full()
-                    .overflow_hidden()
-                    .bg(theme.border)
+                    .flex()
+                    .items_center()
+                    .on_children_prepainted(move |bounds, _, _| {
+                        *prepaint_bounds.borrow_mut() = bounds.first().cloned();
+                    })
+                    .id(ElementId::Name(format!("media-video-seek-{key}").into()))
+                    .tab_index(0)
+                    .tab_stop(!self.last_overlay_open || self.lightbox.is_some())
+                    .focus(|style| style.bg(theme.border).text_color(theme.text))
+                    .cursor_pointer()
+                    .tooltip(move |_, cx| cx.new(|_| Tooltip::new(label, theme)).into())
+                    .on_key_down(cx.listener(move |_, event: &gpui::KeyDownEvent, _, cx| {
+                        let key = event.keystroke.key.to_lowercase();
+                        let delta = if key == "left" {
+                            -5.0
+                        } else if key == "right" {
+                            5.0
+                        } else {
+                            0.
+                        };
+                        if delta != 0. {
+                            seek_video_relative(&key_video, delta);
+                            cx.stop_propagation();
+                            cx.notify();
+                        }
+                    }))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
+                            let Some(bounds) = *click_bounds.borrow() else {
+                                return;
+                            };
+                            seek_video(&click_video, bounds, event.position.x);
+                            cx.notify();
+                        }),
+                    )
+                    .on_mouse_move(cx.listener(move |_, event: &gpui::MouseMoveEvent, _, cx| {
+                        if event.pressed_button != Some(gpui::MouseButton::Left) {
+                            return;
+                        }
+                        let Some(bounds) = *move_bounds.borrow() else {
+                            return;
+                        };
+                        seek_video(&move_video, bounds, event.position.x);
+                        cx.notify();
+                    }))
                     .child(
                         div()
-                            .h_full()
+                            .h(px(5.))
+                            .w_full()
                             .rounded_full()
-                            .bg(theme.accent)
-                            .w(relative(ratio)),
+                            .overflow_hidden()
+                            .bg(theme.border)
+                            .child(
+                                div()
+                                    .h_full()
+                                    .rounded_full()
+                                    .bg(theme.accent)
+                                    .w(relative(ratio)),
+                            ),
                     ),
             )
             .child(

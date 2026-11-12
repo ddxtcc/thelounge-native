@@ -17,7 +17,7 @@ use lounge_core::proto::{Message, MessageType, ServerEvent, User};
 use lounge_core::socket::{Auth, ClientConfig, ClientEvent, ClientHandle};
 use lounge_core::state::{ChannelState, ClientState, NetworkState};
 
-use crate::config::{AppConfig, NotificationMode, StatusMessages};
+use crate::config::{AppConfig, Friend, NotificationMode, StatusMessages};
 use crate::text_input::{InputAction, InputColors, InputRole, TextInput};
 use crate::theme::Theme;
 
@@ -95,6 +95,7 @@ pub struct Inputs {
     emoji_search: Entity<TextInput>,
     font_search: Entity<TextInput>,
     users_filter: Entity<TextInput>,
+    special_filter: Entity<TextInput>,
     palette: Entity<TextInput>,
     password_old: Entity<TextInput>,
     password_new: Entity<TextInput>,
@@ -198,6 +199,12 @@ enum FontTarget {
 }
 
 #[derive(Clone)]
+struct FriendMenu {
+    friend: Friend,
+    position: Point<Pixels>,
+}
+
+#[derive(Clone)]
 struct NetworkMenu {
     uuid: String,
     position: Option<Point<Pixels>>,
@@ -224,6 +231,13 @@ struct MessageMenu {
 enum SortKind {
     Network,
     Channel,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SpecialSort {
+    Channel,
+    Users,
+    Topic,
 }
 
 #[derive(Clone)]
@@ -274,6 +288,7 @@ impl Render for DragPreview {
 enum ClickTarget {
     Url(String),
     Nick(String),
+    Reply(String),
 }
 
 struct Toast {
@@ -316,6 +331,7 @@ pub struct LoungeApp {
     nav_mode: bool,
     special_channel: std::cell::Cell<Option<i64>>,
     special_limit: std::cell::Cell<usize>,
+    special_sort: std::cell::Cell<Option<(SpecialSort, bool)>>,
     sidebar_overlay: bool,
     users_overlay: bool,
     lightbox: Option<String>,
@@ -380,6 +396,7 @@ pub struct LoungeApp {
     search_selection: usize,
     search_scroll: gpui::ScrollHandle,
     mentions_open: bool,
+    pins_open: bool,
     mentions_selection: usize,
     mentions_scroll: gpui::ScrollHandle,
     seen_mentions: HashSet<i64>,
@@ -409,6 +426,7 @@ pub struct LoungeApp {
     network_edit_loading: bool,
     network_has_sts: bool,
     user_menu: Option<UserMenu>,
+    friend_menu: Option<FriendMenu>,
     channel_menu: Option<ChannelMenu>,
     message_menu: Option<MessageMenu>,
     text_selection: Option<TextSelection>,
@@ -437,6 +455,7 @@ pub struct LoungeApp {
     image_previews: RefCell<HashMap<String, image_preview::PreviewState>>,
     pub(crate) link_previews: RefCell<HashMap<String, crate::link_preview::PreviewState>>,
     recent_commands: Vec<PaletteCommand>,
+    recent_emoji: Vec<&'static str>,
     pending_channel_switch: Option<i64>,
     pending_show_window: bool,
     window_save_generation: u64,
@@ -543,6 +562,7 @@ impl LoungeApp {
         let emoji_search = make("Search emoji...", false, false, cx);
         let font_search = make("Search installed fonts...", false, false, cx);
         let users_filter = make("Filter users...", false, false, cx);
+        let special_filter = make("Filter channels...", false, false, cx);
         let palette = make("Type a command...", false, false, cx);
         let password_old = make("Current password", false, true, cx);
         let password_new = make("New password", false, true, cx);
@@ -569,6 +589,7 @@ impl LoungeApp {
             emoji_search: emoji_search.clone(),
             font_search: font_search.clone(),
             users_filter: users_filter.clone(),
+            special_filter: special_filter.clone(),
             palette: palette.clone(),
             password_old: password_old.clone(),
             password_new: password_new.clone(),
@@ -599,6 +620,7 @@ impl LoungeApp {
             (InputRole::EmojiSearch, emoji_search),
             (InputRole::FontSearch, font_search),
             (InputRole::UsersFilter, users_filter),
+            (InputRole::SpecialFilter, special_filter),
             (InputRole::Palette, palette),
             (InputRole::PasswordOld, password_old),
             (InputRole::PasswordNew, password_new),
@@ -691,6 +713,7 @@ impl LoungeApp {
             nav_mode: false,
             special_channel: std::cell::Cell::new(None),
             special_limit: std::cell::Cell::new(100),
+            special_sort: std::cell::Cell::new(None),
             sidebar_overlay: false,
             users_overlay: false,
             lightbox: None,
@@ -755,6 +778,7 @@ impl LoungeApp {
             search_selection: 0,
             search_scroll: gpui::ScrollHandle::new(),
             mentions_open: false,
+            pins_open: false,
             mentions_selection: 0,
             mentions_scroll: gpui::ScrollHandle::new(),
             seen_mentions: HashSet::new(),
@@ -784,6 +808,7 @@ impl LoungeApp {
             network_edit_loading: false,
             network_has_sts: false,
             user_menu: None,
+            friend_menu: None,
             channel_menu: None,
             message_menu: None,
             text_selection: None,
@@ -812,6 +837,7 @@ impl LoungeApp {
             image_previews: RefCell::new(HashMap::new()),
             link_previews: RefCell::new(HashMap::new()),
             recent_commands: Vec::new(),
+            recent_emoji: Vec::new(),
             pending_channel_switch: None,
             pending_show_window: false,
             window_save_generation: 0,
@@ -844,6 +870,34 @@ impl LoungeApp {
             app.toast(format!("Could not access the system keyring: {error}"));
         }
         app.prefill_login(cx);
+
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(3)).await;
+                let updated = this.update(cx, |this, cx| {
+                    let had_typing = this
+                        .state
+                        .networks
+                        .iter()
+                        .flat_map(|network| network.channels.iter())
+                        .any(|channel| !channel.typing.is_empty());
+                    this.state.prune_typing(Duration::from_secs(10));
+                    let has_typing = this
+                        .state
+                        .networks
+                        .iter()
+                        .flat_map(|network| network.channels.iter())
+                        .any(|channel| !channel.typing.is_empty());
+                    if had_typing || has_typing {
+                        cx.notify();
+                    }
+                });
+                if updated.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
 
         if !app.config.server.is_empty() && !app.config.token.is_empty() {
             let auth = Auth::Token {

@@ -746,6 +746,11 @@ impl LoungeApp {
         } else {
             (px(MEDIA_PREVIEW_MAX_WIDTH), px(MEDIA_PREVIEW_MAX_HEIGHT))
         };
+        let speed_button = self
+            .config
+            .features
+            .video_speed
+            .then(|| self.media_speed_button(&progress_video, &url, cx));
         Some(
             div()
                 .id(ElementId::Name(format!("inline-media-{url}").into()))
@@ -771,7 +776,7 @@ impl LoungeApp {
                                 .size(display_width, display_height),
                         ),
                 )
-                .child(self.render_video_progress(&progress_video))
+                .child(self.render_video_progress(&progress_video, &url, cx))
                 .child(
                     div()
                         .w_full()
@@ -789,6 +794,7 @@ impl LoungeApp {
                                 cx.notify();
                             },
                         ))
+                        .when_some(speed_button, |this, button| this.child(button))
                         .child(self.media_icon_button(
                             if muted { "volume-x" } else { "volume-2" },
                             if muted { "Unmute" } else { "Mute" },
@@ -903,6 +909,11 @@ impl LoungeApp {
         let download_url = url.to_string();
         let paused = video.paused();
         let muted = video.muted();
+        let speed_button = self
+            .config
+            .features
+            .video_speed
+            .then(|| self.media_speed_button(&progress_video, "lightbox", cx));
         let mut body = div()
             .id("lightbox-media")
             .max_w(max_w)
@@ -928,11 +939,11 @@ impl LoungeApp {
                 ),
         );
         body = body
-            .child(
-                div()
-                    .w_full()
-                    .child(self.render_video_progress(&progress_video)),
-            )
+            .child(div().w_full().child(self.render_video_progress(
+                &progress_video,
+                "lightbox",
+                cx,
+            )))
             .child(
                 div()
                     .w_full()
@@ -950,6 +961,7 @@ impl LoungeApp {
                             cx.notify();
                         },
                     ))
+                    .when_some(speed_button, |this, button| this.child(button))
                     .child(self.media_icon_button(
                         if muted { "volume-x" } else { "volume-2" },
                         if muted { "Unmute" } else { "Mute" },

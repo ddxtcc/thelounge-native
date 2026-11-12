@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::OnceLock;
 
 pub struct Emoji {
@@ -51,4 +51,34 @@ pub fn filter(term: &str, limit: usize) -> Vec<&'static Emoji> {
         .filter(|emoji| term.is_empty() || emoji.shortcode.contains(&term))
         .take(limit)
         .collect()
+}
+
+pub fn is_emoji_only(text: &str) -> bool {
+    static CHARS: OnceLock<HashSet<char>> = OnceLock::new();
+    let chars = CHARS.get_or_init(|| all().iter().flat_map(|emoji| emoji.glyph.chars()).collect());
+    let mut count = 0;
+    for character in text.chars() {
+        if character.is_whitespace() {
+            continue;
+        }
+        if character.is_ascii() || !chars.contains(&character) {
+            return false;
+        }
+        count += 1;
+    }
+    count > 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_emoji_only_messages() {
+        assert!(is_emoji_only("😀"));
+        assert!(is_emoji_only("😀 😎"));
+        assert!(!is_emoji_only("hello 😀"));
+        assert!(!is_emoji_only("123"));
+        assert!(!is_emoji_only(""));
+    }
 }

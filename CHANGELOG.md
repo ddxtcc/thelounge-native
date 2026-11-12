@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.1.7 - 2026-11-12
+
+### Added
+
+- A Features section in settings with individual toggles for unread jump, recent emoji, pinned messages, emoji suggestions, reply jumping, typing indicators, clickable timestamps, clipboard image paste, video speed, large emoji, Channel List tools, and draft indicators.
+- New toggles for hiding muted channels, channel topic tooltips, full timestamp tooltips, wheel channel switching, pin markers, hiding date separators, unread-only sidebars, and dimming own messages.
+- Pinned messages with a per-channel pin list and jump-to-message support.
+- Recent emoji, live emoji suggestions in the composer, and unread jump navigation.
+- Channel List filtering and sortable Channel, Users, and Topic headers.
+- Sidebar typing and draft indicators.
+- Clickable reply previews and click-to-copy timestamps.
+- Global clipboard image paste, including from non-composer areas.
+- Video playback speed controls.
+
+### Fixed
+
+- Windows executables now embed the application icon, and the launcher suppresses child console windows.
+- Friend context menus use network-wide actions instead of channel-only op/voice/kick actions.
+- Image lightbox uses a solid backdrop, a framed panel, and safer zoom/pan behavior.
+
 ## 1.1.6 - 2026-11-10
 
 ### Changed

@@ -7,3 +7,6 @@ rust-version.workspace = true
 description = "Windows launcher for Lounge Native"
 
 [dependencies]
+
+[build-dependencies]
+embed-resource = "3"

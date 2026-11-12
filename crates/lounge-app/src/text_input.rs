@@ -103,6 +103,7 @@ pub enum InputRole {
     EmojiSearch,
     FontSearch,
     UsersFilter,
+    SpecialFilter,
     Palette,
     PasswordOld,
     PasswordNew,
@@ -582,7 +583,18 @@ impl TextInput {
     }
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+        let Some(item) = cx.read_from_clipboard() else {
+            return;
+        };
+        if item
+            .entries()
+            .iter()
+            .any(|entry| matches!(entry, gpui::ClipboardEntry::Image(_)))
+        {
+            self.emit_action(InputAction::PasteImage, cx);
+            return;
+        }
+        if let Some(text) = item.text() {
             let text = if self.multiline {
                 text.replace("\r\n", "\n").replace('\r', "\n")
             } else {

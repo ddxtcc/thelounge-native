@@ -1,3 +1,4 @@
+use super::menus::menu_origin;
 use super::*;
 use crate::config::{FavouriteChannel, Friend};
 
@@ -67,29 +68,7 @@ impl LoungeApp {
                                 let friend = friend.clone();
                                 move |this, event: &gpui::MouseDownEvent, _, cx| {
                                     cx.stop_propagation();
-                                    let Some(network) = this
-                                        .state
-                                        .networks
-                                        .iter()
-                                        .find(|network| network.uuid == friend.network)
-                                    else {
-                                        return;
-                                    };
-                                    let chan_id = this
-                                        .query_channel(&friend.network, &friend.nick)
-                                        .or_else(|| {
-                                            network.channels.first().map(|channel| channel.chan.id)
-                                        });
-                                    let Some(chan_id) = chan_id else {
-                                        return;
-                                    };
-                                    this.open_user_menu(
-                                        &friend.nick,
-                                        &friend.network,
-                                        chan_id,
-                                        event.position,
-                                        cx,
-                                    );
+                                    this.open_friend_menu(friend.clone(), event.position, cx);
                                 }
                             }),
                         )
@@ -214,9 +193,6 @@ impl LoungeApp {
                         .rounded(px(5.))
                         .cursor_pointer()
                         .hover(|style| style.bg(theme.hover))
-                        .when(self.state.active == Some(channel.chan.id), |this| {
-                            this.bg(theme.accent_dim)
-                        })
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.open_favourite_channel(&click_favourite, window, cx)
                         }))
@@ -261,16 +237,7 @@ impl LoungeApp {
                                 }
                             }),
                         )
-                        .child(
-                            div()
-                                .w(px(14.))
-                                .text_color(if self.state.active == Some(channel.chan.id) {
-                                    theme.accent
-                                } else {
-                                    theme.muted
-                                })
-                                .child(icon),
-                        )
+                        .child(div().w(px(14.)).text_color(theme.muted).child(icon))
                         .child(div().flex_1().truncate().child(display_name))
                         .child(
                             div()
@@ -400,6 +367,92 @@ impl LoungeApp {
         }
         self.config.save();
         cx.notify();
+    }
+
+    pub(super) fn open_friend_menu(
+        &mut self,
+        friend: Friend,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.friend_menu = Some(FriendMenu { friend, position });
+        cx.notify();
+    }
+
+    pub(super) fn render_friend_menu(
+        &mut self,
+        menu: FriendMenu,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = self.theme;
+        let position = menu.position;
+        let friend = menu.friend;
+        let nick = friend.nick.clone();
+        let network_name = self
+            .state
+            .networks
+            .iter()
+            .find(|network| network.uuid == friend.network)
+            .map(|network| network.name.clone())
+            .unwrap_or_else(|| friend.network.clone());
+        let target = self
+            .query_channel(&friend.network, &friend.nick)
+            .or_else(|| {
+                self.state
+                    .networks
+                    .iter()
+                    .find(|network| network.uuid == friend.network)
+                    .and_then(|network| network.channels.first())
+                    .map(|channel| channel.chan.id)
+            });
+        let mut card = self.menu_card(&nick, cx);
+        card = card.child(
+            div()
+                .px_2()
+                .pb_1()
+                .text_size(px(11.))
+                .text_color(theme.muted)
+                .child(network_name),
+        );
+        let open_friend = friend.clone();
+        card = card.child(self.menu_button("Open query", cx, move |this, window, cx| {
+            this.open_friend(&open_friend, window, cx);
+            this.friend_menu = None;
+        }));
+        if let Some(target) = target {
+            for (label, command) in [("Whois", "whois"), ("Ignore user", "ignore")] {
+                let command = command.to_string();
+                let nick = nick.clone();
+                card = card.child(self.menu_button(label, cx, move |this, _, cx| {
+                    if let Some(conn) = &this.conn {
+                        conn.input(target, format!("/{command} {nick}"), None);
+                    }
+                    this.friend_menu = None;
+                    cx.notify();
+                }));
+            }
+        }
+        let remove_friend = friend.clone();
+        card = card.child(self.menu_button("Remove friend", cx, move |this, _, cx| {
+            this.toggle_friend(&remove_friend.network, &remove_friend.nick, cx);
+            this.friend_menu = None;
+        }));
+        let card = card
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme.muted)
+                    .child("Network-wide actions."),
+            )
+            .into_any_element();
+        let (x, y) = menu_origin(window, position, 420., 360.);
+        div()
+            .absolute()
+            .left(x)
+            .top(y)
+            .child(card)
+            .into_any_element()
     }
 
     fn open_friend(&mut self, friend: &Friend, window: &mut Window, cx: &mut Context<Self>) {
