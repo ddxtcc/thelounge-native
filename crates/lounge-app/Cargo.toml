@@ -48,4 +48,4 @@ ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 url.workspace = true
 
 [build-dependencies]
-embed-resource = "3"
+winres = "0.1"

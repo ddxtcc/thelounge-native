@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.8 - 2026-11-12
+
+### Fixed
+
+- Windows executables now embed the application icon during the build, with an rcedit fallback during packaging.
+
 ## 1.1.7 - 2026-11-12
 
 ### Added
