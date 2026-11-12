@@ -146,6 +146,10 @@ jobs:
           pkg-config --version
           pkg-config --cflags glib-2.0
           pkg-config --libs gstreamer-1.0
+      - name: Install rcedit
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install rcedit -y --no-progress
       - name: Install NSIS
         if: runner.os == 'Windows'
         shell: pwsh
@@ -211,6 +215,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
+          $icon = "$PWD\packaging\windows\lounge-native.ico"
+          rcedit.exe "target/${{ matrix.target }}/release/lounge-native.exe" --set-icon $icon
+          rcedit.exe "target/${{ matrix.target }}/release/lounge-launcher.exe" --set-icon $icon
           Copy-Item "target/${{ matrix.target }}/release/lounge-native.exe" dist/lounge-native-app.exe
           Copy-Item "target/${{ matrix.target }}/release/lounge-launcher.exe" dist/lounge-native.exe
           Copy-Item README.md, LICENSE, packaging/windows/lounge-native.ico dist/

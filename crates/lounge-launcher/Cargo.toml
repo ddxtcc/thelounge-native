@@ -9,4 +9,4 @@ description = "Windows launcher for Lounge Native"
 [dependencies]
 
 [build-dependencies]
-embed-resource = "3"
+winres = "0.1"
