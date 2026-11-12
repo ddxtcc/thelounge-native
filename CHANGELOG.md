@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.9 - 2026-11-12
+
+### Added
+
+- Image lightbox filmstrip with thumbnails, image counter, and image download.
+- Feature toggle for the image lightbox filmstrip.
+
 ## 1.1.8 - 2026-11-12
 
 ### Fixed

@@ -17,6 +17,19 @@ impl LoungeApp {
         let max_w = viewport.width * 0.88;
         let max_h = viewport.height * 0.82;
         let open_url = url.to_string();
+        #[cfg(feature = "media")]
+        let download_button = {
+            let download_url = open_url.clone();
+            Some(self.media_icon_button(
+                "download",
+                "Download image",
+                false,
+                cx,
+                move |this, _, cx| this.download_media(download_url.clone(), cx),
+            ))
+        };
+        #[cfg(not(feature = "media"))]
+        let download_button: Option<AnyElement> = None;
         let zoom = self.lightbox_zoom;
         let pan = self.lightbox_pan;
         div()
@@ -109,11 +122,61 @@ impl LoungeApp {
                             ),
                     ),
             )
+            .when(
+                self.config.features.image_strip && self.channel_image_urls().len() > 1,
+                |this| {
+                    let urls = self.channel_image_urls();
+                    let current = self.lightbox.clone();
+                    let mut strip = div()
+                        .id("lightbox-strip")
+                        .w_full()
+                        .flex()
+                        .gap_1()
+                        .overflow_x_scroll();
+                    for url in urls {
+                        let selected = current.as_deref() == Some(url.as_str());
+                        let thumbnail = url.clone();
+                        strip = strip.child(
+                            div()
+                                .id(ElementId::Name(format!("lightbox-thumb-{url}").into()))
+                                .w(px(64.))
+                                .h(px(44.))
+                                .flex_shrink_0()
+                                .rounded(px(4.))
+                                .overflow_hidden()
+                                .border_1()
+                                .border_color(if selected { theme.accent } else { theme.border })
+                                .cursor_pointer()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.open_lightbox(thumbnail.clone(), cx)
+                                }))
+                                .child(
+                                    gpui::img(url)
+                                        .image_cache(&self.image_cache)
+                                        .w_full()
+                                        .h_full()
+                                        .object_fit(gpui::ObjectFit::Cover),
+                                ),
+                        );
+                    }
+                    this.child(strip)
+                },
+            )
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap_3()
+                    .when(self.channel_image_urls().len() > 1, |this| {
+                        let total = self.channel_image_urls().len();
+                        let index = self.lightbox_index.map(|index| index + 1).unwrap_or(0);
+                        this.child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(theme.muted)
+                                .child(format!("{index} / {total}")),
+                        )
+                    })
                     .child(
                         div()
                             .text_size(px(11.))
@@ -164,6 +227,7 @@ impl LoungeApp {
                                 .child("Next"),
                         )
                     })
+                    .when_some(download_button, |this, button| this.child(button))
                     .child({
                         let click_url = open_url.clone();
                         div()
