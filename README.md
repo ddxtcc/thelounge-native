@@ -28,14 +28,14 @@ The installer writes to `$HOME/.local` by default. Set `PREFIX` or `XDG_DATA_HOM
 Ubuntu 24.04, Debian trixie, and compatible distributions can install the Debian package instead:
 
 ```sh
-sudo apt install ./lounge-native_1.1.8_amd64.deb
+sudo apt install ./lounge-native_1.1.9_amd64.deb
 ```
 
 The package installs the binary, desktop entry, AppStream metadata, and hicolor icons under `/usr`. Update it by installing a newer package or rerunning `install.sh` from a newer archive. Settings > About > Check for updates compares the app against the latest GitHub release.
 
 Windows releases include a per-user installer and a portable zip:
 
-- `lounge-native_1.1.8_x86_64-setup.exe` installs under `%LOCALAPPDATA%\Programs\Lounge Native` and adds a Start Menu shortcut.
+- `lounge-native_1.1.9_x86_64-setup.exe` installs under `%LOCALAPPDATA%\Programs\Lounge Native` and adds a Start Menu shortcut.
 - `lounge-native-x86_64-pc-windows-msvc.zip` can be unpacked anywhere; run `lounge-native.exe` from the unpacked folder.
 
 Install the GStreamer 1.26 MSVC x86_64 runtime from
@@ -45,14 +45,14 @@ archives no longer include the GStreamer runtime.
 A portable AppImage is also published with each release:
 
 ```sh
-chmod +x lounge-native_1.1.8_x86_64.AppImage
-./lounge-native_1.1.8_x86_64.AppImage
+chmod +x lounge-native_1.1.9_x86_64.AppImage
+./lounge-native_1.1.9_x86_64.AppImage
 ```
 
 Release assets include `SHA256SUMS` and GitHub build provenance attestations. Verify a downloaded asset with GitHub CLI:
 
 ```sh
-gh attestation verify lounge-native_1.1.8_amd64.deb --repo ddxtcc/thelounge-native
+gh attestation verify lounge-native_1.1.9_amd64.deb --repo ddxtcc/thelounge-native
 ```
 
 Arch Linux users can build the package in `packaging/aur`:

@@ -114,6 +114,7 @@ pub struct Features {
     pub hide_date_separators: bool,
     pub dim_own_messages: bool,
     pub unread_only_sidebar: bool,
+    pub image_strip: bool,
 }
 
 impl Default for Features {
@@ -139,6 +140,7 @@ impl Default for Features {
             hide_date_separators: false,
             dim_own_messages: true,
             unread_only_sidebar: false,
+            image_strip: true,
         }
     }
 }
@@ -469,6 +471,7 @@ mod tests {
         assert!(!config.features.hide_muted_channels);
         assert!(!config.features.wheel_channel_switch);
         assert!(!config.features.unread_only_sidebar);
+        assert!(config.features.image_strip);
     }
 
     #[test]
