@@ -163,6 +163,9 @@ impl LoungeApp {
             }
 
             for channel in &network.channels {
+                if self.config.features.hide_muted_channels && channel.chan.muted {
+                    continue;
+                }
                 let id = channel.chan.id;
                 let selected = self.state.active == Some(id);
                 let nav_focused = self.nav_mode
@@ -181,7 +184,31 @@ impl LoungeApp {
                 };
                 let highlight = channel.chan.highlight;
                 let unread = channel.chan.unread;
+                if self.config.features.unread_only_sidebar
+                    && unread == 0
+                    && highlight == 0
+                    && !selected
+                {
+                    continue;
+                }
                 let muted = channel.chan.muted;
+                let typing = self.config.features.typing_indicators && !channel.typing.is_empty();
+                let topic = if self.config.features.channel_topic_tooltips {
+                    format::clean(&channel.chan.topic)
+                } else {
+                    String::new()
+                };
+                let draft = self
+                    .config
+                    .features
+                    .draft_indicators
+                    .then(|| {
+                        self.drafts
+                            .get(&id)
+                            .filter(|text| !text.trim().is_empty() && self.state.active != Some(id))
+                            .cloned()
+                    })
+                    .flatten();
                 let sortable = matches!(
                     channel.chan.kind,
                     lounge_core::ChanType::Channel | lounge_core::ChanType::Query
@@ -197,6 +224,11 @@ impl LoungeApp {
                 list = list.child(
                     div()
                         .id(ElementId::Name(format!("chan-{id}").into()))
+                        .when(!topic.is_empty(), |this| {
+                            this.tooltip(move |_, cx| {
+                                cx.new(|_| Tooltip::new(topic.clone(), theme)).into()
+                            })
+                        })
                         .tab_index(0)
                         .tab_stop(!self.last_overlay_open)
                         .focus(|style| style.bg(theme.border).text_color(theme.text))
@@ -278,6 +310,24 @@ impl LoungeApp {
                                 .when(muted, |this| this.text_color(theme.faint))
                                 .child(display_name),
                         )
+                        .when(typing, |this| {
+                            this.child(div().text_size(px(10.)).text_color(theme.accent).child("✎"))
+                        })
+                        .when_some(draft, |this, draft| {
+                            let preview = draft.lines().next().unwrap_or_default().to_string();
+                            this.child(
+                                div()
+                                    .id(ElementId::Name(format!("draft-{id}").into()))
+                                    .w(px(10.))
+                                    .flex()
+                                    .justify_center()
+                                    .tooltip(move |_, cx| {
+                                        cx.new(|_| Tooltip::new(format!("Draft: {preview}"), theme))
+                                            .into()
+                                    })
+                                    .child(div().size(px(5.)).rounded_full().bg(theme.warning)),
+                            )
+                        })
                         .when(highlight > 0, |this| {
                             this.child(
                                 div()
@@ -318,11 +368,23 @@ impl LoungeApp {
         let online = self.status.is_online();
 
         div()
+            .id("sidebar")
             .w(px(238.))
             .h_full()
             .flex()
             .flex_col()
             .bg(theme.sidebar)
+            .when(self.config.features.wheel_channel_switch, |this| {
+                this.on_scroll_wheel(cx.listener(
+                    |this, event: &gpui::ScrollWheelEvent, window, cx| {
+                        let delta = event.delta.pixel_delta(px(20.)).y;
+                        if delta != px(0.) {
+                            let direction = if delta > px(0.) { 1 } else { -1 };
+                            this.cycle_channel(direction, window, cx);
+                        }
+                    },
+                ))
+            })
             .border_r_1()
             .border_color(theme.border)
             .child(

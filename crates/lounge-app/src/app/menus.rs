@@ -168,6 +168,85 @@ impl LoungeApp {
         cx.notify();
     }
 
+    pub(super) fn insert_emoji_with_shortcode(
+        &mut self,
+        glyph: &str,
+        shortcode: &'static str,
+        cx: &mut Context<Self>,
+    ) {
+        self.remember_emoji(shortcode);
+        self.insert_emoji(glyph, cx);
+    }
+
+    pub(super) fn remember_emoji(&mut self, shortcode: &'static str) {
+        if !self.config.features.recent_emoji {
+            return;
+        }
+        self.recent_emoji.retain(|code| *code != shortcode);
+        self.recent_emoji.insert(0, shortcode);
+        self.recent_emoji.truncate(12);
+    }
+
+    pub(super) fn open_pins(&mut self, cx: &mut Context<Self>) {
+        self.pins_open = true;
+        cx.notify();
+    }
+
+    pub(super) fn is_message_pinned(&self, channel: i64, message: i64) -> bool {
+        self.config
+            .pinned_messages
+            .iter()
+            .any(|pin| pin.channel == channel && pin.message == message)
+    }
+
+    pub(super) fn toggle_pinned_message(
+        &mut self,
+        channel: i64,
+        message: &Message,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(index) = self
+            .config
+            .pinned_messages
+            .iter()
+            .position(|pin| pin.channel == channel && pin.message == message.id)
+        {
+            self.config.pinned_messages.remove(index);
+            self.toast("Message unpinned.");
+        } else {
+            self.config
+                .pinned_messages
+                .push(crate::config::PinnedMessage {
+                    channel,
+                    message: message.id,
+                    nick: message
+                        .from
+                        .as_ref()
+                        .map(|from| from.nick.clone())
+                        .unwrap_or_default(),
+                    text: format::clean(&message.text).chars().take(1000).collect(),
+                    time: format::format_time(
+                        message.time,
+                        self.config.show_seconds,
+                        self.config.use_12h_clock,
+                    ),
+                });
+            self.toast("Message pinned.");
+        }
+        self.config.save();
+        self.message_menu = None;
+        cx.notify();
+    }
+
+    pub(super) fn unpin_message(&mut self, channel: i64, message: i64, cx: &mut Context<Self>) {
+        self.config
+            .pinned_messages
+            .retain(|pin| !(pin.channel == channel && pin.message == message));
+        self.config.save();
+        self.toast("Message unpinned.");
+        cx.notify();
+    }
+
     pub(super) fn insert_emoji(&mut self, glyph: &str, cx: &mut Context<Self>) {
         let glyph = glyph.to_string();
         self.inputs
@@ -537,11 +616,13 @@ impl LoungeApp {
         self.network_edit_loading = false;
         self.search_open = false;
         self.mentions_open = false;
+        self.pins_open = false;
         self.emoji_picker_open = false;
         self.font_picker = None;
         self.security_open = false;
         self.network_menu = None;
         self.user_menu = None;
+        self.friend_menu = None;
         self.channel_menu = None;
         self.message_menu = None;
         self.confirm_remove_network = None;
@@ -759,6 +840,20 @@ impl LoungeApp {
                     let _ = open::that(link.clone());
                 }),
             );
+        }
+        if self.config.features.pinned_messages && message.id > 0 {
+            let channel_id = menu.channel_id;
+            let pinned = self.is_message_pinned(channel_id, message.id);
+            let pin_message = message.clone();
+            card = card.child(self.menu_button(
+                if pinned {
+                    "Unpin message"
+                } else {
+                    "Pin message"
+                },
+                cx,
+                move |this, _, cx| this.toggle_pinned_message(channel_id, &pin_message, cx),
+            ));
         }
         if message.msgid.is_some() {
             let message = message.clone();

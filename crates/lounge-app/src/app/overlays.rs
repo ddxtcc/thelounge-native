@@ -30,6 +30,11 @@ impl LoungeApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
+        let backdrop = if self.lightbox.is_some() {
+            theme.bg
+        } else {
+            theme.overlay
+        };
         let mut overlay = div()
             .id("modal-overlay")
             .absolute()
@@ -39,7 +44,7 @@ impl LoungeApp {
             .flex()
             .items_center()
             .justify_center()
-            .bg(theme.overlay)
+            .bg(backdrop)
             .occlude()
             .on_click(cx.listener(|this, _, _, cx| this.close_overlays(cx)));
 
@@ -61,6 +66,8 @@ impl LoungeApp {
             overlay = overlay.child(self.render_search(window, cx));
         } else if self.mentions_open {
             overlay = overlay.child(self.render_mentions(window, cx));
+        } else if self.pins_open {
+            overlay = overlay.child(self.render_pins(cx));
         } else if self.emoji_picker_open {
             overlay = overlay.child(self.render_emoji_picker(window, cx));
         } else if self.security_open {
@@ -69,6 +76,8 @@ impl LoungeApp {
             overlay = overlay.child(self.render_network_menu(menu, window, cx));
         } else if let Some(menu) = self.user_menu.clone() {
             overlay = overlay.child(self.render_user_menu(menu, window, cx));
+        } else if let Some(menu) = self.friend_menu.clone() {
+            overlay = overlay.child(self.render_friend_menu(menu, window, cx));
         } else if let Some(menu) = self.channel_menu.clone() {
             overlay = overlay.child(self.render_channel_menu(menu, window, cx));
         } else if let Some(menu) = self.message_menu.clone() {
@@ -684,7 +693,9 @@ impl LoungeApp {
                     .when(index == selection, |this| this.bg(theme.accent_dim))
                     .cursor_pointer()
                     .hover(|style| style.bg(theme.hover))
-                    .on_click(cx.listener(move |this, _, _, cx| this.insert_emoji(glyph, cx)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.insert_emoji_with_shortcode(glyph, shortcode, cx)
+                    }))
                     .child(div().text_size(px(22.)).child(glyph))
                     .child(
                         div()
@@ -698,16 +709,147 @@ impl LoungeApp {
             );
         }
 
-        self.modal_card("Emoji", cx)
-            .child(self.inputs.emoji_search.clone())
-            .child(
+        let mut card = self.modal_card("Emoji", cx);
+        card = card.child(self.inputs.emoji_search.clone());
+        if self.config.features.recent_emoji
+            && term.trim_start_matches(':').is_empty()
+            && !self.recent_emoji.is_empty()
+        {
+            let mut recent = div().flex().flex_col().gap_1();
+            recent = recent.child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(px(10.))
                     .text_color(theme.muted)
-                    .child("Type to filter; arrows navigate, Enter inserts."),
-            )
-            .child(grid)
-            .into_any_element()
+                    .child("RECENT"),
+            );
+            let mut row = div().flex().flex_wrap().gap_1();
+            for shortcode in self.recent_emoji.clone() {
+                let Some(emoji) = crate::emoji::all()
+                    .iter()
+                    .find(|emoji| emoji.shortcode == shortcode)
+                else {
+                    continue;
+                };
+                let glyph = emoji.glyph;
+                row = row.child(
+                    div()
+                        .id(ElementId::Name(format!("recent-emoji-{shortcode}").into()))
+                        .size(px(32.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(5.))
+                        .bg(theme.panel)
+                        .cursor_pointer()
+                        .text_size(px(20.))
+                        .hover(|style| style.bg(theme.hover))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.insert_emoji_with_shortcode(glyph, shortcode, cx)
+                        }))
+                        .child(glyph),
+                );
+            }
+            card = card.child(recent.child(row));
+        }
+        card.child(
+            div()
+                .text_size(px(11.))
+                .text_color(theme.muted)
+                .child("Type to filter; arrows navigate, Enter inserts."),
+        )
+        .child(grid)
+        .into_any_element()
+    }
+
+    pub(super) fn render_pins(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.theme;
+        let channel_id = self.state.active;
+        let pins: Vec<crate::config::PinnedMessage> = channel_id
+            .map(|channel| {
+                self.config
+                    .pinned_messages
+                    .iter()
+                    .filter(|pin| pin.channel == channel)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut card = self.modal_card("Pinned messages", cx);
+        if pins.is_empty() {
+            card = card.child(
+                div()
+                    .text_color(theme.muted)
+                    .child("Pin a message from its context menu to keep it here."),
+            );
+        } else {
+            let mut list = div()
+                .id("pin-list")
+                .flex()
+                .flex_col()
+                .gap_1()
+                .max_h(px(420.))
+                .overflow_y_scroll();
+            for pin in pins {
+                let message_id = pin.message;
+                let time = pin.time.clone();
+                let text = pin.text.clone();
+                let nick = if pin.nick.is_empty() {
+                    "unknown".to_string()
+                } else {
+                    pin.nick.clone()
+                };
+                list = list.child(
+                    div()
+                        .id(ElementId::Name(format!("pin-{message_id}").into()))
+                        .px_2()
+                        .pr(px(28.))
+                        .py_2()
+                        .rounded(px(5.))
+                        .bg(theme.panel)
+                        .cursor_pointer()
+                        .relative()
+                        .hover(|style| style.bg(theme.hover))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.pending_focus_message = Some(message_id);
+                            this.messages_at_bottom = false;
+                            this.pins_open = false;
+                            cx.notify();
+                        }))
+                        .child(
+                            div()
+                                .id(ElementId::Name(format!("unpin-{message_id}").into()))
+                                .absolute()
+                                .right(px(6.))
+                                .top(px(5.))
+                                .px_1()
+                                .rounded(px(3.))
+                                .text_color(theme.faint)
+                                .cursor_pointer()
+                                .hover(|style| style.bg(theme.hover).text_color(theme.error))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    let Some(channel) = this.state.active else {
+                                        return;
+                                    };
+                                    this.unpin_message(channel, message_id, cx);
+                                    cx.stop_propagation();
+                                }))
+                                .child("×"),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .text_size(px(11.))
+                                .child(div().font_weight(FontWeight::SEMIBOLD).child(nick))
+                                .child(div().text_color(theme.muted).child(time)),
+                        )
+                        .child(div().text_size(px(12.)).child(text)),
+                );
+            }
+            card = card.child(list);
+        }
+        card.into_any_element()
     }
 
     pub(super) fn render_mentions(

@@ -24,6 +24,7 @@ impl LoungeApp {
             InputRole::EmojiSearch => Some(&self.inputs.emoji_search),
             InputRole::FontSearch => Some(&self.inputs.font_search),
             InputRole::UsersFilter => Some(&self.inputs.users_filter),
+            InputRole::SpecialFilter => Some(&self.inputs.special_filter),
             InputRole::Palette => Some(&self.inputs.palette),
             InputRole::PasswordOld => Some(&self.inputs.password_old),
             InputRole::PasswordNew => Some(&self.inputs.password_new),
@@ -37,7 +38,7 @@ impl LoungeApp {
         let Some(focused) = window.focused(cx) else {
             return false;
         };
-        const ROLES: [InputRole; 24] = [
+        const ROLES: [InputRole; 25] = [
             InputRole::Composer,
             InputRole::LoginServer,
             InputRole::LoginUser,
@@ -56,6 +57,7 @@ impl LoungeApp {
             InputRole::EmojiSearch,
             InputRole::FontSearch,
             InputRole::UsersFilter,
+            InputRole::SpecialFilter,
             InputRole::Palette,
             InputRole::PasswordOld,
             InputRole::PasswordNew,
@@ -347,7 +349,30 @@ impl LoungeApp {
             self.config.show_user_list
         } && channel.is_channel();
         let network_name = network.name.clone();
-
+        let pin_count = self
+            .config
+            .pinned_messages
+            .iter()
+            .filter(|pin| pin.channel == channel.chan.id)
+            .count();
+        let pins_button = self.config.features.pinned_messages.then(|| {
+            let label = if icon_buttons && pin_count > 0 {
+                format!("📌 {pin_count}")
+            } else if icon_buttons {
+                "📌".to_string()
+            } else if pin_count > 0 {
+                format!("Pins {pin_count}")
+            } else {
+                "Pins".to_string()
+            };
+            self.header_button(
+                &label,
+                "Pinned messages",
+                self.pins_open,
+                cx,
+                |this, _, cx| this.open_pins(cx),
+            )
+        });
         div()
             .h(px(52.))
             .flex_shrink_0()
@@ -495,6 +520,7 @@ impl LoungeApp {
                     |this, _, cx| this.open_mentions(cx),
                 )
             })
+            .when_some(pins_button, |this, button| this.child(button))
             .child(self.header_button(
                 if icon_buttons { "👥" } else { "Users" },
                 "Toggle user list",
@@ -645,6 +671,17 @@ impl LoungeApp {
             })
             .unwrap_or_default();
 
+        let composer_text = self.inputs.composer.read(cx).content().to_string();
+        let emoji_token = composer_text
+            .rsplit(char::is_whitespace)
+            .next()
+            .unwrap_or_default();
+        let emoji_suggestions = if emoji_token.starts_with(':') && emoji_token.len() > 1 {
+            crate::emoji::filter(emoji_token, 6)
+        } else {
+            Vec::new()
+        };
+
         let mut footer = div()
             .flex_shrink_0()
             .min_h(px(COMPOSER_MIN_HEIGHT))
@@ -654,6 +691,46 @@ impl LoungeApp {
             .flex()
             .flex_col()
             .gap_2();
+
+        if !emoji_suggestions.is_empty() && self.config.features.emoji_suggestions {
+            let mut row = div().flex().flex_wrap().items_center().gap_1();
+            row = row.child(
+                div()
+                    .text_size(px(10.))
+                    .text_color(theme.muted)
+                    .child("EMOJI"),
+            );
+            for emoji in emoji_suggestions {
+                let glyph = emoji.glyph;
+                let shortcode = emoji.shortcode;
+                row = row.child(
+                    div()
+                        .id(ElementId::Name(
+                            format!("composer-emoji-{shortcode}").into(),
+                        ))
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .px_2()
+                        .py(px(1.))
+                        .rounded(px(4.))
+                        .bg(theme.panel)
+                        .cursor_pointer()
+                        .hover(|style| style.bg(theme.hover))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.apply_emoji_completion(glyph, shortcode, cx)
+                        }))
+                        .child(div().text_size(px(16.)).child(glyph))
+                        .child(
+                            div()
+                                .text_size(px(10.))
+                                .text_color(theme.muted)
+                                .child(shortcode),
+                        ),
+                );
+            }
+            footer = footer.child(row);
+        }
 
         if !typing.is_empty() {
             let label = if typing.len() == 1 {

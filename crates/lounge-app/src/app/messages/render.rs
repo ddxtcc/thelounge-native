@@ -1,3 +1,4 @@
+use super::tooltip::Tooltip;
 use super::*;
 
 impl LoungeApp {
@@ -111,6 +112,9 @@ impl LoungeApp {
                     ClickTarget::Nick(nick) => {
                         let _ = weak.update(cx, |this, cx| this.insert_nick(&nick, cx));
                     }
+                    ClickTarget::Reply(msgid) => {
+                        let _ = weak.update(cx, |this, cx| this.jump_to_msgid(&msgid, cx));
+                    }
                 }
             }
         };
@@ -138,6 +142,11 @@ impl LoungeApp {
                 });
             }
         };
+        let emoji_only = self.config.features.large_emoji
+            && nick_column
+            && message.kind == MessageType::Message
+            && message.reply_to.is_none()
+            && crate::emoji::is_emoji_only(&message.text);
         let mut text_element = InteractiveText::new(
             ElementId::Name(format!("msg-{message_id}").into()),
             StyledText::new(text.clone()).with_runs(runs),
@@ -148,6 +157,9 @@ impl LoungeApp {
         }
         let text_element = div()
             .id(ElementId::Name(format!("msg-wrap-{message_id}").into()))
+            .when(emoji_only, |this| {
+                this.text_size(px(30.)).line_height(relative(1.1))
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
@@ -727,7 +739,9 @@ impl LoungeApp {
                     theme.highlight_bg
                 })
             })
-            .when(is_self, |this| this.opacity(0.85))
+            .when(is_self && self.config.features.dim_own_messages, |this| {
+                this.opacity(0.85)
+            })
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
@@ -742,13 +756,66 @@ impl LoungeApp {
             );
 
         if self.config.show_timestamps {
+            let full_date = message.time.map(|time| {
+                time.with_timezone(&Local)
+                    .format("%A, %-d %B %Y, %H:%M:%S")
+                    .to_string()
+            });
+            let time_element: AnyElement = if self.config.features.timestamp_links
+                && message.id > 0
+                && !self.config.server.is_empty()
+            {
+                let link = format!(
+                    "{}/#/chan-{}?focused={}",
+                    self.config.server.trim_end_matches('/'),
+                    channel_id,
+                    message.id
+                );
+                div()
+                    .id(ElementId::Name(format!("time-{}", message.id).into()))
+                    .cursor_pointer()
+                    .hover(|style| style.text_color(theme.accent))
+                    .tooltip({
+                        let label = if self.config.features.timestamp_tooltips {
+                            full_date
+                                .as_ref()
+                                .map(|date| format!("{date}\nClick to copy link"))
+                                .unwrap_or_else(|| "Copy message link".to_string())
+                        } else {
+                            "Copy message link".to_string()
+                        };
+                        move |_, cx| cx.new(|_| Tooltip::new(label.clone(), theme)).into()
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(link.clone()));
+                        this.toast("Message link copied.");
+                        cx.notify();
+                    }))
+                    .child(time)
+                    .into_any_element()
+            } else {
+                div().child(time).into_any_element()
+            };
+            let mut time_column = div()
+                .id(ElementId::Name(format!("time-col-{}", message.id).into()))
+                .w(px(54.))
+                .flex_shrink_0()
+                .text_size(px(11.))
+                .text_color(theme.faint);
+            if self.config.features.timestamp_tooltips
+                && let Some(date) = full_date
+            {
+                time_column = time_column
+                    .tooltip(move |_, cx| cx.new(|_| Tooltip::new(date.clone(), theme)).into());
+            }
+            row = row.child(time_column.child(time_element));
+        }
+        if self.config.features.pin_markers && self.is_message_pinned(channel_id, message.id) {
             row = row.child(
                 div()
-                    .w(px(54.))
-                    .flex_shrink_0()
-                    .text_size(px(11.))
-                    .text_color(theme.faint)
-                    .child(time),
+                    .text_size(px(10.))
+                    .text_color(theme.warning)
+                    .child("📌"),
             );
         }
         let status = is_status_message(message.kind);

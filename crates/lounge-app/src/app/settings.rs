@@ -230,6 +230,149 @@ impl LoungeApp {
                 cx,
                 |this| this.config.nick_column = !this.config.nick_column,
             ))
+            .child(self.setting_section("Features"))
+            .child(self.setting_row_toggle(
+                "Unread jump button",
+                self.config.features.unread_jump,
+                cx,
+                |this| this.config.features.unread_jump = !this.config.features.unread_jump,
+            ))
+            .child(self.setting_row_toggle(
+                "Recent emoji",
+                self.config.features.recent_emoji,
+                cx,
+                |this| this.config.features.recent_emoji = !this.config.features.recent_emoji,
+            ))
+            .child(self.setting_row_toggle(
+                "Pinned messages",
+                self.config.features.pinned_messages,
+                cx,
+                |this| this.config.features.pinned_messages = !this.config.features.pinned_messages,
+            ))
+            .child(self.setting_row_toggle(
+                "Emoji suggestions while typing",
+                self.config.features.emoji_suggestions,
+                cx,
+                |this| {
+                    this.config.features.emoji_suggestions = !this.config.features.emoji_suggestions
+                },
+            ))
+            .child(self.setting_row_toggle(
+                "Click reply to jump",
+                self.config.features.reply_jump,
+                cx,
+                |this| this.config.features.reply_jump = !this.config.features.reply_jump,
+            ))
+            .child(self.setting_row_toggle(
+                "Typing indicators",
+                self.config.features.typing_indicators,
+                cx,
+                |this| {
+                    this.config.features.typing_indicators = !this.config.features.typing_indicators
+                },
+            ))
+            .child(self.setting_row_toggle(
+                "Clickable timestamps",
+                self.config.features.timestamp_links,
+                cx,
+                |this| this.config.features.timestamp_links = !this.config.features.timestamp_links,
+            ))
+            .child(self.setting_row_toggle(
+                "Paste images from clipboard",
+                self.config.features.clipboard_images,
+                cx,
+                |this| {
+                    this.config.features.clipboard_images = !this.config.features.clipboard_images
+                },
+            ))
+            .child(self.setting_row_toggle(
+                "Video playback speed",
+                self.config.features.video_speed,
+                cx,
+                |this| this.config.features.video_speed = !this.config.features.video_speed,
+            ))
+            .child(self.setting_row_toggle(
+                "Large emoji-only messages",
+                self.config.features.large_emoji,
+                cx,
+                |this| this.config.features.large_emoji = !this.config.features.large_emoji,
+            ))
+            .child(self.setting_row_toggle(
+                "Channel List filter and sort",
+                self.config.features.channel_list_tools,
+                cx,
+                |this| {
+                    this.config.features.channel_list_tools =
+                        !this.config.features.channel_list_tools
+                },
+            ))
+            .child(self.setting_row_toggle(
+                "Draft indicators",
+                self.config.features.draft_indicators,
+                cx,
+                |this| {
+                    this.config.features.draft_indicators = !this.config.features.draft_indicators
+                },
+            ))
+            .child(self.setting_row_toggle(
+                "Hide muted channels",
+                self.config.features.hide_muted_channels,
+                cx,
+                |this| {
+                    this.config.features.hide_muted_channels =
+                        !this.config.features.hide_muted_channels
+                },
+            ))
+            .child(self.setting_row_toggle(
+                "Channel topic tooltips",
+                self.config.features.channel_topic_tooltips,
+                cx,
+                |this| {
+                    this.config.features.channel_topic_tooltips =
+                        !this.config.features.channel_topic_tooltips
+                },
+            ))
+            .child(self.setting_row_toggle(
+                "Full timestamp tooltips",
+                self.config.features.timestamp_tooltips,
+                cx,
+                |this| {
+                    this.config.features.timestamp_tooltips =
+                        !this.config.features.timestamp_tooltips
+                },
+            ))
+            .child(self.setting_row_toggle(
+                "Wheel switches channels",
+                self.config.features.wheel_channel_switch,
+                cx,
+                |this| {
+                    this.config.features.wheel_channel_switch =
+                        !this.config.features.wheel_channel_switch
+                },
+            ))
+            .child(self.setting_row_toggle(
+                "Pin markers on messages",
+                self.config.features.pin_markers,
+                cx,
+                |this| this.config.features.pin_markers = !this.config.features.pin_markers,
+            ))
+            .child(self.setting_row_toggle(
+                "Hide date separators",
+                self.config.features.hide_date_separators,
+                cx,
+                |this| {
+                    this.config.features.hide_date_separators =
+                        !this.config.features.hide_date_separators
+                },
+            ))
+            .child(self.setting_row_toggle(
+                "Dim own messages",
+                self.config.features.dim_own_messages,
+                cx,
+                |this| {
+                    this.config.features.dim_own_messages = !this.config.features.dim_own_messages
+                },
+            ))
             .child(self.setting_row_cycle(
                 "Status messages",
                 match self.config.status_messages {

@@ -41,7 +41,8 @@ pub(super) fn build_rows(channel: &ChannelState, config: &AppConfig) -> Vec<Row>
         }
 
         let time = message.time;
-        if let Some(date) = time.map(|time| time.with_timezone(&Local).date_naive())
+        if !config.features.hide_date_separators
+            && let Some(date) = time.map(|time| time.with_timezone(&Local).date_naive())
             && last_date != Some(date)
         {
             rows.push(Row::Date(date_label(date)));

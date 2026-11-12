@@ -171,11 +171,13 @@ impl Render for LoungeApp {
             || self.search_open
             || self.shortcuts_open
             || self.mentions_open
+            || self.pins_open
             || self.emoji_picker_open
             || self.font_picker.is_some()
             || self.security_open
             || self.network_menu.is_some()
             || self.user_menu.is_some()
+            || self.friend_menu.is_some()
             || self.channel_menu.is_some()
             || self.message_menu.is_some()
             || self.confirm_remove_network.is_some()
@@ -411,16 +413,29 @@ impl Render for LoungeApp {
                             }
                         }
                         if key == "v" && event.keystroke.modifiers.shift {
-                            this.paste_image_from_clipboard(cx);
+                            if this.config.features.clipboard_images {
+                                this.paste_image_from_clipboard(cx);
+                            }
                             cx.stop_propagation();
                             return;
                         }
-                        if key == "v" {
+                        if key == "v"
+                            && let Some(item) = cx.read_from_clipboard()
+                        {
+                            if this.config.features.clipboard_images
+                                && item
+                                    .entries()
+                                    .iter()
+                                    .any(|entry| matches!(entry, gpui::ClipboardEntry::Image(_)))
+                            {
+                                this.paste_image_from_clipboard(cx);
+                                cx.stop_propagation();
+                                return;
+                            }
                             let focused = window.focused(cx);
                             let composer = this.inputs.composer.read(cx).focus_handle(cx);
                             if focused.as_ref() != Some(&composer)
-                                && let Some(text) =
-                                    cx.read_from_clipboard().and_then(|item| item.text())
+                                && let Some(text) = item.text()
                             {
                                 this.inputs
                                     .composer
@@ -511,11 +526,13 @@ impl Render for LoungeApp {
             || self.search_open
             || self.shortcuts_open
             || self.mentions_open
+            || self.pins_open
             || self.emoji_picker_open
             || self.font_picker.is_some()
             || self.security_open
             || self.network_menu.is_some()
             || self.user_menu.is_some()
+            || self.friend_menu.is_some()
             || self.channel_menu.is_some()
             || self.message_menu.is_some()
             || self.confirm_remove_network.is_some()

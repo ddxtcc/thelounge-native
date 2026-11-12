@@ -94,6 +94,7 @@ impl LoungeApp {
             self.inputs.emoji_search.clone(),
             self.inputs.font_search.clone(),
             self.inputs.users_filter.clone(),
+            self.inputs.special_filter.clone(),
             self.inputs.palette.clone(),
             self.inputs.password_old.clone(),
             self.inputs.password_new.clone(),
@@ -163,6 +164,7 @@ impl LoungeApp {
                 | InputRole::EmojiSearch
                 | InputRole::FontSearch
                 | InputRole::UsersFilter
+                | InputRole::SpecialFilter
                 | InputRole::Palette
         ) {
             if role == InputRole::Palette && self.palette.is_some() {
@@ -177,6 +179,9 @@ impl LoungeApp {
             if role == InputRole::EmojiSearch {
                 self.emoji_selection = 0;
                 self.emoji_scroll.scroll_to_item(0);
+            }
+            if role == InputRole::SpecialFilter {
+                self.special_limit.set(100);
             }
             cx.notify();
         }
@@ -213,13 +218,18 @@ impl LoungeApp {
             self.close_overlays(cx);
             return;
         }
+        if action == InputAction::PasteImage {
+            if self.config.features.clipboard_images {
+                self.paste_image_from_clipboard(cx);
+            }
+            return;
+        }
         match role {
             InputRole::Composer => match action {
                 InputAction::Submit => self.send_composer(cx),
                 InputAction::Tab => self.complete(cx),
                 InputAction::PrevHistory => self.history_prev(cx),
                 InputAction::NextHistory => self.history_next(cx),
-                InputAction::PasteImage => self.paste_image_from_clipboard(cx),
                 InputAction::MoveLeft | InputAction::MoveRight => {}
                 InputAction::Escape => {
                     if self.reply_to.take().is_some() {
@@ -228,6 +238,7 @@ impl LoungeApp {
                         self.inputs.composer.update(cx, |input, cx| input.clear(cx));
                     }
                 }
+                _ => {}
             },
             InputRole::LoginServer | InputRole::LoginUser | InputRole::LoginPassword => {
                 if action == InputAction::Submit {
@@ -269,7 +280,7 @@ impl LoungeApp {
                     self.save_server_setting(role, cx);
                 }
             }
-            InputRole::UsersFilter => {}
+            InputRole::UsersFilter | InputRole::SpecialFilter => {}
             InputRole::EmojiSearch => match action {
                 InputAction::Submit => self.insert_selected_emoji(cx),
                 InputAction::PrevHistory => self.move_emoji(-7, cx),
@@ -628,10 +639,7 @@ impl LoungeApp {
             && token.len() > 1
             && let Some(emoji) = crate::emoji::find(token)
         {
-            let new_content = format!("{}{} ", &content[..token_start], emoji.glyph);
-            self.inputs
-                .composer
-                .update(cx, |input, cx| input.set_content(new_content, cx));
+            self.apply_emoji_completion(emoji.glyph, emoji.shortcode, cx);
             return;
         }
 
@@ -671,6 +679,26 @@ impl LoungeApp {
             .update(cx, |input, cx| input.set_content(new_content, cx));
     }
 
+    pub(super) fn apply_emoji_completion(
+        &mut self,
+        glyph: &str,
+        shortcode: &'static str,
+        cx: &mut Context<Self>,
+    ) {
+        let content = self.inputs.composer.read(cx).content().to_string();
+        let trimmed_end = content.trim_end_matches(' ').len();
+        let token_start = completion_token_start(&content, trimmed_end);
+        if !content[token_start..trimmed_end].starts_with(':') {
+            return;
+        }
+        let new_content = format!("{}{} ", &content[..token_start], glyph);
+        self.inputs
+            .composer
+            .update(cx, |input, cx| input.set_content(new_content, cx));
+        self.remember_emoji(shortcode);
+        cx.notify();
+    }
+
     pub(super) fn insert_nick(&mut self, nick: &str, cx: &mut Context<Self>) {
         let content = self.inputs.composer.read(cx).content().to_string();
         let prefix = if content.is_empty() || content.ends_with(' ') {
@@ -701,6 +729,49 @@ impl LoungeApp {
         });
         self.pending_focus = true;
         cx.notify();
+    }
+
+    pub(super) fn jump_to_msgid(&mut self, msgid: &str, cx: &mut Context<Self>) {
+        let Some((_, channel)) = self.state.active_channel() else {
+            return;
+        };
+        let target = channel
+            .chan
+            .messages
+            .iter()
+            .find(|message| message.msgid.as_deref() == Some(msgid))
+            .map(|message| message.id);
+        if let Some(target) = target {
+            self.pending_focus_message = Some(target);
+            self.messages_at_bottom = false;
+            self.flash_message(target, cx);
+            cx.notify();
+        } else {
+            self.toast("Original message is not loaded.");
+            cx.notify();
+        }
+    }
+
+    pub(super) fn jump_to_unread(&mut self, cx: &mut Context<Self>) {
+        let Some((_, channel)) = self.state.active_channel() else {
+            return;
+        };
+        let first_unread = channel.chan.first_unread;
+        let target = channel
+            .chan
+            .messages
+            .iter()
+            .find(|message| message.id >= first_unread)
+            .map(|message| message.id);
+        if let Some(target) = target {
+            self.pending_focus_message = Some(target);
+            self.messages_at_bottom = false;
+            self.flash_message(target, cx);
+            cx.notify();
+        } else {
+            self.toast("Unread messages are not loaded.");
+            cx.notify();
+        }
     }
 
     pub(super) fn schedule_scroll_bottom(&mut self, _cx: &mut Context<Self>) {

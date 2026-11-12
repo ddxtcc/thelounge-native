@@ -64,6 +64,15 @@ pub struct SavedDraft {
     pub text: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PinnedMessage {
+    pub channel: i64,
+    pub message: i64,
+    pub nick: String,
+    pub text: String,
+    pub time: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedHistory {
     pub channel: i64,
@@ -84,6 +93,58 @@ pub struct FavouriteChannel {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+pub struct Features {
+    pub unread_jump: bool,
+    pub recent_emoji: bool,
+    pub pinned_messages: bool,
+    pub emoji_suggestions: bool,
+    pub reply_jump: bool,
+    pub typing_indicators: bool,
+    pub timestamp_links: bool,
+    pub clipboard_images: bool,
+    pub video_speed: bool,
+    pub large_emoji: bool,
+    pub channel_list_tools: bool,
+    pub draft_indicators: bool,
+    pub hide_muted_channels: bool,
+    pub channel_topic_tooltips: bool,
+    pub timestamp_tooltips: bool,
+    pub wheel_channel_switch: bool,
+    pub pin_markers: bool,
+    pub hide_date_separators: bool,
+    pub dim_own_messages: bool,
+    pub unread_only_sidebar: bool,
+}
+
+impl Default for Features {
+    fn default() -> Self {
+        Self {
+            unread_jump: true,
+            recent_emoji: true,
+            pinned_messages: true,
+            emoji_suggestions: true,
+            reply_jump: true,
+            typing_indicators: true,
+            timestamp_links: true,
+            clipboard_images: true,
+            video_speed: true,
+            large_emoji: false,
+            channel_list_tools: true,
+            draft_indicators: true,
+            hide_muted_channels: false,
+            channel_topic_tooltips: true,
+            timestamp_tooltips: true,
+            wheel_channel_switch: false,
+            pin_markers: true,
+            hide_date_separators: false,
+            dim_own_messages: true,
+            unread_only_sidebar: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppConfig {
     pub server: String,
     pub user: String,
@@ -100,6 +161,7 @@ pub struct AppConfig {
     pub font_size: f32,
     pub line_height: f32,
     pub message_spacing: f32,
+    pub features: Features,
     pub image_cache_limit: usize,
     pub show_inline_images: bool,
     pub preview_mode: PreviewMode,
@@ -138,6 +200,7 @@ pub struct AppConfig {
     pub command_aliases: HashMap<String, String>,
     pub saved_drafts: Vec<SavedDraft>,
     pub saved_histories: Vec<SavedHistory>,
+    pub pinned_messages: Vec<PinnedMessage>,
     pub window_x: Option<f32>,
     pub window_y: Option<f32>,
     pub window_width: Option<f32>,
@@ -161,6 +224,7 @@ impl Default for AppConfig {
             font_size: 15.0,
             line_height: 1.45,
             message_spacing: 2.0,
+            features: Features::default(),
             image_cache_limit: 256,
             show_inline_images: true,
             preview_mode: PreviewMode::Shown,
@@ -196,6 +260,7 @@ impl Default for AppConfig {
             command_aliases: HashMap::new(),
             saved_drafts: Vec::new(),
             saved_histories: Vec::new(),
+            pinned_messages: Vec::new(),
             window_x: None,
             window_y: None,
             window_width: None,
@@ -393,6 +458,46 @@ mod tests {
         assert_eq!(parsed.friends, config.friends);
         assert_eq!(parsed.favourite_networks, config.favourite_networks);
         assert_eq!(parsed.favourite_channels, config.favourite_channels);
+    }
+
+    #[test]
+    fn feature_defaults_are_safe() {
+        let config: AppConfig = toml::from_str("notifications = true").unwrap();
+        assert!(config.features.unread_jump);
+        assert!(config.features.pinned_messages);
+        assert!(!config.features.large_emoji);
+        assert!(!config.features.hide_muted_channels);
+        assert!(!config.features.wheel_channel_switch);
+        assert!(!config.features.unread_only_sidebar);
+    }
+
+    #[test]
+    fn feature_toggles_round_trip() {
+        let mut config = AppConfig::default();
+        config.features.pinned_messages = false;
+        config.features.wheel_channel_switch = true;
+        let text = toml::to_string_pretty(&config).unwrap();
+        let parsed: AppConfig = toml::from_str(&text).unwrap();
+        assert!(!parsed.features.pinned_messages);
+        assert!(parsed.features.wheel_channel_switch);
+    }
+
+    #[test]
+    fn pinned_messages_round_trip() {
+        let pin = PinnedMessage {
+            channel: 7,
+            message: 42,
+            nick: "alice".into(),
+            text: "hello".into(),
+            time: "12:00".into(),
+        };
+        let config = AppConfig {
+            pinned_messages: vec![pin.clone()],
+            ..Default::default()
+        };
+        let text = toml::to_string_pretty(&config).unwrap();
+        let parsed: AppConfig = toml::from_str(&text).unwrap();
+        assert_eq!(parsed.pinned_messages, vec![pin]);
     }
 
     #[test]

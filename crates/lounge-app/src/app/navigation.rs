@@ -81,12 +81,12 @@ impl LoungeApp {
     }
 
     pub(super) fn insert_selected_emoji(&mut self, cx: &mut Context<Self>) {
-        let glyph = self
+        let emoji = self
             .emoji_entries(cx)
             .get(self.emoji_selection)
-            .map(|emoji| emoji.glyph);
-        if let Some(glyph) = glyph {
-            self.insert_emoji(glyph, cx);
+            .map(|emoji| (emoji.glyph, emoji.shortcode));
+        if let Some((glyph, shortcode)) = emoji {
+            self.insert_emoji_with_shortcode(glyph, shortcode, cx);
         }
     }
 
