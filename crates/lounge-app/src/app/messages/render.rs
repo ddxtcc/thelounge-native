@@ -813,9 +813,17 @@ impl LoungeApp {
         if self.config.features.pin_markers && self.is_message_pinned(channel_id, message.id) {
             row = row.child(
                 div()
-                    .text_size(px(10.))
-                    .text_color(theme.warning)
-                    .child("📌"),
+                    .h(px(16.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .child(
+                        gpui::svg()
+                            .path("icons/pin.svg")
+                            .w(px(12.))
+                            .h(px(12.))
+                            .text_color(theme.warning),
+                    ),
             );
         }
         let status = is_status_message(message.kind);

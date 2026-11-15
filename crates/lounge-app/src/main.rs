@@ -30,6 +30,7 @@ impl AssetSource for Assets {
             "icons/maximize.svg" => include_bytes!("../assets/icons/maximize.svg").as_slice(),
             "icons/music.svg" => include_bytes!("../assets/icons/music.svg").as_slice(),
             "icons/pause.svg" => include_bytes!("../assets/icons/pause.svg").as_slice(),
+            "icons/pin.svg" => include_bytes!("../assets/icons/pin.svg").as_slice(),
             "icons/play.svg" => include_bytes!("../assets/icons/play.svg").as_slice(),
             "icons/x.svg" => include_bytes!("../assets/icons/x.svg").as_slice(),
             "icons/at-sign.svg" => include_bytes!("../assets/icons/at-sign.svg").as_slice(),

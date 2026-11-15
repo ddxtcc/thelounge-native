@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.11 - 2026-11-15
+
+### Fixed
+
+- Replaced the pin emoji with the application's monochrome pin icon in the header and pinned message markers.
+
 ## 1.1.10 - 2026-11-15
 
 ### Fixed
