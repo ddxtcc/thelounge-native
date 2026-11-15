@@ -1,4 +1,5 @@
 use super::*;
+use gpui::{AvailableSpace, Font, TextAlign, WrappedLine};
 
 impl EntityInputHandler for TextInput {
     fn text_for_range(
@@ -117,16 +118,30 @@ impl EntityInputHandler for TextInput {
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let range = self.range_from_utf16(&range_utf16);
+        let layout = self.last_layout.as_ref()?;
+        if layout.lines.is_empty() {
+            return None;
+        }
         let line_ix = self.content[..range.start.min(self.content.len())]
             .matches('\n')
-            .count();
-        let layout = self.last_layout.as_ref()?;
-        let line = layout.lines.get(line_ix)?;
+            .count()
+            .min(layout.lines.len() - 1);
         let line_start = layout.starts.get(line_ix).copied().unwrap_or(0);
         let line_end = layout.ends.get(line_ix).copied().unwrap_or(line_start);
-        let display_index = range.start.clamp(line_start, line_end) - line_start;
-        let visible_line = line_ix.saturating_sub(layout.visible_start);
-        let x = layout.bounds.left() + line.x_for_index(display_index);
+        let offset = range.start.clamp(line_start, line_end);
+        let display_index = if self.masked {
+            self.content[line_start..offset].chars().count()
+        } else {
+            offset - line_start
+        };
+        let line = layout.lines.get(line_ix)?;
+        let (row_in_line, position_x) = line_position(line, display_index);
+        let row = layout.row_offsets.get(line_ix).copied().unwrap_or(0) + row_in_line;
+        if row < layout.visible_start || row >= layout.visible_end {
+            return None;
+        }
+        let visible_line = row - layout.visible_start;
+        let x = layout.bounds.left() + position_x;
         let top = layout.bounds.top() + layout.line_height * visible_line as f32;
         Some(Bounds::from_corners(
             point(x, top),
@@ -142,6 +157,203 @@ impl EntityInputHandler for TextInput {
     ) -> Option<usize> {
         let offset = self.index_for_mouse_position(point);
         Some(self.offset_to_utf16(offset))
+    }
+}
+
+struct ShapedInput {
+    lines: Vec<WrappedLine>,
+    starts: Vec<usize>,
+    ends: Vec<usize>,
+    /// First visual row of each logical line, plus the total row count at the end.
+    row_offsets: Vec<usize>,
+    total_rows: usize,
+}
+
+impl ShapedInput {
+    fn display_index(&self, input: &TextInput, line: usize, offset: usize) -> usize {
+        let line_start = self.starts[line];
+        let line_end = self.ends[line];
+        let offset = offset.clamp(line_start, line_end);
+        if input.masked {
+            input.content[line_start..offset].chars().count()
+        } else {
+            offset - line_start
+        }
+    }
+}
+
+fn line_position(line: &WrappedLine, index: usize) -> (usize, Pixels) {
+    let index = index.min(line.len());
+    let mut row = 0;
+    let mut row_start = 0;
+    for boundary in line.wrap_boundaries.iter() {
+        let Some(run) = line.unwrapped_layout.runs.get(boundary.run_ix) else {
+            break;
+        };
+        let Some(glyph) = run.glyphs.get(boundary.glyph_ix) else {
+            break;
+        };
+        if index < glyph.index {
+            break;
+        }
+        row += 1;
+        row_start = glyph.index;
+    }
+    let row_start_x = line.unwrapped_layout.x_for_index(row_start);
+    let x = line.unwrapped_layout.x_for_index(index) - row_start_x;
+    (row, x)
+}
+
+fn wrapped_row_starts(line: &WrappedLine) -> Vec<usize> {
+    let mut starts = Vec::with_capacity(line.wrap_boundaries.len() + 2);
+    starts.push(0);
+    for boundary in line.wrap_boundaries.iter() {
+        let Some(run) = line.unwrapped_layout.runs.get(boundary.run_ix) else {
+            continue;
+        };
+        let Some(glyph) = run.glyphs.get(boundary.glyph_ix) else {
+            continue;
+        };
+        starts.push(glyph.index);
+    }
+    starts.push(line.len());
+    starts
+}
+
+fn shape_input(
+    input: &TextInput,
+    wrap_width: Option<Pixels>,
+    font_size: Pixels,
+    font: &Font,
+    text_color: Hsla,
+    window: &Window,
+) -> ShapedInput {
+    let placeholder_color = Hsla {
+        a: 0.45,
+        ..text_color
+    };
+
+    let display_full = if input.masked {
+        "*".repeat(input.content.chars().count())
+    } else {
+        input.content.clone()
+    };
+    let is_placeholder = display_full.is_empty();
+    let display = if is_placeholder {
+        input.placeholder.to_string()
+    } else {
+        display_full
+    };
+
+    let mut starts = Vec::new();
+    let mut ends = Vec::new();
+    {
+        let mut start = 0;
+        for line in input.content.split('\n') {
+            starts.push(start);
+            ends.push(start + line.len());
+            start += line.len() + 1;
+        }
+    }
+
+    let mut lines = Vec::with_capacity(starts.len());
+    let mut row_offsets = Vec::with_capacity(starts.len() + 1);
+    let mut total_rows = 0;
+
+    for (line_index, line_start) in starts.iter().enumerate() {
+        let line_end = ends[line_index];
+        let content_line = &input.content[*line_start..line_end];
+        let line_text = if is_placeholder {
+            if line_index == 0 {
+                display.clone()
+            } else {
+                String::new()
+            }
+        } else if input.masked {
+            "*".repeat(content_line.chars().count())
+        } else {
+            content_line.to_string()
+        };
+
+        let run = TextRun {
+            len: line_text.len(),
+            font: font.clone(),
+            color: if is_placeholder {
+                placeholder_color
+            } else {
+                text_color
+            },
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        let runs = match &input.marked_range {
+            Some(marked) if !is_placeholder => {
+                if input.masked {
+                    vec![run]
+                } else {
+                    let marked_start = marked
+                        .start
+                        .clamp(*line_start, line_end)
+                        .saturating_sub(*line_start);
+                    let marked_end = marked
+                        .end
+                        .clamp(*line_start, line_end)
+                        .saturating_sub(*line_start);
+                    vec![
+                        TextRun {
+                            len: marked_start,
+                            ..run.clone()
+                        },
+                        TextRun {
+                            len: marked_end.saturating_sub(marked_start),
+                            underline: Some(UnderlineStyle {
+                                color: Some(run.color),
+                                thickness: px(1.0),
+                                wavy: false,
+                            }),
+                            ..run.clone()
+                        },
+                        TextRun {
+                            len: line_text.len().saturating_sub(marked_end),
+                            ..run
+                        },
+                    ]
+                    .into_iter()
+                    .filter(|run| run.len > 0)
+                    .collect()
+                }
+            }
+            _ => vec![run],
+        };
+
+        let shaped = window
+            .text_system()
+            .shape_text(
+                SharedString::from(line_text),
+                font_size,
+                &runs,
+                wrap_width,
+                None,
+            )
+            .unwrap_or_default()
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+
+        row_offsets.push(total_rows);
+        total_rows += shaped.wrap_boundaries.len() + 1;
+        lines.push(shaped);
+    }
+
+    row_offsets.push(total_rows);
+
+    ShapedInput {
+        lines,
+        starts,
+        ends,
+        row_offsets,
+        total_rows,
     }
 }
 
@@ -180,19 +392,29 @@ impl Element for TextElement {
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         window: &mut Window,
-        cx: &mut App,
+        _cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        let input = self.input.read(cx);
-        let line_count = if input.multiline {
-            input.content.split('\n').count()
-        } else {
-            1
-        };
-        let visible_lines = line_count.min(input.max_lines.max(1));
-        let mut style = Style::default();
-        style.size.width = relative(1.).into();
-        style.size.height = (window.line_height() * visible_lines).into();
-        (window.request_layout(style, [], cx), ())
+        let style = window.text_style();
+        let font_size = style.font_size.to_pixels(window.rem_size());
+        let font = style.font();
+        let color = style.color;
+        let line_height = window.line_height();
+        let input = self.input.clone();
+
+        let mut layout_style = Style::default();
+        layout_style.size.width = relative(1.).into();
+        let layout_id =
+            window.request_measured_layout(layout_style, move |known, available, window, cx| {
+                let wrap_width = known.width.or(match available.width {
+                    AvailableSpace::Definite(width) => Some(width),
+                    _ => None,
+                });
+                let input = input.read(cx);
+                let shaped = shape_input(input, wrap_width, font_size, &font, color, window);
+                let rows = shaped.total_rows.min(input.max_lines.max(1)).max(1);
+                size(wrap_width.unwrap_or(px(0.)), line_height * rows as f32)
+            });
+        (layout_id, ())
     }
 
     fn prepaint(
@@ -207,149 +429,44 @@ impl Element for TextElement {
         let input = self.input.read(cx);
         let style = window.text_style();
         let font_size = style.font_size.to_pixels(window.rem_size());
+        let font = style.font();
         let line_height = window.line_height();
         let text_color = style.color;
-        let placeholder_color = Hsla {
-            a: 0.45,
-            ..text_color
-        };
+        let is_placeholder = input.content.is_empty();
 
-        let display_full = if input.masked {
-            "*".repeat(input.content.chars().count())
-        } else {
-            input.content.clone()
-        };
-        let is_placeholder = display_full.is_empty();
-        let display = if is_placeholder {
-            input.placeholder.to_string()
-        } else {
-            display_full
-        };
+        let shaped = shape_input(
+            input,
+            Some(bounds.size.width),
+            font_size,
+            &font,
+            text_color,
+            window,
+        );
+        let max_rows = input.max_lines.max(1);
 
-        let mut starts = Vec::new();
-        let mut ends = Vec::new();
-        {
-            let mut start = 0;
-            for line in input.content.split('\n') {
-                starts.push(start);
-                ends.push(start + line.len());
-                start += line.len() + 1;
-            }
-        }
-
-        let mut lines = Vec::with_capacity(starts.len());
-        let cursor_offset = input.cursor_offset();
-        let cursor_line = input.content[..cursor_offset.min(input.content.len())]
+        let cursor_offset = input.cursor_offset().min(input.content.len());
+        let cursor_line = input.content[..cursor_offset]
             .matches('\n')
-            .count();
-        let visible_start = if cursor_line >= input.max_lines {
-            cursor_line + 1 - input.max_lines
-        } else {
+            .count()
+            .min(shaped.lines.len().saturating_sub(1));
+        let cursor_display = if is_placeholder {
             0
+        } else {
+            shaped.display_index(input, cursor_line, cursor_offset)
         };
-
-        for (line_index, line_start) in starts.iter().enumerate() {
-            let line_end = ends[line_index];
-            let content_line = &input.content[*line_start..line_end];
-            let line_text = if is_placeholder {
-                if line_index == 0 {
-                    display.clone()
-                } else {
-                    String::new()
-                }
-            } else if input.masked {
-                "*".repeat(content_line.chars().count())
-            } else {
-                content_line.to_string()
-            };
-
-            let run = TextRun {
-                len: line_text.len(),
-                font: style.font(),
-                color: if is_placeholder {
-                    placeholder_color
-                } else {
-                    text_color
-                },
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            };
-            let runs = match &input.marked_range {
-                Some(marked) if !is_placeholder => {
-                    if input.masked {
-                        vec![run]
-                    } else {
-                        let marked_start = marked
-                            .start
-                            .clamp(*line_start, line_end)
-                            .saturating_sub(*line_start);
-                        let marked_end = marked
-                            .end
-                            .clamp(*line_start, line_end)
-                            .saturating_sub(*line_start);
-                        vec![
-                            TextRun {
-                                len: marked_start,
-                                ..run.clone()
-                            },
-                            TextRun {
-                                len: marked_end.saturating_sub(marked_start),
-                                underline: Some(UnderlineStyle {
-                                    color: Some(run.color),
-                                    thickness: px(1.0),
-                                    wavy: false,
-                                }),
-                                ..run.clone()
-                            },
-                            TextRun {
-                                len: line_text.len().saturating_sub(marked_end),
-                                ..run
-                            },
-                        ]
-                        .into_iter()
-                        .filter(|run| run.len > 0)
-                        .collect()
-                    }
-                }
-                _ => vec![run],
-            };
-
-            let shaped = if line_text.is_empty() {
-                window
-                    .text_system()
-                    .shape_line(SharedString::from(""), font_size, &[], None)
-            } else {
-                window.text_system().shape_line(
-                    SharedString::from(line_text),
-                    font_size,
-                    &runs,
-                    None,
-                )
-            };
-            lines.push(shaped);
-        }
+        let (cursor_row_in_line, cursor_x) =
+            line_position(&shaped.lines[cursor_line], cursor_display);
+        let cursor_row = shaped.row_offsets[cursor_line] + cursor_row_in_line;
+        let visible_start = cursor_row.saturating_sub(max_rows - 1);
+        let visible_end = visible_start + max_rows;
 
         let selected_range = input.selected_range.clone();
         let mut selections = Vec::new();
         let mut cursor = None;
-        {
-            let cursor_line = cursor_line.min(lines.len().saturating_sub(1));
-            let cursor_content_offset = cursor_offset.saturating_sub(starts[cursor_line]);
-            let display_cursor = if is_placeholder {
-                0
-            } else if input.masked {
-                input.content[starts[cursor_line]..cursor_offset.min(ends[cursor_line])]
-                    .chars()
-                    .count()
-                    * '*'.len_utf8()
-            } else {
-                cursor_content_offset.min(lines[cursor_line].len())
-            };
-            let cursor_x = lines[cursor_line].x_for_index(display_cursor);
-            let y = bounds.top() + line_height * (cursor_line - visible_start) as f32;
 
-            if is_placeholder || selected_range.is_empty() {
+        if is_placeholder || selected_range.is_empty() {
+            if cursor_row >= visible_start && cursor_row < visible_end {
+                let y = bounds.top() + line_height * (cursor_row - visible_start) as f32;
                 cursor = Some(fill(
                     Bounds::new(
                         point(bounds.left() + cursor_x, y),
@@ -357,42 +474,48 @@ impl Element for TextElement {
                     ),
                     text_color,
                 ));
-            } else {
-                let selection_start_line = input.content
-                    [..selected_range.start.min(input.content.len())]
-                    .matches('\n')
-                    .count();
-                let selection_end_line = input.content
-                    [..selected_range.end.min(input.content.len())]
-                    .matches('\n')
-                    .count();
-                for line_ix in selection_start_line..=selection_end_line {
-                    if line_ix >= lines.len() {
-                        break;
-                    }
-                    let Some(visible_line) = line_ix.checked_sub(visible_start) else {
+            }
+        } else {
+            let selection_start_line = input.content
+                [..selected_range.start.min(input.content.len())]
+                .matches('\n')
+                .count();
+            let selection_end_line = input.content[..selected_range.end.min(input.content.len())]
+                .matches('\n')
+                .count();
+            for line_ix in selection_start_line..=selection_end_line {
+                if line_ix >= shaped.lines.len() {
+                    break;
+                }
+                let line_start = shaped.starts[line_ix];
+                let line_end = shaped.ends[line_ix];
+                let start = selected_range.start.max(line_start);
+                let end = selected_range.end.min(line_end);
+                if start >= end {
+                    continue;
+                }
+                let display_start = shaped.display_index(input, line_ix, start);
+                let display_end = shaped.display_index(input, line_ix, end);
+                let line = &shaped.lines[line_ix];
+                let row_starts = wrapped_row_starts(line);
+                for (row_ix, pair) in row_starts.windows(2).enumerate() {
+                    let (row_start, row_end) = (pair[0], pair[1]);
+                    let a = display_start.max(row_start);
+                    let b = display_end.min(row_end);
+                    if a >= b {
                         continue;
-                    };
-                    let line_start = starts[line_ix];
-                    let line_end = ends[line_ix];
-                    let start = selected_range.start.max(line_start);
-                    let end = selected_range.end.min(line_end);
-                    if start >= end {
+                    }
+                    let row = shaped.row_offsets[line_ix] + row_ix;
+                    if row < visible_start || row >= visible_end {
                         continue;
                     }
-                    let display_start = if input.masked {
-                        input.content[line_start..start].chars().count() * '*'.len_utf8()
-                    } else {
-                        start - line_start
-                    };
-                    let display_end = if input.masked {
-                        input.content[line_start..end].chars().count() * '*'.len_utf8()
-                    } else {
-                        end - line_start
-                    };
-                    let x1 = lines[line_ix].x_for_index(display_start);
-                    let x2 = lines[line_ix].x_for_index(display_end);
-                    let y = bounds.top() + line_height * visible_line as f32;
+                    let row_start_x = line.unwrapped_layout.x_for_index(row_start);
+                    let x1 = line.unwrapped_layout.x_for_index(a) - row_start_x;
+                    let x2 = line.unwrapped_layout.x_for_index(b) - row_start_x;
+                    if x2 <= x1 {
+                        continue;
+                    }
+                    let y = bounds.top() + line_height * (row - visible_start) as f32;
                     selections.push(fill(
                         Bounds::new(point(bounds.left() + x1, y), size(x2 - x1, line_height)),
                         Hsla {
@@ -405,11 +528,13 @@ impl Element for TextElement {
         }
 
         let layout = InputLayout {
-            lines,
-            starts,
-            ends,
+            lines: shaped.lines,
+            starts: shaped.starts,
+            ends: shaped.ends,
+            row_offsets: shaped.row_offsets,
             bounds,
             visible_start,
+            visible_end,
             line_height,
         };
 
@@ -442,16 +567,21 @@ impl Element for TextElement {
         }
 
         let line_height = prepaint.layout.line_height;
+        let visible_start = prepaint.layout.visible_start;
+        let visible_end = prepaint.layout.visible_end;
         for (index, line) in prepaint.layout.lines.iter().enumerate() {
-            if index < prepaint.layout.visible_start {
+            let rows_before = prepaint.layout.row_offsets[index];
+            let rows = prepaint.layout.rows_for_line(index);
+            if rows_before >= visible_end || rows_before + rows <= visible_start {
                 continue;
             }
-            let visible_index = index - prepaint.layout.visible_start;
+            let offset_rows = rows_before as i64 - visible_start as i64;
             let origin = point(
                 bounds.left(),
-                bounds.top() + line_height * visible_index as f32,
+                bounds.top() + line_height * offset_rows as f32,
             );
-            line.paint(origin, line_height, window, cx).ok();
+            line.paint(origin, line_height, TextAlign::Left, None, window, cx)
+                .ok();
         }
 
         if focus_handle.is_focused(window)
@@ -484,6 +614,7 @@ impl Render for TextInput {
                 self.colors.border
             })
             .rounded(px(6.))
+            .overflow_hidden()
             .w_full()
             .px(px(10.))
             .py(px(6.))

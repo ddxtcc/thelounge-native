@@ -4,8 +4,8 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
     Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hsla, InspectorElementId,
     KeyBinding, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    PaintQuad, Pixels, Point, ShapedLine, SharedString, Style, TextRun, UTF16Selection,
-    UnderlineStyle, Window, actions, div, fill, point, prelude::*, px, relative, size,
+    PaintQuad, Pixels, Point, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window,
+    WrappedLine, actions, div, fill, point, prelude::*, px, relative, size,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -155,12 +155,25 @@ pub struct TextInput {
 
 #[derive(Clone)]
 struct InputLayout {
-    lines: Vec<ShapedLine>,
+    lines: Vec<WrappedLine>,
     starts: Vec<usize>,
     ends: Vec<usize>,
+    /// First visual row of each logical line, plus the total row count at the end.
+    row_offsets: Vec<usize>,
     bounds: Bounds<Pixels>,
     visible_start: usize,
+    visible_end: usize,
     line_height: Pixels,
+}
+
+impl InputLayout {
+    fn rows_for_line(&self, line: usize) -> usize {
+        self.row_offsets
+            .get(line + 1)
+            .copied()
+            .unwrap_or_else(|| self.row_offsets.last().copied().unwrap_or(0))
+            .saturating_sub(self.row_offsets.get(line).copied().unwrap_or(0))
+    }
 }
 
 impl TextInput {
@@ -756,20 +769,34 @@ impl TextInput {
         let Some(layout) = &self.last_layout else {
             return 0;
         };
-        if layout.lines.is_empty() {
+        if layout.lines.is_empty() || layout.row_offsets.is_empty() {
             return 0;
         }
         if position.y < layout.bounds.top() {
             return 0;
         }
+        let total_rows = layout.row_offsets.last().copied().unwrap_or(1).max(1);
         let line_height = layout.line_height.max(px(1.)).to_f64();
-        let y = (position.y - layout.bounds.top()).to_f64();
-        let visible_line =
-            ((y / line_height).floor() as usize).min(layout.lines.len().saturating_sub(1));
-        let line_ix = (layout.visible_start + visible_line).min(layout.lines.len() - 1);
+        let y = (position.y - layout.bounds.top()).to_f64().max(0.);
+        let visible_rows = layout
+            .visible_end
+            .saturating_sub(layout.visible_start)
+            .max(1);
+        let visible_row = ((y / line_height).floor() as usize).min(visible_rows - 1);
+        let row = (layout.visible_start + visible_row).min(total_rows - 1);
+        let line_ix = layout
+            .row_offsets
+            .partition_point(|offset| *offset <= row)
+            .saturating_sub(1)
+            .min(layout.lines.len() - 1);
         let line = &layout.lines[line_ix];
+        let local_row = row.saturating_sub(layout.row_offsets[line_ix]);
         let x = position.x - layout.bounds.left();
-        let display_ix = line.closest_index_for_x(x);
+        let local_y = layout.line_height * (local_row as f32 + 0.5);
+        let display_ix =
+            match line.closest_index_for_position(point(x, local_y), layout.line_height) {
+                Ok(index) | Err(index) => index,
+            };
 
         if self.masked {
             let start = layout.starts[line_ix];
