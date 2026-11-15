@@ -1,6 +1,6 @@
 # Maintainer: Lounge Native contributors <noreply@example.com>
 pkgname=lounge-native
-pkgver=1.1.10
+pkgver=1.1.11
 pkgrel=1
 _commit=a3a45a7fe3aea2b7edca6fa2ca55f0948249b451
 pkgdesc="Native IRC client for The Lounge"

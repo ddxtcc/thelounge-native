@@ -598,6 +598,7 @@ impl LoungeApp {
             "🔍" => Some("search"),
             "☰" => Some("menu"),
             "←" => Some("chevron-left"),
+            value if value.starts_with("📌") => Some("pin"),
             value if value.starts_with('@') => Some("at-sign"),
             _ => None,
         };
@@ -611,7 +612,11 @@ impl LoungeApp {
                     .h(px(16.))
                     .text_color(color),
             );
-            let badge = label.strip_prefix('@').unwrap_or("").trim();
+            let badge = label
+                .strip_prefix("📌")
+                .or_else(|| label.strip_prefix('@'))
+                .unwrap_or("")
+                .trim();
             if !badge.is_empty() {
                 row = row.child(div().text_size(px(10.)).child(badge.to_string()));
             }
