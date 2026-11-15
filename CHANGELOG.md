@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.10 - 2026-11-15
+
+### Fixed
+
+- Long messages wrap inside the composer instead of overlapping the emoji and upload buttons. Text inputs grow up to their line limit and clip content at the border.
+
 ## 1.1.9 - 2026-11-12
 
 ### Added
